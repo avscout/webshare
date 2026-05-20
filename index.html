@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Session Transfer · Demo</title> 
+<title>Session Transfer · Demo</title>
 <style>
   :root {
     --bg: #0e0f0d; --ink: #e8e6df; --dim: #8a8a82;
@@ -46,8 +46,6 @@
     padding: 3px 8px; border: 1px dashed var(--line); background: rgba(0,0,0,0.2);
     user-select: all;
   }
-  .net-id.detecting { color: var(--dim); }
-  .net-id.error { color: var(--warn); }
   .net-hint { color: var(--dim); font-size: 11px; margin-top: 8px; line-height: 1.5; }
 
   .modes { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 28px; border: 1px solid var(--line); }
@@ -160,16 +158,17 @@
     </div>
   </div>
 
-  <!-- Network indicator: shown only for Raw backend, where same-network matters -->
+  <!-- Same-network warning shown when Raw backend is selected.
+       The "network ID" row is only added by JS if ipify.org responds. -->
   <div class="net-banner hidden" id="net-banner">
     <div class="net-text">
-      Raw WebRTC requires both devices on the <strong>same network</strong>. Compare your network ID with the other device's:
+      Raw WebRTC requires both devices on the <strong>same network</strong>.
     </div>
-    <div class="net-id-row">
+    <div class="net-id-row hidden" id="net-id-row">
       <span class="net-id-label">Your network ID:</span>
-      <code class="net-id" id="net-id">detecting…</code>
+      <code class="net-id" id="net-id">…</code>
     </div>
-    <div class="net-hint">Same prefix on both devices → likely compatible. Different prefix or detection failed → switch to PeerJS, which can use TURN relay to connect across networks.</div>
+    <div class="net-hint hidden" id="net-hint">Compare with the other device — same prefix → likely compatible. Different prefix → switch to PeerJS.</div>
   </div>
 
   <div class="modes">
@@ -452,137 +451,69 @@ function applyVisibility() {
   // Network banner is only relevant for the Raw backend (same-network requirement).
   // For PeerJS, cross-network works fine and the banner would mislead.
   $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
-  if (currentBackend === 'raw') detectNetworkId();
+  if (currentBackend === 'raw') updateNetworkIdUI();
   if (currentMode === 'send') refreshSessionList();
 }
 
 // --- Public IP / "network ID" detection ---
 // Pre-flight indicator for the Raw backend, which needs both devices on the
-// same network. Uses a throwaway RTCPeerConnection against a public STUN
-// server to extract the server-reflexive (srflx) ICE candidate — that
-// contains the device's public IP as seen from outside the NAT.
+// same network. Calls https://api.ipify.org which returns the device's
+// public IP as seen from outside the NAT.
 //
-// This is a HINT not a guarantee: campus networks may route different
-// VLANs/buildings through different egress IPs (matching prefix ≠ guaranteed
-// connectivity), and matching ground truth is whether the WebRTC connection
-// actually succeeds. We display the first two octets for IPv4 (or /32 prefix
-// for IPv6) so users can visually compare with their peer.
+// If ipify is unreachable, we silently hide the entire network-ID section —
+// no error message shown to the user. The "same network required" warning
+// stays visible because it's useful regardless of detection.
+//
+// This is a HINT not a guarantee: matching prefixes increase the chance
+// peers are on the same network, but campus topologies (VLANs, eduroam,
+// client isolation) can route differently. The ground truth is whether
+// the actual WebRTC connection succeeds.
 
-let networkIdCache = null;  // { masked, raw } — detected once per page load
+let networkIdCache = null;  // detected once per page load (or never)
 
 function maskIP(ip) {
-  // IPv6 detection: contains a colon
   if (ip.includes(':')) {
-    // Show up to the first 4 hex groups (≈ /64 prefix, which typically identifies the network).
-    // For shorter addresses (rare in srflx context) just show what we have.
+    // IPv6: show up to first 4 hex groups (≈ /64 prefix)
     const parts = ip.split(':').filter(Boolean);
     const prefix = parts.slice(0, Math.min(4, parts.length)).join(':');
     return parts.length > 4 ? prefix + ':…' : prefix;
   }
-  // IPv4: show first two octets
+  // IPv4: first two octets
   const parts = ip.split('.');
-  if (parts.length !== 4) return ip;  // unexpected format, show as-is
+  if (parts.length !== 4) return ip;
   return parts.slice(0, 2).join('.') + '.x.x';
 }
 
-function getPublicIP() {
-  // Use Google STUN, same as the rest of the app. Note: if STUN fails
-  // here, the Raw WebRTC backend definitely won't work — but PeerJS may
-  // still work via its TURN relay fallback (which doesn't need UDP/STUN).
-  // So "could not detect" should suggest PeerJS, not give up entirely.
-  const stunServers = [
-    'stun:stun.l.google.com:19302',
-    'stun:stun1.l.google.com:19302'
-  ];
-  return tryStunServers(stunServers, 0);
-}
-
-function tryStunServers(servers, index) {
-  if (index >= servers.length) {
-    return Promise.reject(new Error('All STUN servers failed — your network may block UDP/STUN traffic'));
-  }
-  return tryOneStun(servers[index]).catch((err) => {
-    log(`STUN ${servers[index]} failed: ${err.message}`, 'info');
-    return tryStunServers(servers, index + 1);
-  });
-}
-
-function tryOneStun(stunUrl) {
-  return new Promise((resolve, reject) => {
-    log(`Probing ${stunUrl}…`, 'info');
-    let pc;
-    try {
-      pc = new RTCPeerConnection({ iceServers: [{ urls: stunUrl }] });
-    } catch (err) { return reject(err); }
-
-    let settled = false;
-    const finish = (fn, val) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      try { pc.close(); } catch {}
-      fn(val);
-    };
-    const timeout = setTimeout(() => finish(reject, new Error('timeout (4s)')), 4000);
-
-    let sawHost = false, sawSrflx = false;
-    pc.onicecandidate = (e) => {
-      if (!e.candidate) return;
-      log(`  candidate: ${e.candidate.candidate.slice(0, 80)}…`, 'info');
-      const parts = e.candidate.candidate.split(' ');
-      const typIdx = parts.indexOf('typ');
-      if (typIdx === -1) { log(`  (no "typ" field found)`, 'err'); return; }
-      const type = parts[typIdx + 1];
-      if (type === 'host') sawHost = true;
-      if (type === 'srflx') {
-        sawSrflx = true;
-        const ip = parts[4];
-        log(`  → srflx IP extracted: ${ip}`, 'ok');
-        finish(resolve, ip);
-      }
-    };
-    pc.onicegatheringstatechange = () => {
-      log(`  gathering state: ${pc.iceGatheringState}`, 'info');
-      if (pc.iceGatheringState === 'complete' && !settled) {
-        const diag = sawSrflx ? 'srflx but no IP extracted'
-                   : sawHost  ? 'only local candidates returned (STUN blocked or unreachable)'
-                   :            'no candidates at all (WebRTC broken or blocked)';
-        finish(reject, new Error(diag));
-      }
-    };
-
-    pc.createDataChannel('probe');
-    pc.createOffer()
-      .then(o => pc.setLocalDescription(o))
-      .catch(err => finish(reject, err));
-  });
-}
-
 async function detectNetworkId() {
-  const el = $('net-id');
-  if (networkIdCache) {
-    el.textContent = networkIdCache.masked;
-    el.className = 'net-id';
-    return;
-  }
-  if (el.dataset.detecting === 'true') return;  // already in progress
-  el.dataset.detecting = 'true';
-  el.textContent = 'detecting…';
-  el.className = 'net-id detecting';
+  if (networkIdCache) return networkIdCache;  // already done
   try {
-    const ip = await getPublicIP();
-    const masked = maskIP(ip);
-    networkIdCache = { masked, raw: ip };
-    el.textContent = masked;
-    el.className = 'net-id';
-    el.title = 'Compare this with the other device. Matching = likely same network.';
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 5000);
+    const resp = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data?.ip) throw new Error('no ip in response');
+    networkIdCache = { raw: data.ip, masked: maskIP(data.ip) };
+    return networkIdCache;
   } catch (err) {
-    el.textContent = 'could not detect';
-    el.className = 'net-id error';
-    el.title = err.message;
-    log('Network ID detection failed: ' + err.message, 'err');
-  } finally {
-    el.dataset.detecting = 'false';
+    // Silent failure — caller will hide the UI rows
+    return null;
+  }
+}
+
+async function updateNetworkIdUI() {
+  const row = $('net-id-row');
+  const hint = $('net-hint');
+  const result = await detectNetworkId();
+  if (result) {
+    $('net-id').textContent = result.masked;
+    $('net-id').title = `Public IP (masked): ${result.masked}. Compare with the other device.`;
+    row.classList.remove('hidden');
+    hint.classList.remove('hidden');
+  } else {
+    row.classList.add('hidden');
+    hint.classList.add('hidden');
   }
 }
 document.querySelectorAll('.backend-btn').forEach(b => b.addEventListener('click', () => {
