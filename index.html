@@ -209,6 +209,24 @@
   .session-row .name { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-row .meta { color: var(--dim); font-size: 11px; margin-top: 3px; }
   .session-row .id { color: var(--accent-deep); font-size: 10px; font-family: var(--mono); }
+  /* "Just received" / "Just sent" badge — appears on the row that was the
+     subject of the most recent transfer, alongside the cyan highlight. */
+  .session-row .badge {
+    display: inline-block; margin-top: 6px;
+    padding: 2px 8px; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    background: var(--accent); color: #FFFFFF;
+  }
+  /* Brief flash animation when the just-transferred row appears, to draw the eye */
+  @keyframes flash-in {
+    0%   { background: rgba(0, 166, 214, 0.35); }
+    100% { background: rgba(0, 166, 214, 0.08); }
+  }
+  .session-row.just-transferred {
+    background: rgba(0, 166, 214, 0.08);
+    border-left: 4px solid var(--accent); padding-left: 10px;
+    animation: flash-in 1.2s ease-out;
+  }
 
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn-row button {
@@ -409,6 +427,13 @@
     <div class="screen-content">
       <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
       <div class="status-line" id="transfer-status">Waiting for connection…</div>
+
+      <!-- Session list appears below the status line after a successful transfer.
+           The just-touched session is highlighted with a "just received/sent" badge. -->
+      <div class="hidden" id="transfer-sessions-panel" style="margin-top: 26px;">
+        <div class="screen-eyebrow" style="margin-bottom: 10px;">Sessions on this device · <span id="transfer-sessions-count">0</span></div>
+        <div class="session-list" id="transfer-session-list"></div>
+      </div>
     </div>
   </section>
 
@@ -719,6 +744,11 @@ let currentStep = 0;       // index into the active flow
 let activeTransfer = null;
 let activeScanner = null;
 let selectedSessionId = null;
+// After a successful transfer, this holds the id of the session that was just
+// sent or received. Used to highlight that row in the post-transfer session
+// list. Cleared whenever we leave the transfer screen.
+let justTransferredId = null;
+let justTransferredDirection = null;  // 'sent' | 'received' | null
 
 function activeFlow() { return FLOWS[`${currentMode}-${currentBackend}`]; }
 function currentScreenId() { return activeFlow()[currentStep]; }
@@ -803,6 +833,11 @@ function onLeaveScreen(screenId) {
   }
   if (screenId === 'show-qr') {
     stopQRCycle('show-qr-frame');
+  }
+  if (screenId === 'transfer') {
+    // Clear the highlight state so a future transfer doesn't show stale info
+    justTransferredId = null;
+    justTransferredDirection = null;
   }
 }
 
@@ -1013,6 +1048,9 @@ function setupTransferScreen() {
   $('transfer-num').textContent = currentStep + 1;
   $('transfer-of').textContent = `OF ${totalSteps()}`;
   $('transfer-progress').style.width = '0';
+  // Hide the post-transfer session list until 'done' status fires
+  $('transfer-sessions-panel').classList.add('hidden');
+  $('transfer-session-list').innerHTML = '';
   if (currentMode === 'send') {
     $('transfer-title').textContent = 'Sending session';
     setTransferStatus('Connecting…');
@@ -1025,6 +1063,52 @@ function setTransferStatus(text, kind = '') {
   const el = $('transfer-status');
   el.textContent = text;
   el.className = 'status-line' + (kind ? ' ' + kind : '');
+}
+
+// Render the post-transfer session list with the just-touched session highlighted.
+// Called after status === 'done'. Reads justTransferredId/justTransferredDirection
+// to know which row to flag.
+async function revealPostTransferSessions() {
+  const panel = $('transfer-sessions-panel');
+  const list  = $('transfer-session-list');
+  panel.classList.remove('hidden');
+  list.innerHTML = '';
+
+  const sessions = await listSessions();
+  $('transfer-sessions-count').textContent = sessions.length;
+
+  // Sort: the just-transferred one comes first if present, then by recency.
+  sessions.sort((a, b) => {
+    if (a.id === justTransferredId) return -1;
+    if (b.id === justTransferredId) return 1;
+    return new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime();
+  });
+
+  for (const s of sessions) {
+    const row = document.createElement('div');
+    const isJust = (s.id === justTransferredId);
+    row.className = 'session-row' + (isJust ? ' just-transferred' : '');
+    const badgeText = isJust
+      ? (justTransferredDirection === 'sent' ? '✓ just sent' : '✓ just received')
+      : '';
+    row.innerHTML = `<div class="info">
+      <div class="name"></div>
+      <div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div>
+      ${badgeText ? `<span class="badge"></span>` : ''}
+    </div>`;
+    row.querySelector('.name').textContent = s.name;
+    row.querySelector('.id').textContent = s.id;
+    const cnt = dataRecordCount(s.data);
+    row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
+    row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
+    if (badgeText) row.querySelector('.badge').textContent = badgeText;
+    // Tapping a row opens the edit modal (consistent with other places)
+    row.addEventListener('click', async () => {
+      const full = await getSession(s.id);
+      if (full) showSessionModal(full, 'modal');
+    });
+    list.appendChild(row);
+  }
 }
 
 // =====================================================================
@@ -1069,7 +1153,12 @@ function wireTransferToReceiveUI(t) {
     if (total) setTransferStatus(`Receiving ${(received/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
   });
   t.on('status', (s) => {
-    if (s === 'done') setTransferStatus('Done.', 'ok');
+    if (s === 'done') {
+      setTransferStatus('Done.', 'ok');
+      // justTransferredId was set by handleIncomingSession above; reveal the
+      // session list with that row highlighted.
+      revealPostTransferSessions();
+    }
     if (s === 'error') setTransferStatus('Error during receive', 'err');
   });
   t.onPayload = handleIncomingSession;
@@ -1112,7 +1201,13 @@ function wireTransferToSendUI(t) {
     if (total) setTransferStatus(`Sent ${(sent/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
   });
   t.on('status', (s) => {
-    if (s === 'done') setTransferStatus('Done.', 'ok');
+    if (s === 'done') {
+      setTransferStatus('Done.', 'ok');
+      // For the sender, the just-touched session is the one we picked.
+      justTransferredId = selectedSessionId;
+      justTransferredDirection = 'sent';
+      revealPostTransferSessions();
+    }
     if (s === 'error') setTransferStatus('Error during send', 'err');
   });
   t.onAck = (response, error) => {
@@ -1135,6 +1230,8 @@ async function handleIncomingSession(payload) {
     await putSession(incoming);
     log(`Stored new session "${incoming.name}".`, 'ok');
     refreshSessionsCount();
+    justTransferredId = incoming.id;
+    justTransferredDirection = 'received';
     return { ok: true, action: 'created' };
   }
   const choice = await showConflictModal(existing, incoming);
@@ -1146,6 +1243,8 @@ async function handleIncomingSession(payload) {
     await putSession(incoming);
     log(`Replaced "${existing.name}".`, 'ok');
     refreshSessionsCount();
+    justTransferredId = incoming.id;
+    justTransferredDirection = 'received';
     return { ok: true, action: 'replaced' };
   }
   // Merge using shape-aware helper. Returns null if shapes mismatch (object vs array).
@@ -1163,6 +1262,8 @@ async function handleIncomingSession(payload) {
   await putSession(merged);
   log(`Merged: +${result.added} new, ${result.overwritten} overwritten.`, 'ok');
   refreshSessionsCount();
+  justTransferredId = existing.id;
+  justTransferredDirection = 'received';
   return { ok: true, action: 'merged' };
 }
 
