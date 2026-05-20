@@ -3,71 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Session Transfer · v4</title>
+<title>Session Transfer · Demo</title>
 <style>
   :root {
-    --bg: #0e0f0d;
-    --ink: #e8e6df;
-    --dim: #8a8a82;
-    --line: #2a2c28;
-    --line-soft: #1c1e1a;
-    --accent: #d4f542;
-    --accent-2: #8ad4f5;
-    --warn: #ff7a59;
-    --ok: #6fdc8c;
-    --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
-    --serif: 'Spectral', 'Iowan Old Style', 'Georgia', serif;
+    --bg: #0e0f0d; --ink: #e8e6df; --dim: #8a8a82;
+    --line: #2a2c28; --line-soft: #1c1e1a;
+    --accent: #d4f542; --accent-2: #8ad4f5;
+    --warn: #ff7a59; --ok: #6fdc8c;
+    --mono: 'JetBrains Mono','SF Mono','Menlo','Consolas',monospace;
+    --serif: 'Spectral','Iowan Old Style','Georgia',serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.5; min-height: 100vh; }
-  body {
-    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0);
-    background-size: 24px 24px;
-    padding: 28px 18px 60px;
-  }
+  body { background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0); background-size: 24px 24px; padding: 28px 18px 60px; }
   .wrap { max-width: 680px; margin: 0 auto; }
 
   header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 18px; }
   .label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
-  h1 { font-family: var(--serif); font-weight: 400; font-size: 38px; line-height: 1.05; margin-top: 6px; letter-spacing: -0.01em; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 36px; line-height: 1.05; margin-top: 6px; letter-spacing: -0.01em; }
   h1 em { font-style: italic; color: var(--accent); }
   .sub { color: var(--dim); margin-top: 8px; font-size: 13px; max-width: 56ch; }
 
-  /* Backend selector */
-  .backend-row {
-    display: flex; align-items: center; gap: 10px;
-    border: 1px solid var(--line); padding: 8px 10px; margin-bottom: 14px;
-    background: rgba(255,255,255,0.012);
-  }
+  .backend-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); padding: 8px 10px; margin-bottom: 14px; background: rgba(255,255,255,0.012); }
   .backend-row .lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
   .backend-row .opts { display: flex; gap: 4px; flex: 1; }
-  .backend-btn {
-    flex: 1; background: transparent; color: var(--dim); border: 1px solid var(--line);
-    padding: 7px 10px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
-    text-transform: uppercase; cursor: pointer; transition: all 0.15s;
-  }
+  .backend-btn { flex: 1; background: transparent; color: var(--dim); border: 1px solid var(--line); padding: 7px 10px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: all 0.15s; }
   .backend-btn:hover:not(.active) { color: var(--ink); border-color: var(--ink); }
   .backend-btn.active { background: var(--accent-2); color: #0e0f0d; border-color: var(--accent-2); font-weight: 600; }
   .backend-btn small { display: block; font-size: 9px; opacity: 0.7; margin-top: 2px; font-weight: 400; }
 
-  /* Mode toggle */
-  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 28px; border: 1px solid var(--line); }
-  .mode-btn {
-    background: transparent; color: var(--dim); border: none; padding: 20px 18px;
-    font-family: var(--serif); font-size: 22px; font-weight: 400; letter-spacing: -0.01em;
-    cursor: pointer; transition: all 0.2s; text-align: center;
-  }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 28px; border: 1px solid var(--line); }
+  .mode-btn { background: transparent; color: var(--dim); border: none; padding: 20px 18px; font-family: var(--serif); font-size: 22px; cursor: pointer; transition: all 0.2s; text-align: center; }
   .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
   .mode-btn:hover:not(.active) { color: var(--ink); background: rgba(255,255,255,0.02); }
   .mode-btn.active { color: #0e0f0d; background: var(--accent); }
   .mode-btn .arrow { display: block; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; font-family: var(--mono); margin-bottom: 4px; opacity: 0.7; }
   .mode-btn em { font-style: italic; }
 
-  /* Steps */
   .step { border: 1px solid var(--line); margin-bottom: 16px; }
   .step-head { display: flex; align-items: baseline; gap: 14px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.012); }
   .step-head .num { font-family: var(--serif); font-size: 20px; color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums; }
-  .step-head h2 { font-family: var(--serif); font-weight: 400; font-size: 17px; letter-spacing: -0.005em; }
+  .step-head h2 { font-family: var(--serif); font-weight: 400; font-size: 17px; }
   .step-head .status { margin-left: auto; font-size: 10px; letter-spacing: 0.18em; color: var(--dim); text-transform: uppercase; }
   .step-head .status.ok { color: var(--ok); }
   .step-head .status.active { color: var(--accent); }
@@ -75,21 +51,12 @@
   .step-body { padding: 18px 16px; }
   .step.disabled { opacity: 0.35; pointer-events: none; }
 
-  /* Form bits */
   label.field { display: block; margin-bottom: 14px; }
   label.field > span { display: block; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
-  input[type="text"], select, textarea {
-    width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--line);
-    color: var(--ink); font-family: var(--mono); font-size: 15px; padding: 8px 0; outline: none;
-    transition: border-color 0.15s; resize: vertical;
-  }
+  input[type="text"], select, textarea { width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--line); color: var(--ink); font-family: var(--mono); font-size: 15px; padding: 8px 0; outline: none; transition: border-color 0.15s; resize: vertical; }
   input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 
-  button {
-    background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 11px 18px;
-    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
-    cursor: pointer; transition: all 0.15s;
-  }
+  button { background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 11px 18px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: all 0.15s; }
   button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   button.primary { background: var(--accent); color: #0e0f0d; border-color: var(--accent); font-weight: 600; }
   button.primary:hover:not(:disabled) { background: #e0ff5c; }
@@ -97,95 +64,41 @@
   button:disabled { opacity: 0.3; cursor: not-allowed; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
 
-  /* Session list */
   .session-list { border: 1px solid var(--line-soft); margin-bottom: 12px; max-height: 240px; overflow-y: auto; }
-  .session-list:empty::before {
-    content: 'No sessions yet — create one below.';
-    display: block; padding: 14px 16px; color: var(--dim); font-style: italic; font-family: var(--serif);
-  }
-  .session-row {
-    display: flex; gap: 12px; align-items: center; padding: 10px 14px;
-    border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s;
-  }
+  .session-list:empty::before { content: 'No sessions yet — create one below.'; display: block; padding: 14px 16px; color: var(--dim); font-style: italic; font-family: var(--serif); }
+  .session-row { display: flex; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; }
   .session-row:last-child { border-bottom: none; }
   .session-row:hover { background: rgba(255,255,255,0.02); }
   .session-row.selected { background: rgba(212,245,66,0.06); border-left: 3px solid var(--accent); padding-left: 11px; }
   .session-row .info { flex: 1; min-width: 0; }
-  .session-row .name { color: var(--ink); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-row .name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-row .meta { color: var(--dim); font-size: 11px; margin-top: 2px; }
-  .session-row .id { color: var(--accent); font-size: 10px; letter-spacing: 0.04em; }
-  .session-row .actions { display: flex; gap: 6px; flex-shrink: 0; }
-  .session-row .actions button {
-    padding: 4px 8px; font-size: 10px; letter-spacing: 0.06em;
-  }
+  .session-row .id { color: var(--accent); font-size: 10px; }
 
-  /* Strategy picker */
-  .strat-picker { border: 1px solid var(--line); margin-bottom: 14px; }
-  .strat-opt {
-    display: flex; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer;
-  }
-  .strat-opt:last-child { border-bottom: none; }
-  .strat-opt:hover { background: rgba(255,255,255,0.02); }
-  .strat-opt input { margin-top: 3px; flex-shrink: 0; accent-color: var(--accent); }
-  .strat-opt .title { color: var(--ink); font-size: 13px; }
-  .strat-opt .desc { color: var(--dim); font-size: 11px; margin-top: 3px; }
-
-  /* QR area */
-  .qr-frame {
-    background: #fff; padding: 16px; border: 1px solid var(--line);
-    margin: 0 auto; display: flex; justify-content: center; align-items: center;
-    min-width: 280px; min-height: 280px;
-  }
+  .qr-frame { background: #fff; padding: 16px; border: 1px solid var(--line); margin: 0 auto; display: flex; justify-content: center; align-items: center; min-width: 280px; min-height: 280px; }
   .qr-center { text-align: center; padding: 12px 0; }
   .qr-frame svg { display: block; width: 100%; max-width: 420px; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }
   .qr-chunk-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.1em; }
-  .peer-id {
-    font-family: var(--mono); font-size: 18px; color: var(--accent); text-align: center;
-    margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--line); display: inline-block;
-    user-select: all; cursor: pointer;
-  }
+  .peer-id { font-family: var(--mono); font-size: 18px; color: var(--accent); text-align: center; margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--line); display: inline-block; user-select: all; cursor: pointer; }
 
-  /* Camera */
-  .cam-frame {
-    position: relative; background: #000; border: 1px solid var(--line);
-    aspect-ratio: 1; max-width: 360px; margin: 0 auto; overflow: hidden;
-  }
+  .cam-frame { position: relative; background: #000; border: 1px solid var(--line); aspect-ratio: 1; max-width: 360px; margin: 0 auto; overflow: hidden; }
   .cam-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cam-frame .reticle {
-    position: absolute; inset: 12%; border: 2px solid var(--accent);
-    pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.3);
-  }
-  .cam-frame .reticle::before, .cam-frame .reticle::after {
-    content: ''; position: absolute; width: 18px; height: 18px; border: 3px solid var(--accent);
-  }
+  .cam-frame .reticle { position: absolute; inset: 12%; border: 2px solid var(--accent); pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.3); }
+  .cam-frame .reticle::before, .cam-frame .reticle::after { content: ''; position: absolute; width: 18px; height: 18px; border: 3px solid var(--accent); }
   .cam-frame .reticle::before { top: -3px; left: -3px; border-right: none; border-bottom: none; }
   .cam-frame .reticle::after { bottom: -3px; right: -3px; border-left: none; border-top: none; }
 
-  /* Progress */
   .progress { background: var(--line-soft); height: 4px; overflow: hidden; margin: 12px 0; }
   .progress-bar { background: var(--accent); height: 100%; width: 0; transition: width 0.2s; }
-
   .or-div { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--dim); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; }
   .or-div::before, .or-div::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
-  /* Modal */
-  .modal-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 50;
-    display: flex; align-items: center; justify-content: center; padding: 20px;
-  }
-  .modal {
-    background: var(--bg); border: 1px solid var(--line); max-width: 480px; width: 100%;
-    padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6);
-  }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal { background: var(--bg); border: 1px solid var(--line); max-width: 480px; width: 100%; padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6); }
   .modal h3 { font-family: var(--serif); font-weight: 400; font-size: 22px; margin-bottom: 6px; }
   .modal .sub { margin-bottom: 16px; }
 
-  /* Log */
-  .log {
-    background: #0a0b09; border: 1px solid var(--line); padding: 10px 12px;
-    font-size: 11.5px; line-height: 1.6; max-height: 160px; overflow-y: auto;
-    margin-top: 16px; min-height: 64px;
-  }
+  .log { background: #0a0b09; border: 1px solid var(--line); padding: 10px 12px; font-size: 11.5px; line-height: 1.6; max-height: 160px; overflow-y: auto; margin-top: 16px; min-height: 64px; }
   .log .entry { display: flex; gap: 10px; padding: 1px 0; }
   .log .entry .t { color: var(--dim); flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .log .entry.ok .m { color: var(--ok); }
@@ -194,20 +107,18 @@
 
   details { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; }
   details summary { cursor: pointer; font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--dim); }
-  details summary:hover { color: var(--ink); }
   details .panel { padding-top: 12px; font-size: 13px; color: var(--dim); line-height: 1.65; }
   details .panel p { margin-bottom: 10px; }
   details .panel code { font-family: var(--mono); background: rgba(255,255,255,0.05); padding: 1px 5px; font-size: 12px; }
   details .panel strong { color: var(--ink); font-weight: 600; }
 
-  footer { margin-top: 36px; font-size: 11px; color: var(--dim); letter-spacing: 0.05em; text-align: center; }
+  footer { margin-top: 36px; font-size: 11px; color: var(--dim); text-align: center; }
   footer span { color: var(--accent); }
-
   .hidden { display: none !important; }
 
   @media (max-width: 480px) {
     body { padding: 20px 12px 40px; }
-    h1 { font-size: 30px; }
+    h1 { font-size: 28px; }
     .mode-btn { font-size: 18px; padding: 18px 12px; }
     .row button { flex: 1; min-width: 0; }
     .backend-row { flex-direction: column; align-items: stretch; gap: 6px; }
@@ -218,16 +129,16 @@
 <div class="wrap">
 
   <header>
-    <div class="label">session transfer · v4</div>
-    <h1>Push <em>sessions</em><br>device to device.</h1>
-    <p class="sub">Sessions live in IndexedDB on each device. Each has a stable ID, a user-editable name, and a data payload. Transfer them between phone and laptop with PeerJS or Raw WebRTC.</p>
+    <div class="label">demo · consumer of webshare-transfer.js</div>
+    <h1>Session <em>transfer</em><br>demo.</h1>
+    <p class="sub">This page is a thin example consumer of the transfer library. The library moves opaque payloads peer-to-peer. <strong style="color:var(--ink)">This demo</strong> decides what a "session" is, what to do when one arrives, and how to ask the user about conflicts.</p>
   </header>
 
   <div class="backend-row">
     <span class="lbl">Backend</span>
     <div class="opts">
       <button class="backend-btn active" data-backend="peerjs">PeerJS<small>cross-network · easy</small></button>
-      <button class="backend-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only · QR handshake</small></button>
+      <button class="backend-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
     </div>
   </div>
 
@@ -236,62 +147,36 @@
     <button class="mode-btn" data-mode="send"><span class="arrow">send →</span><em>From this device</em></button>
   </div>
 
-  <!-- ================================================================== -->
-  <!-- RECEIVE — shared shell for both backends, only step 2/3 differs    -->
-  <!-- ================================================================== -->
+  <!-- RECEIVE -->
   <section id="receive-mode">
-
-    <!-- Step 1: Pick re-transfer strategy (shared) -->
     <div class="step" id="r-step-1">
       <div class="step-head">
-        <span class="num">1</span><h2>How to handle re-transfers</h2>
-        <span class="status" id="r-status-1">choose</span>
+        <span class="num">1</span><h2>Start receiving</h2>
+        <span class="status" id="r-status-1">ready</span>
       </div>
       <div class="step-body">
-        <p class="sub" style="margin-bottom: 14px;">If a session with the same ID already exists on this device when one arrives, what should happen?</p>
-        <div class="strat-picker">
-          <label class="strat-opt">
-            <input type="radio" name="strategy" value="replace" checked>
-            <div>
-              <div class="title">Replace with confirmation</div>
-              <div class="desc">Prompt before overwriting. Safer — won't silently destroy local edits.</div>
-            </div>
-          </label>
-          <label class="strat-opt">
-            <input type="radio" name="strategy" value="merge">
-            <div>
-              <div class="title">Merge — phone wins</div>
-              <div class="desc">Combine incoming records into existing session. Phone's values overwrite on overlap. Best for incremental work.</div>
-            </div>
-          </label>
-        </div>
+        <p class="sub" style="margin-bottom: 14px;">When a session arrives, this demo will show you what was received and ask whether to merge or replace — that decision lives in the demo, not the transfer library.</p>
         <div class="row">
-          <button class="primary" id="r-start">Start receiving</button>
+          <button class="primary" id="r-start">Start</button>
         </div>
       </div>
     </div>
 
-    <!-- Step 2 (PeerJS): show peer ID -->
-    <div class="step disabled" id="r-step-pjs-2">
-      <div class="step-head">
-        <span class="num">2</span><h2>Share this with the sender</h2>
-        <span class="status" id="r-status-pjs-2">waiting</span>
-      </div>
+    <!-- PeerJS handshake step -->
+    <div class="step disabled" id="r-step-pjs">
+      <div class="step-head"><span class="num">2</span><h2>Share with the sender</h2><span class="status" id="r-status-pjs">waiting</span></div>
       <div class="step-body">
         <div class="qr-center">
           <div class="qr-frame" id="r-pjs-qr"></div>
-          <div class="peer-id" id="r-pjs-peerid" title="Click to select all">…</div>
+          <div class="peer-id" id="r-pjs-peerid">…</div>
         </div>
-        <p class="sub" style="text-align: center; margin-top: 14px;">On your phone, scan this QR <strong style="color:var(--ink)">or</strong> type the ID above.</p>
+        <p class="sub" style="text-align: center; margin-top: 14px;">Scan the QR or type the ID into the sender.</p>
       </div>
     </div>
 
-    <!-- Step 2 (Raw): show offer QR -->
-    <div class="step disabled hidden" id="r-step-raw-2">
-      <div class="step-head">
-        <span class="num">2</span><h2>Scan this QR with your phone</h2>
-        <span class="status" id="r-status-raw-2">waiting</span>
-      </div>
+    <!-- Raw handshake steps -->
+    <div class="step disabled hidden" id="r-step-raw-show">
+      <div class="step-head"><span class="num">2</span><h2>Scan this QR with phone</h2><span class="status" id="r-status-raw-show">waiting</span></div>
       <div class="step-body">
         <div class="qr-center">
           <div class="qr-frame" id="r-raw-qr"></div>
@@ -299,18 +184,10 @@
         </div>
       </div>
     </div>
-
-    <!-- Step 3 (Raw only): scan answer back -->
-    <div class="step disabled hidden" id="r-step-raw-3">
-      <div class="step-head">
-        <span class="num">3</span><h2>Scan response from phone</h2>
-        <span class="status" id="r-status-raw-3">waiting</span>
-      </div>
+    <div class="step disabled hidden" id="r-step-raw-scan">
+      <div class="step-head"><span class="num">3</span><h2>Scan response from phone</h2><span class="status" id="r-status-raw-scan">waiting</span></div>
       <div class="step-body">
-        <div class="cam-frame" id="r-raw-cam-frame">
-          <video id="r-raw-video" playsinline muted></video>
-          <div class="reticle"></div>
-        </div>
+        <div class="cam-frame"><video id="r-raw-video" playsinline muted></video><div class="reticle"></div></div>
         <div class="row" style="margin-top: 14px; justify-content: center;">
           <button id="r-raw-cam-start">Start webcam</button>
           <button id="r-raw-cam-stop" disabled>Stop</button>
@@ -318,91 +195,56 @@
       </div>
     </div>
 
-    <!-- Step 4: receiving (last step, both backends) -->
     <div class="step disabled" id="r-step-recv">
-      <div class="step-head">
-        <span class="num" id="r-step-recv-num">3</span><h2>Receiving session</h2>
-        <span class="status" id="r-status-recv">waiting</span>
-      </div>
+      <div class="step-head"><span class="num" id="r-step-recv-num">3</span><h2>Receiving</h2><span class="status" id="r-status-recv">waiting</span></div>
       <div class="step-body">
         <div class="progress"><div class="progress-bar" id="r-progress"></div></div>
-        <p class="sub" id="r-progress-text" style="text-align: center;">Waiting for connection…</p>
+        <p class="sub" id="r-progress-text" style="text-align: center;">Waiting…</p>
       </div>
     </div>
   </section>
 
-  <!-- ================================================================== -->
-  <!-- SEND                                                                -->
-  <!-- ================================================================== -->
+  <!-- SEND -->
   <section id="send-mode" class="hidden">
-
-    <!-- Step 1: Session picker (shared) -->
     <div class="step" id="s-step-1">
-      <div class="step-head">
-        <span class="num">1</span><h2>Pick a session to send</h2>
-        <span class="status" id="s-status-1">choose</span>
-      </div>
+      <div class="step-head"><span class="num">1</span><h2>Pick a session to send</h2><span class="status" id="s-status-1">choose</span></div>
       <div class="step-body">
         <div class="session-list" id="s-session-list"></div>
         <div class="row">
           <button class="primary" id="s-new-btn">New session</button>
-          <button id="s-edit-btn" disabled>Edit selected</button>
+          <button id="s-edit-btn" disabled>Edit</button>
           <button class="danger" id="s-delete-btn" disabled>Delete</button>
         </div>
       </div>
     </div>
 
-    <!-- Step 2 (PeerJS): connect -->
-    <div class="step disabled" id="s-step-pjs-2">
-      <div class="step-head">
-        <span class="num">2</span><h2>Connect to receiver</h2>
-        <span class="status" id="s-status-pjs-2">waiting</span>
-      </div>
+    <div class="step disabled" id="s-step-pjs">
+      <div class="step-head"><span class="num">2</span><h2>Connect to receiver</h2><span class="status" id="s-status-pjs">waiting</span></div>
       <div class="step-body">
         <p class="sub" style="margin-bottom: 12px;">Scan the receiver's QR:</p>
-        <div class="cam-frame" id="s-pjs-cam-frame">
-          <video id="s-pjs-video" playsinline muted></video>
-          <div class="reticle"></div>
-        </div>
+        <div class="cam-frame"><video id="s-pjs-video" playsinline muted></video><div class="reticle"></div></div>
         <div class="row" style="margin-top: 12px; justify-content: center;">
           <button class="primary" id="s-pjs-cam-start">Start camera</button>
           <button id="s-pjs-cam-stop" disabled>Stop</button>
         </div>
         <div class="or-div">or type it</div>
-        <label class="field">
-          <span>Receiver's peer ID</span>
-          <input type="text" id="s-pjs-peerid-input" placeholder="e.g. idb-tomato-rabbit-42">
-        </label>
-        <div class="row">
-          <button class="primary" id="s-pjs-connect-btn">Connect & send</button>
-        </div>
+        <label class="field"><span>Receiver's peer ID</span><input type="text" id="s-pjs-peerid-input" placeholder="e.g. idb-tomato-rabbit-42"></label>
+        <div class="row"><button class="primary" id="s-pjs-connect-btn">Connect & send</button></div>
       </div>
     </div>
 
-    <!-- Step 2 (Raw): scan offer -->
-    <div class="step disabled hidden" id="s-step-raw-2">
-      <div class="step-head">
-        <span class="num">2</span><h2>Scan QR from receiver</h2>
-        <span class="status" id="s-status-raw-2">waiting</span>
-      </div>
+    <div class="step disabled hidden" id="s-step-raw-scan">
+      <div class="step-head"><span class="num">2</span><h2>Scan QR from receiver</h2><span class="status" id="s-status-raw-scan">waiting</span></div>
       <div class="step-body">
-        <div class="cam-frame" id="s-raw-cam-frame">
-          <video id="s-raw-video" playsinline muted></video>
-          <div class="reticle"></div>
-        </div>
+        <div class="cam-frame"><video id="s-raw-video" playsinline muted></video><div class="reticle"></div></div>
         <div class="row" style="margin-top: 14px; justify-content: center;">
           <button class="primary" id="s-raw-cam-start">Start camera</button>
           <button id="s-raw-cam-stop" disabled>Stop</button>
         </div>
       </div>
     </div>
-
-    <!-- Step 3 (Raw only): show answer QR -->
-    <div class="step disabled hidden" id="s-step-raw-3">
-      <div class="step-head">
-        <span class="num">3</span><h2>Show this QR to receiver's webcam</h2>
-        <span class="status" id="s-status-raw-3">waiting</span>
-      </div>
+    <div class="step disabled hidden" id="s-step-raw-show">
+      <div class="step-head"><span class="num">3</span><h2>Show this to receiver</h2><span class="status" id="s-status-raw-show">waiting</span></div>
       <div class="step-body">
         <div class="qr-center">
           <div class="qr-frame" id="s-raw-qr"></div>
@@ -411,12 +253,8 @@
       </div>
     </div>
 
-    <!-- Step 4: sending -->
     <div class="step disabled" id="s-step-send">
-      <div class="step-head">
-        <span class="num" id="s-step-send-num">3</span><h2>Sending session</h2>
-        <span class="status" id="s-status-send">waiting</span>
-      </div>
+      <div class="step-head"><span class="num" id="s-step-send-num">3</span><h2>Sending</h2><span class="status" id="s-status-send">waiting</span></div>
       <div class="step-body">
         <div class="progress"><div class="progress-bar" id="s-progress"></div></div>
         <p class="sub" id="s-progress-text" style="text-align: center;">Waiting…</p>
@@ -424,30 +262,27 @@
     </div>
   </section>
 
-  <div class="log" id="log">
-    <div class="entry info"><span class="t">[ready]</span><span class="m">Pick a backend and mode above.</span></div>
-  </div>
+  <div class="log" id="log"><div class="entry info"><span class="t">[ready]</span><span class="m">Pick a backend and mode.</span></div></div>
 
   <details>
-    <summary>How sessions work</summary>
+    <summary>How the layers work</summary>
     <div class="panel">
-      <p><strong>Session model.</strong> Each session has a stable ID like <code>idb-tomato-rabbit-42</code>, a user-editable name, created/modified timestamps, and a <code>data</code> object holding records keyed by their own IDs (e.g. <code>{ item_001: {...}, item_002: {...} }</code>). All sessions live in one local IndexedDB called <code>webshare-sessions</code>.</p>
-      <p><strong>The session ID never changes</strong> — it's generated once when the session is created. This is how both devices know "this incoming session is the same one I already have, not a new one."</p>
-      <p><strong>Two re-transfer strategies.</strong> <em>Replace with confirmation</em> overwrites the local copy after asking. <em>Merge — phone wins</em> combines incoming records into the local session, phone's values overwriting on overlap. Pick what fits your workflow.</p>
-      <p><strong>Backends.</strong> PeerJS uses their free signaling cloud — works across networks. Raw WebRTC is fully peer-to-peer via QR handshake but needs both devices on the same Wi-Fi.</p>
+      <p><strong>Library: <code>webshare-transfer.js</code></strong>. Moves arbitrary JSON-serializable payloads peer-to-peer via PeerJS or Raw WebRTC + QR. No UI, no DOM, no opinion on payload contents. Exposes a small event-driven API.</p>
+      <p><strong>App: this demo page</strong>. Owns the session data model, IndexedDB schema, conflict resolution UI, session list. Calls the library to move payloads. When a payload arrives, the demo shows a dialog asking what to do.</p>
+      <p><strong>For your real app (e.g. AVScout)</strong>: import <code>webshare-transfer.js</code>, plug in your own data model and UI. The library doesn't care whether you're transferring assets, photos, audits, or anything else.</p>
     </div>
   </details>
 
-  <footer><span>●</span> sessions · peer-to-peer · idempotent transfers</footer>
+  <footer><span>●</span> library + demo · v5</footer>
 </div>
 
-<!-- Library loader -->
 <script>
 (function loadLibs() {
   const libs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
     { cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' },
-    { cdn: 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',        local: 'peerjs.min.js' }
+    { cdn: 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',        local: 'peerjs.min.js' },
+    { local: 'webshare-transfer.js' }
   ];
   function loadOne(lib) {
     return new Promise((resolve) => {
@@ -456,7 +291,8 @@
         s.src = src; s.onload = () => resolve(true); s.onerror = onFail;
         document.head.appendChild(s);
       };
-      tryLoad(lib.cdn, () => tryLoad(lib.local, () => resolve(false)));
+      if (lib.cdn) tryLoad(lib.cdn, () => tryLoad(lib.local, () => resolve(false)));
+      else tryLoad(lib.local, () => resolve(false));
     });
   }
   window.__libsReady = Promise.all(libs.map(loadOne)).then(r => r.every(Boolean));
@@ -464,7 +300,10 @@
 </script>
 
 <script>
-// Session Transfer · v4 ================================================
+// =====================================================================
+// DEMO — owns the data model (sessions, IDB, merge/replace decisions)
+// Library handles transfer mechanics. We just consume its events.
+// =====================================================================
 
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
@@ -478,102 +317,47 @@ function log(msg, kind = 'info') {
   logEl.appendChild(entry);
   logEl.scrollTop = logEl.scrollHeight;
 }
-
 function setStatus(id, text, kind = '') {
-  const el = $(id);
-  if (!el) return;
-  el.textContent = text;
-  el.className = 'status' + (kind ? ' ' + kind : '');
+  const el = $(id); if (!el) return;
+  el.textContent = text; el.className = 'status' + (kind ? ' ' + kind : '');
 }
 function enableStep(id) { $(id).classList.remove('disabled'); }
-function disableStep(id) { $(id).classList.add('disabled'); }
 function setCamButtons(prefix, scanning) {
   $(`${prefix}-cam-start`).disabled = scanning;
   $(`${prefix}-cam-stop`).disabled = !scanning;
 }
-
-// --- Friendly ID generator (local, no network) ---
-const ADJ = ['tomato','rabbit','cactus','river','copper','silent','mango','swift','velvet','lemon','crimson','golden','quiet','amber','linen','rusty','silken','marble'];
-const NOUN = ['fox','sparrow','oak','meadow','harbor','comet','reef','prairie','glacier','willow','flint','arrow','ember','thicket','quill','beacon','lattice','pebble'];
-function generateFriendlyId() {
-  const n = Math.floor(Math.random() * 90) + 10;
-  return `idb-${ADJ[Math.floor(Math.random()*ADJ.length)]}-${NOUN[Math.floor(Math.random()*NOUN.length)]}-${n}`;
-}
-function suggestSessionName() {
-  const d = new Date();
-  const month = d.toLocaleString('en', { month: 'short' }).toLowerCase();
-  const noun = NOUN[Math.floor(Math.random()*NOUN.length)];
-  return `session-${month}-${d.getDate()}-${noun}`;
+function formatRelative(date) {
+  if (!date) return '—';
+  const d = new Date(date), ms = Date.now() - d.getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return d.toLocaleDateString();
 }
 
-// --- IDB value serializer (Blob/Date/Map/Set/TypedArray safe) ---
-async function blobToBase64(blob) {
-  const buf = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-function base64ToBytes(b64) {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-async function encodeValue(v) {
-  if (v === null || v === undefined) return v;
-  if (v instanceof Blob) return { __t: 'Blob', type: v.type, name: v instanceof File ? v.name : undefined, data: await blobToBase64(v) };
-  if (v instanceof ArrayBuffer) return { __t: 'ArrayBuffer', data: await blobToBase64(new Blob([v])) };
-  if (ArrayBuffer.isView(v)) return { __t: 'TypedArray', name: v.constructor.name, data: await blobToBase64(new Blob([v.buffer])) };
-  if (v instanceof Date) return { __t: 'Date', iso: v.toISOString() };
-  if (v instanceof Map) { const entries = []; for (const [k, val] of v.entries()) entries.push([await encodeValue(k), await encodeValue(val)]); return { __t: 'Map', entries }; }
-  if (v instanceof Set) { const values = []; for (const val of v.values()) values.push(await encodeValue(val)); return { __t: 'Set', values }; }
-  if (Array.isArray(v)) { const out = []; for (const item of v) out.push(await encodeValue(item)); return out; }
-  if (typeof v === 'object') { const out = {}; for (const k of Object.keys(v)) out[k] = await encodeValue(v[k]); return out; }
-  return v;
-}
-function decodeValue(v) {
-  if (v === null || v === undefined) return v;
-  if (typeof v !== 'object') return v;
-  if (Array.isArray(v)) return v.map(decodeValue);
-  if (v.__t === 'Blob') { const bytes = base64ToBytes(v.data); if (v.name) return new File([bytes], v.name, { type: v.type }); return new Blob([bytes], { type: v.type }); }
-  if (v.__t === 'ArrayBuffer') return base64ToBytes(v.data).buffer;
-  if (v.__t === 'TypedArray') { const ctor = window[v.name]; return new ctor(base64ToBytes(v.data).buffer); }
-  if (v.__t === 'Date') return new Date(v.iso);
-  if (v.__t === 'Map') { const m = new Map(); for (const [k, val] of v.entries) m.set(decodeValue(k), decodeValue(val)); return m; }
-  if (v.__t === 'Set') { const s = new Set(); for (const val of v.values) s.add(decodeValue(val)); return s; }
-  const out = {}; for (const k of Object.keys(v)) out[k] = decodeValue(v[k]); return out;
-}
-
-// --- Session storage layer ---
-const SESSION_DB = 'webshare-sessions';
-const SESSION_DB_VERSION = 1;
-
+// --- Demo's session store (IDB) ---
+// Demo-owned, app-specific. The library doesn't know this exists.
+const SESSION_DB = 'webshare-demo-sessions';
 function openSessionDb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(SESSION_DB, SESSION_DB_VERSION);
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(SESSION_DB, 1);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
-      if (!db.objectStoreNames.contains('sessions')) {
-        db.createObjectStore('sessions', { keyPath: 'id' });
-      }
+      if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
   });
 }
-function txPromise(tx) {
-  return new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
-}
+function txPromise(tx) { return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error); }); }
 async function listSessions() {
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readonly');
-  const store = tx.objectStore('sessions');
-  const all = await new Promise((res, rej) => {
-    const r = store.getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-  });
+  const all = await new Promise((res, rej) => { const r = tx.objectStore('sessions').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   db.close();
-  return all.sort((a, b) => (b.modifiedAt?.getTime?.() || 0) - (a.modifiedAt?.getTime?.() || 0));
+  return all.sort((a, b) => (new Date(b.modifiedAt).getTime()) - (new Date(a.modifiedAt).getTime()));
 }
 async function getSession(id) {
   const db = await openSessionDb();
@@ -587,99 +371,66 @@ async function putSession(session) {
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readwrite');
   tx.objectStore('sessions').put(session);
-  await txPromise(tx);
-  db.close();
+  await txPromise(tx); db.close();
 }
 async function deleteSession(id) {
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readwrite');
   tx.objectStore('sessions').delete(id);
-  await txPromise(tx);
-  db.close();
+  await txPromise(tx); db.close();
 }
 
-function createSession(name) {
-  const now = new Date();
-  return {
-    id: generateFriendlyId(),
-    name: name || suggestSessionName(),
-    createdAt: now,
-    modifiedAt: now,
-    data: {}  // records keyed by their own ID
-  };
+function suggestSessionName() {
+  const d = new Date();
+  const month = d.toLocaleString('en', { month: 'short' }).toLowerCase();
+  return `session-${month}-${d.getDate()}`;
+}
+function exampleData() {
+  const rooms = ['101','102','103','201','202','203'];
+  const cats = ['monitor','laptop','chair','projector','whiteboard','phone'];
+  const out = {};
+  for (let i = 1; i <= 4; i++) {
+    const id = `asset_${String(i).padStart(3,'0')}`;
+    out[id] = {
+      category: cats[Math.floor(Math.random()*cats.length)],
+      room: rooms[Math.floor(Math.random()*rooms.length)],
+      serial: `SN-${Math.floor(Math.random()*90000)+10000}`,
+      found: Math.random() > 0.3,
+      notes: ''
+    };
+  }
+  return out;
 }
 
-function mergeSessions(local, incoming) {
-  // Phone wins: incoming.data values overwrite local.data on matching keys.
-  // Returns a new merged session.
-  const mergedData = { ...local.data, ...incoming.data };
-  return {
-    id: local.id,
-    name: incoming.name,                                     // phone wins on name too
-    createdAt: local.createdAt < incoming.createdAt ? local.createdAt : incoming.createdAt,
-    modifiedAt: new Date(),                                  // merge happens now
-    data: mergedData
-  };
-}
-
-// --- Session for over-the-wire transmission ---
-// We wrap the session in encode/decode so Date and Blob values survive JSON.
-async function encodeSession(s) {
-  return {
-    id: s.id, name: s.name,
-    createdAt: await encodeValue(s.createdAt),
-    modifiedAt: await encodeValue(s.modifiedAt),
-    data: await encodeValue(s.data || {})
-  };
-}
-function decodeSession(s) {
-  return {
-    id: s.id, name: s.name,
-    createdAt: decodeValue(s.createdAt),
-    modifiedAt: decodeValue(s.modifiedAt),
-    data: decodeValue(s.data || {})
-  };
-}
-
-// --- UI: backend + mode switching ---
+// --- Mode/backend toggle ---
 let currentBackend = 'peerjs';
 let currentMode = 'receive';
+let activeTransfer = null;
+let selectedSessionId = null;
 
 function applyVisibility() {
   $('receive-mode').classList.toggle('hidden', currentMode !== 'receive');
   $('send-mode').classList.toggle('hidden', currentMode !== 'send');
-  // Backend-specific receive steps
-  $('r-step-pjs-2').classList.toggle('hidden', currentBackend !== 'peerjs');
-  $('r-step-raw-2').classList.toggle('hidden', currentBackend !== 'raw');
-  $('r-step-raw-3').classList.toggle('hidden', currentBackend !== 'raw');
-  // Backend-specific send steps
-  $('s-step-pjs-2').classList.toggle('hidden', currentBackend !== 'peerjs');
-  $('s-step-raw-2').classList.toggle('hidden', currentBackend !== 'raw');
-  $('s-step-raw-3').classList.toggle('hidden', currentBackend !== 'raw');
-  // Renumber the last step
+  $('r-step-pjs').classList.toggle('hidden', currentBackend !== 'peerjs');
+  $('r-step-raw-show').classList.toggle('hidden', currentBackend !== 'raw');
+  $('r-step-raw-scan').classList.toggle('hidden', currentBackend !== 'raw');
+  $('s-step-pjs').classList.toggle('hidden', currentBackend !== 'peerjs');
+  $('s-step-raw-scan').classList.toggle('hidden', currentBackend !== 'raw');
+  $('s-step-raw-show').classList.toggle('hidden', currentBackend !== 'raw');
   $('r-step-recv-num').textContent = currentBackend === 'raw' ? '4' : '3';
   $('s-step-send-num').textContent = currentBackend === 'raw' ? '4' : '3';
   if (currentMode === 'send') refreshSessionList();
 }
+document.querySelectorAll('.backend-btn').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.backend-btn').forEach(x => x.classList.toggle('active', x === b));
+  currentBackend = b.dataset.backend; applyVisibility();
+}));
+document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('active', x === b));
+  currentMode = b.dataset.mode; applyVisibility();
+}));
 
-document.querySelectorAll('.backend-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.backend-btn').forEach(b => b.classList.toggle('active', b === btn));
-    currentBackend = btn.dataset.backend;
-    applyVisibility();
-  });
-});
-document.querySelectorAll('.mode-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
-    currentMode = btn.dataset.mode;
-    applyVisibility();
-  });
-});
-
-// --- Session list (send mode) ---
-let selectedSessionId = null;
-
+// --- Session list ---
 async function refreshSessionList() {
   const list = $('s-session-list');
   list.innerHTML = '';
@@ -687,24 +438,18 @@ async function refreshSessionList() {
   for (const s of sessions) {
     const row = document.createElement('div');
     row.className = 'session-row' + (s.id === selectedSessionId ? ' selected' : '');
-    const dataCount = Object.keys(s.data || {}).length;
-    row.innerHTML = `
-      <div class="info">
-        <div class="name"></div>
-        <div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div>
-      </div>
-    `;
+    row.innerHTML = `<div class="info"><div class="name"></div><div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div></div>`;
     row.querySelector('.name').textContent = s.name;
     row.querySelector('.id').textContent = s.id;
-    row.querySelector('.count').textContent = `${dataCount} record${dataCount === 1 ? '' : 's'}`;
+    const cnt = Object.keys(s.data || {}).length;
+    row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
     row.querySelector('.mod').textContent = `modified ${formatRelative(s.modifiedAt)}`;
     row.addEventListener('click', () => {
       selectedSessionId = s.id;
       refreshSessionList();
       $('s-edit-btn').disabled = false;
       $('s-delete-btn').disabled = false;
-      enableStep('s-step-pjs-2');
-      enableStep('s-step-raw-2');
+      enableStep('s-step-pjs'); enableStep('s-step-raw-scan');
       setStatus('s-status-1', `selected: ${s.name}`, 'ok');
     });
     list.appendChild(row);
@@ -716,135 +461,137 @@ async function refreshSessionList() {
   }
 }
 
-function formatRelative(date) {
-  if (!date) return '—';
-  const d = new Date(date);
-  const ms = Date.now() - d.getTime();
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return d.toLocaleDateString();
-}
-
-$('s-new-btn').addEventListener('click', async () => {
-  const suggested = suggestSessionName();
-  showSessionEditModal(null, suggested);
-});
+$('s-new-btn').addEventListener('click', () => showSessionModal(null));
 $('s-edit-btn').addEventListener('click', async () => {
   if (!selectedSessionId) return;
   const s = await getSession(selectedSessionId);
-  if (!s) return;
-  showSessionEditModal(s);
+  if (s) showSessionModal(s);
 });
 $('s-delete-btn').addEventListener('click', async () => {
   if (!selectedSessionId) return;
   const s = await getSession(selectedSessionId);
   if (!s) return;
-  if (!confirm(`Delete session "${s.name}"? This cannot be undone.`)) return;
+  if (!confirm(`Delete "${s.name}"?`)) return;
   await deleteSession(selectedSessionId);
-  selectedSessionId = null;
-  log(`Deleted session.`, 'ok');
-  refreshSessionList();
+  selectedSessionId = null; log('Deleted.', 'ok'); refreshSessionList();
 });
 
-// --- Session create/edit modal ---
-function showSessionEditModal(existingSession, suggestedName) {
-  const isNew = !existingSession;
-  const session = existingSession || { name: suggestedName, data: {} };
-
+function showSessionModal(existing) {
+  const isNew = !existing;
+  const session = existing || { name: suggestSessionName(), data: exampleData() };
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal">
       <h3>${isNew ? 'New session' : 'Edit session'}</h3>
-      <p class="sub">${isNew ? 'Session ID is generated automatically when you save.' : `ID: <code style="color:var(--accent)">${session.id}</code> · created ${formatRelative(session.createdAt)}`}</p>
-      <label class="field">
-        <span>Name</span>
-        <input type="text" id="modal-name">
-      </label>
-      <label class="field">
-        <span>Data (JSON object, keys are record IDs)</span>
-        <textarea id="modal-data" rows="8" style="font-family: var(--mono); font-size: 12px;"></textarea>
-      </label>
+      <p class="sub">${isNew ? 'Session ID is auto-generated when you create.' : `ID: <code style="color:var(--accent)">${session.id}</code>`}</p>
+      <label class="field"><span>Name</span><input type="text" id="m-name"></label>
+      <label class="field"><span>Data (JSON object — keys are record IDs)</span><textarea id="m-data" rows="14" style="font-size: 12px;"></textarea></label>
       <div class="row" style="justify-content: flex-end; margin-top: 12px;">
-        <button id="modal-cancel">Cancel</button>
-        <button class="primary" id="modal-save">${isNew ? 'Create' : 'Save'}</button>
+        <button id="m-cancel">Cancel</button>
+        <button class="primary" id="m-save">${isNew ? 'Create' : 'Save'}</button>
       </div>
-    </div>
-  `;
+    </div>`;
   document.body.appendChild(backdrop);
-  backdrop.querySelector('#modal-name').value = session.name;
-  backdrop.querySelector('#modal-data').value = JSON.stringify(session.data, null, 2);
-  backdrop.querySelector('#modal-cancel').addEventListener('click', () => backdrop.remove());
-  backdrop.querySelector('#modal-save').addEventListener('click', async () => {
-    const name = backdrop.querySelector('#modal-name').value.trim();
-    const dataText = backdrop.querySelector('#modal-data').value.trim();
-    if (!name) { alert('Name is required.'); return; }
-    let data;
-    try { data = dataText ? JSON.parse(dataText) : {}; }
-    catch (err) { alert('Data must be valid JSON: ' + err.message); return; }
+  backdrop.querySelector('#m-name').value = session.name;
+  backdrop.querySelector('#m-data').value = JSON.stringify(session.data, null, 2);
+  backdrop.querySelector('#m-cancel').addEventListener('click', () => backdrop.remove());
+  backdrop.querySelector('#m-save').addEventListener('click', async () => {
+    const name = backdrop.querySelector('#m-name').value.trim();
+    const text = backdrop.querySelector('#m-data').value.trim();
+    if (!name) { alert('Name required.'); return; }
+    let data; try { data = text ? JSON.parse(text) : {}; } catch (e) { alert('Invalid JSON: ' + e.message); return; }
     if (typeof data !== 'object' || Array.isArray(data) || data === null) { alert('Data must be a JSON object.'); return; }
+    const now = new Date();
     if (isNew) {
-      const fresh = createSession(name);
-      fresh.data = data;
+      const fresh = { id: generateFriendlyId(), name, createdAt: now, modifiedAt: now, data };
       await putSession(fresh);
-      log(`Created session "${fresh.name}" (${fresh.id}).`, 'ok');
+      log(`Created "${fresh.name}" (${fresh.id}).`, 'ok');
       selectedSessionId = fresh.id;
     } else {
-      const updated = { ...session, name, data, modifiedAt: new Date() };
-      await putSession(updated);
-      log(`Updated session "${updated.name}".`, 'ok');
+      await putSession({ ...session, name, data, modifiedAt: now });
+      log(`Updated "${name}".`, 'ok');
     }
-    backdrop.remove();
-    refreshSessionList();
+    backdrop.remove(); refreshSessionList();
   });
 }
 
-// --- Receive: apply incoming session per strategy ---
-function getStrategy() {
-  return document.querySelector('input[name="strategy"]:checked').value;
+// --- DEMO conflict-resolution UI ---
+// This is the part the library deliberately doesn't do. The demo decides
+// what to do when a session with a matching ID arrives.
+function showConflictModal(existing, incoming) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    const incomingCount = Object.keys(incoming.data || {}).length;
+    const existingCount = Object.keys(existing.data || {}).length;
+    backdrop.innerHTML = `
+      <div class="modal">
+        <h3>Session already exists</h3>
+        <p class="sub">Both copies share ID <code style="color:var(--accent)">${existing.id}</code>. How do you want to handle this?</p>
+        <div style="border: 1px solid var(--line-soft); padding: 10px 12px; margin-bottom: 8px;">
+          <div style="font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase;">Existing (local)</div>
+          <div style="margin-top: 4px;">${existing.name}</div>
+          <div style="font-size: 11px; color: var(--dim); margin-top: 2px;">${existingCount} records · modified ${formatRelative(existing.modifiedAt)}</div>
+        </div>
+        <div style="border: 1px solid var(--line-soft); padding: 10px 12px; margin-bottom: 14px;">
+          <div style="font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase;">Incoming</div>
+          <div style="margin-top: 4px;">${incoming.name}</div>
+          <div style="font-size: 11px; color: var(--dim); margin-top: 2px;">${incomingCount} records · modified ${formatRelative(incoming.modifiedAt)}</div>
+        </div>
+        <div class="row" style="justify-content: flex-end;">
+          <button id="c-skip">Skip</button>
+          <button id="c-merge">Merge (phone wins)</button>
+          <button class="primary" id="c-replace">Replace</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const finish = (choice) => { backdrop.remove(); resolve(choice); };
+    backdrop.querySelector('#c-skip').addEventListener('click', () => finish('skip'));
+    backdrop.querySelector('#c-merge').addEventListener('click', () => finish('merge'));
+    backdrop.querySelector('#c-replace').addEventListener('click', () => finish('replace'));
+  });
 }
 
-async function applyIncomingSession(incomingEncoded) {
-  const incoming = decodeSession(incomingEncoded);
+// What the demo does when a payload arrives. THIS is app-level logic.
+async function handleIncomingSession(payload) {
+  // payload is whatever the sender sent; for this demo it's a session object
+  if (!payload || !payload.id) {
+    log('Received payload has no session ID, ignoring.', 'err');
+    return { ok: false, reason: 'no-id' };
+  }
+  const incoming = payload;
   const existing = await getSession(incoming.id);
-  const strategy = getStrategy();
-
   if (!existing) {
     await putSession(incoming);
     log(`New session "${incoming.name}" stored (${Object.keys(incoming.data).length} records).`, 'ok');
-    return { action: 'created', session: incoming };
+    return { ok: true, action: 'created' };
   }
-
-  // Session already exists locally
-  if (strategy === 'replace') {
-    const ok = confirm(
-      `Session already exists:\n\n` +
-      `"${existing.name}" — ${Object.keys(existing.data).length} records (modified ${formatRelative(existing.modifiedAt)})\n\n` +
-      `Incoming:\n"${incoming.name}" — ${Object.keys(incoming.data).length} records (modified ${formatRelative(incoming.modifiedAt)})\n\n` +
-      `Replace the local copy with the incoming one?`
-    );
-    if (!ok) {
-      log('User cancelled the replace. Local session unchanged.', 'err');
-      return { action: 'skipped' };
-    }
+  const choice = await showConflictModal(existing, incoming);
+  if (choice === 'skip') {
+    log('Skipped.', 'err');
+    return { ok: true, action: 'skipped' };
+  }
+  if (choice === 'replace') {
     await putSession(incoming);
-    log(`Replaced "${existing.name}" with incoming.`, 'ok');
-    return { action: 'replaced', session: incoming };
-  } else {
-    // merge
-    const merged = mergeSessions(existing, incoming);
-    await putSession(merged);
-    const added = Object.keys(merged.data).length - Object.keys(existing.data).length;
-    const overlap = Object.keys(incoming.data).filter(k => k in existing.data).length;
-    log(`Merged: ${added} new records added, ${overlap} overwritten by phone.`, 'ok');
-    return { action: 'merged', session: merged };
+    log(`Replaced "${existing.name}".`, 'ok');
+    return { ok: true, action: 'replaced' };
   }
+  // merge
+  const merged = {
+    id: existing.id, name: incoming.name,
+    createdAt: new Date(existing.createdAt) < new Date(incoming.createdAt) ? existing.createdAt : incoming.createdAt,
+    modifiedAt: new Date(),
+    data: { ...existing.data, ...incoming.data }
+  };
+  await putSession(merged);
+  const added = Object.keys(merged.data).length - Object.keys(existing.data).length;
+  const overlap = Object.keys(incoming.data).filter(k => k in existing.data).length;
+  log(`Merged: +${added} new, ${overlap} overwritten.`, 'ok');
+  return { ok: true, action: 'merged' };
 }
 
-// --- QR rendering + scanner (shared infra) ---
+// --- QR rendering / cycling (kept in demo since it touches DOM) ---
 function renderQR(container, text) {
   const qr = qrcode(0, 'M');
   qr.addData(text); qr.make();
@@ -867,10 +614,11 @@ function stopQRCycle(containerId) {
   if (qrCycleTimers.has(containerId)) { clearInterval(qrCycleTimers.get(containerId)); qrCycleTimers.delete(containerId); }
 }
 
+// --- QR scanner ---
 class QRScanner {
   constructor(videoEl, onChunk) {
     this.video = videoEl; this.onChunk = onChunk;
-    this.stream = null; this.canvas = document.createElement('canvas');
+    this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
     this.running = false; this.lastDecoded = null;
   }
@@ -881,8 +629,7 @@ class QRScanner {
       });
     } catch { this.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
     this.video.srcObject = this.stream;
-    await this.video.play();
-    this.running = true; this.loop();
+    await this.video.play(); this.running = true; this.loop();
   }
   stop() {
     this.running = false;
@@ -902,410 +649,174 @@ class QRScanner {
   }
 }
 
-// ============================================================
-// PEERJS BACKEND
-// ============================================================
-let pjs_peer = null;
-let pjs_send_peer = null;
-let pjs_s_scanner = null;
+// =====================================================================
+// Wiring the LIBRARY to this demo's UI
+// =====================================================================
 
-function createPeerWithRetry(maxAttempts = 5) {
-  return new Promise((resolve, reject) => {
-    let attempt = 0;
-    const tryOnce = () => {
-      attempt++;
-      const peerId = generateFriendlyId();
-      log(`Registering "${peerId}" with PeerJS cloud (attempt ${attempt}/${maxAttempts})…`);
-      const peer = new Peer(peerId, { debug: 1 });
-      const cleanup = () => { peer.off('open', onOpen); peer.off('error', onError); };
-      const onOpen = () => { cleanup(); resolve(peer); };
-      const onError = (err) => {
-        if (err.type === 'unavailable-id' && attempt < maxAttempts) {
-          log(`ID "${peerId}" was taken, trying another…`);
-          cleanup(); peer.destroy(); setTimeout(tryOnce, 100);
-        } else {
-          cleanup(); peer.destroy();
-          const friendly =
-            err.type === 'unavailable-id' ? 'all retries hit ID collisions (try again)' :
-            err.type === 'server-error'   ? "PeerJS cloud isn't responding — switch to Raw WebRTC and use same Wi-Fi" :
-            err.type === 'network'        ? 'no internet — check your connection' :
-            err.type === 'browser-incompatible' ? 'this browser does not support WebRTC' :
-            err.message || err.type;
-          reject(new Error(friendly));
-        }
-      };
-      peer.on('open', onOpen);
-      peer.on('error', onError);
-    };
-    tryOnce();
+function wireTransferToReceiveUI(t) {
+  t.on('log', ({ level, message }) => log(message, level));
+  t.on('show-qr', ({ kind, text, chunks }) => {
+    if (kind === 'peerid') {
+      enableStep('r-step-pjs');
+      setStatus('r-status-pjs', 'ready', 'active');
+      $('r-pjs-peerid').textContent = text;
+      renderQR($('r-pjs-qr'), text);
+    } else if (kind === 'offer-chunks') {
+      enableStep('r-step-raw-show'); enableStep('r-step-raw-scan');
+      setStatus('r-status-raw-show', `${chunks.length} chunks`, 'active');
+      startQRCycle('r-raw-qr', 'r-raw-qr-info', chunks);
+    }
   });
-}
-
-async function startPjsReceive() {
-  setStatus('r-status-1', 'starting', 'active');
-  try {
-    pjs_peer = await createPeerWithRetry();
-  } catch (err) {
-    log('PeerJS registration failed: ' + err.message, 'err');
-    setStatus('r-status-1', 'error', 'err');
-    return;
-  }
-  const id = pjs_peer.id;
-  setStatus('r-status-1', 'done', 'ok');
-  enableStep('r-step-pjs-2');
-  setStatus('r-status-pjs-2', 'ready', 'active');
-  $('r-pjs-peerid').textContent = id;
-  renderQR($('r-pjs-qr'), id);
-  log(`Peer ID: ${id}. Waiting for sender…`, 'ok');
-
-  pjs_peer.on('connection', (conn) => {
-    log(`Incoming connection from ${conn.peer}`);
+  t.on('need-scan', () => {
+    // Raw mode receiver — webcam in step raw-scan picks up scanned text
+  });
+  t.on('connected', () => {
     enableStep('r-step-recv');
-    setStatus('r-status-pjs-2', 'connected', 'ok');
     setStatus('r-status-recv', 'connected', 'active');
-    $('r-progress-text').textContent = 'Connected. Waiting for session…';
-    conn.on('data', async (msg) => {
-      try {
-        if (msg && msg.type === 'session') {
-          $('r-progress-text').textContent = 'Applying session…';
-          $('r-progress').style.width = '60%';
-          const result = await applyIncomingSession(msg.session);
-          $('r-progress').style.width = '100%';
-          $('r-progress-text').textContent = `${result.action}: "${result.session?.name || ''}"`;
-          setStatus('r-status-recv', result.action, result.action === 'skipped' ? 'err' : 'ok');
-          conn.send({ type: 'ack', action: result.action });
-        }
-      } catch (err) {
-        log('Apply failed: ' + err.message, 'err');
-        setStatus('r-status-recv', 'error', 'err');
-      }
-    });
-    conn.on('close', () => log('Sender disconnected.'));
-    conn.on('error', (e) => log('Connection error: ' + e.message, 'err'));
+    $('r-progress-text').textContent = 'Connected. Waiting for data…';
   });
-  pjs_peer.on('error', (err) => log(`PeerJS error: ${err.type}`, 'err'));
-  pjs_peer.on('disconnected', () => {
-    log('Disconnected from PeerJS signaling — reconnecting…', 'err');
-    try { pjs_peer.reconnect(); } catch {}
+  t.on('progress', ({ received, total }) => {
+    const pct = total ? (received / total) * 100 : 0;
+    $('r-progress').style.width = pct + '%';
+    if (total) $('r-progress-text').textContent = `Receiving ${(received/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`;
   });
+  t.on('status', (s) => {
+    if (s === 'done') setStatus('r-status-recv', 'done', 'ok');
+    if (s === 'error') setStatus('r-status-recv', 'error', 'err');
+  });
+  t.onPayload = handleIncomingSession;
 }
 
-async function pjsConnectAndSend(targetPeerId) {
+$('r-start').addEventListener('click', async () => {
+  if (activeTransfer) { activeTransfer.close(); }
+  activeTransfer = new SessionTransfer({ backend: currentBackend });
+  wireTransferToReceiveUI(activeTransfer);
+  setStatus('r-status-1', 'running', 'ok');
+  try {
+    await activeTransfer.startReceiving();
+  } catch (err) {
+    log('Failed to start: ' + err.message, 'err');
+    setStatus('r-status-1', 'error', 'err');
+  }
+});
+
+// --- Raw receiver: scan answer QR back into library ---
+let r_raw_scanner = null;
+$('r-raw-cam-start').addEventListener('click', async () => {
+  if (r_raw_scanner) return;
+  try {
+    r_raw_scanner = new QRScanner($('r-raw-video'), (data) => {
+      activeTransfer?.feedScannedChunk(data);
+    });
+    await r_raw_scanner.start();
+    setCamButtons('r-raw', true);
+    setStatus('r-status-raw-scan', 'scanning', 'active');
+  } catch (err) { log('Camera error: ' + err.message, 'err'); r_raw_scanner = null; }
+});
+$('r-raw-cam-stop').addEventListener('click', () => {
+  if (r_raw_scanner) { r_raw_scanner.stop(); r_raw_scanner = null; }
+  setCamButtons('r-raw', false);
+});
+
+// --- Sender wiring ---
+function wireTransferToSendUI(t) {
+  t.on('log', ({ level, message }) => log(message, level));
+  t.on('show-qr', ({ kind, chunks }) => {
+    if (kind === 'answer-chunks') {
+      enableStep('s-step-raw-show');
+      setStatus('s-status-raw-show', `${chunks.length} chunks`, 'active');
+      startQRCycle('s-raw-qr', 's-raw-qr-info', chunks);
+    }
+  });
+  t.on('connected', () => {
+    stopQRCycle('s-raw-qr');
+    enableStep('s-step-send');
+    setStatus('s-status-send', 'connected', 'active');
+  });
+  t.on('progress', ({ sent, total }) => {
+    const pct = total ? (sent / total) * 100 : 0;
+    $('s-progress').style.width = pct + '%';
+    if (total) $('s-progress-text').textContent = `Sent ${(sent/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`;
+  });
+  t.on('status', (s) => {
+    if (s === 'done') setStatus('s-status-send', 'done', 'ok');
+    if (s === 'error') setStatus('s-status-send', 'error', 'err');
+  });
+  t.onAck = (response, error) => {
+    if (error) log('Receiver error: ' + error, 'err');
+    else log(`Receiver: ${response?.action || 'ack'}`, 'ok');
+    $('s-progress-text').textContent = `Receiver: ${error || response?.action || 'done'}.`;
+  };
+}
+
+async function startSenderPeerJS(targetPeerId) {
   if (!selectedSessionId) { log('Pick a session first.', 'err'); return; }
   const session = await getSession(selectedSessionId);
-  if (!session) { log('Session not found locally.', 'err'); return; }
-
-  log(`Connecting to "${targetPeerId}"…`);
-  setStatus('s-status-pjs-2', 'connecting', 'active');
-  pjs_send_peer = new Peer({ debug: 1 });
-
-  pjs_send_peer.on('open', () => {
-    const conn = pjs_send_peer.connect(targetPeerId, { reliable: true });
-    conn.on('open', async () => {
-      log('Connected.', 'ok');
-      setStatus('s-status-pjs-2', 'connected', 'ok');
-      enableStep('s-step-send');
-      setStatus('s-status-send', 'sending', 'active');
-      try {
-        const encoded = await encodeSession(session);
-        const sizeKb = JSON.stringify(encoded).length / 1024;
-        $('s-progress-text').textContent = `Sending ${sizeKb.toFixed(1)} KB…`;
-        conn.send({ type: 'session', session: encoded });
-        $('s-progress').style.width = '100%';
-        $('s-progress-text').textContent = `Sent ${sizeKb.toFixed(1)} KB. Waiting for ack…`;
-      } catch (err) {
-        log('Send failed: ' + err.message, 'err');
-        setStatus('s-status-send', 'error', 'err');
-      }
-    });
-    conn.on('data', (msg) => {
-      if (msg && msg.type === 'ack') {
-        log(`Receiver: ${msg.action}.`, 'ok');
-        $('s-progress-text').textContent = `Receiver: ${msg.action}.`;
-        setStatus('s-status-send', msg.action, msg.action === 'skipped' ? 'err' : 'ok');
-      }
-    });
-    conn.on('error', (e) => log('Connection error: ' + e.message, 'err'));
-  });
-  pjs_send_peer.on('error', (err) => {
-    log(`PeerJS error: ${err.type}`, 'err');
-    setStatus('s-status-pjs-2', 'error', 'err');
-  });
+  if (!session) { log('Session not found.', 'err'); return; }
+  if (activeTransfer) activeTransfer.close();
+  activeTransfer = new SessionTransfer({ backend: 'peerjs' });
+  wireTransferToSendUI(activeTransfer);
+  setStatus('s-status-pjs', 'connecting', 'active');
+  try {
+    await activeTransfer.connect(targetPeerId);
+    setStatus('s-status-pjs', 'connected', 'ok');
+    await activeTransfer.send(session);
+  } catch (err) {
+    log('Send failed: ' + err.message, 'err');
+    setStatus('s-status-pjs', 'error', 'err');
+  }
 }
 
 $('s-pjs-connect-btn').addEventListener('click', () => {
   const id = $('s-pjs-peerid-input').value.trim();
-  if (!id) { log('Type or scan a peer ID first.', 'err'); return; }
-  pjsConnectAndSend(id);
+  if (!id) { log('Enter or scan a peer ID.', 'err'); return; }
+  startSenderPeerJS(id);
 });
+
+let s_pjs_scanner = null;
 $('s-pjs-cam-start').addEventListener('click', async () => {
-  if (pjs_s_scanner) return;
+  if (s_pjs_scanner) return;
   try {
-    setStatus('s-status-pjs-2', 'scanning', 'active');
-    pjs_s_scanner = new QRScanner($('s-pjs-video'), (data) => {
-      pjs_s_scanner.stop(); pjs_s_scanner = null; setCamButtons('s-pjs', false);
+    s_pjs_scanner = new QRScanner($('s-pjs-video'), (data) => {
+      s_pjs_scanner.stop(); s_pjs_scanner = null; setCamButtons('s-pjs', false);
       $('s-pjs-peerid-input').value = data;
-      log(`Scanned peer ID: ${data}`);
-      pjsConnectAndSend(data);
+      log(`Scanned: ${data}`);
+      startSenderPeerJS(data);
     });
-    await pjs_s_scanner.start();
+    await s_pjs_scanner.start();
     setCamButtons('s-pjs', true);
-  } catch (err) {
-    log('Camera error: ' + err.message, 'err');
-    setStatus('s-status-pjs-2', 'error', 'err'); pjs_s_scanner = null;
-  }
+  } catch (err) { log('Camera error: ' + err.message, 'err'); s_pjs_scanner = null; }
 });
 $('s-pjs-cam-stop').addEventListener('click', () => {
-  if (pjs_s_scanner) { pjs_s_scanner.stop(); pjs_s_scanner = null; }
+  if (s_pjs_scanner) { s_pjs_scanner.stop(); s_pjs_scanner = null; }
   setCamButtons('s-pjs', false);
 });
 
-// ============================================================
-// RAW WEBRTC BACKEND
-// ============================================================
-const QR_CHUNK_SIZE = 350;
-function makeChunks(id, str) {
-  const chunks = [];
-  const total = Math.ceil(str.length / QR_CHUNK_SIZE);
-  for (let i = 0; i < total; i++) chunks.push(`${id}:${i + 1}/${total}:${str.slice(i * QR_CHUNK_SIZE, (i + 1) * QR_CHUNK_SIZE)}`);
-  return chunks;
-}
-class ChunkReassembler {
-  constructor() { this.id = null; this.total = 0; this.parts = new Map(); }
-  feed(chunk) {
-    const m = chunk.match(/^([A-Z]+):(\d+)\/(\d+):(.*)$/s);
-    if (!m) return null;
-    const [, id, idxStr, totalStr, data] = m;
-    const idx = +idxStr, total = +totalStr;
-    if (this.id !== id) { this.id = id; this.total = total; this.parts.clear(); }
-    const isNew = !this.parts.has(idx);
-    this.parts.set(idx, data);
-    if (this.parts.size === this.total) {
-      let out = ''; for (let i = 1; i <= this.total; i++) out += this.parts.get(i);
-      return { id, data: out, complete: true };
-    }
-    const missing = []; for (let i = 1; i <= this.total; i++) if (!this.parts.has(i)) missing.push(i);
-    return { id, progress: this.parts.size / this.total, isNew, idx, missing };
-  }
-}
-const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
-function instrumentPC(pc, label) {
-  pc.addEventListener('iceconnectionstatechange', () => {
-    const s = pc.iceConnectionState;
-    const kind = (s === 'connected' || s === 'completed') ? 'ok' : (s === 'failed' || s === 'disconnected') ? 'err' : 'info';
-    log(`${label} ICE: ${s}`, kind);
-    if (s === 'failed' || s === 'disconnected') log('Tip: Raw mode needs same Wi-Fi. Try PeerJS for cross-network.', 'err');
-  });
-}
-async function gatherCompleteSDP(pc) {
-  if (pc.iceGatheringState === 'complete') return;
-  await new Promise((resolve) => {
-    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') resolve(); });
-    setTimeout(resolve, 4000);
-  });
-}
-async function compressString(str) {
-  if (!window.CompressionStream) return btoa(unescape(encodeURIComponent(str)));
-  const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
-  const buf = await new Response(stream).arrayBuffer();
-  let bin = ''; const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return 'G:' + btoa(bin);
-}
-async function decompressString(s) {
-  if (!s.startsWith('G:')) return decodeURIComponent(escape(atob(s)));
-  const bin = atob(s.slice(2));
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return await new Response(stream).text();
-}
-
-let raw_r_pc = null, raw_r_scanner = null;
-const raw_r_reassembler = new ChunkReassembler();
-let raw_s_pc = null, raw_s_scanner = null;
-const raw_s_reassembler = new ChunkReassembler();
-
-async function startRawReceive() {
-  try {
-    setStatus('r-status-1', 'generating', 'active');
-    raw_r_pc = new RTCPeerConnection(RTC_CONFIG);
-    instrumentPC(raw_r_pc, 'recv');
-    const channel = raw_r_pc.createDataChannel('idb', { ordered: true });
-    setupRawReceiverChannel(channel);
-    const offer = await raw_r_pc.createOffer();
-    await raw_r_pc.setLocalDescription(offer);
-    await gatherCompleteSDP(raw_r_pc);
-    const compressed = await compressString(JSON.stringify(raw_r_pc.localDescription));
-    const chunks = makeChunks('OFFER', compressed);
-    enableStep('r-step-raw-2'); enableStep('r-step-raw-3');
-    setStatus('r-status-1', 'done', 'ok');
-    setStatus('r-status-raw-2', `${chunks.length} chunks`, 'active');
-    startQRCycle('r-raw-qr', 'r-raw-qr-info', chunks);
-  } catch (err) {
-    log('Error: ' + err.message, 'err');
-    setStatus('r-status-1', 'error', 'err');
-  }
-}
-
-function setupRawReceiverChannel(channel) {
-  channel.binaryType = 'arraybuffer';
-  let receivedChunks = [], expectedSize = null, receivedSize = 0;
-  channel.onopen = () => {
-    log('Data channel open.', 'ok');
-    enableStep('r-step-recv'); setStatus('r-status-recv', 'connected', 'active');
-    $('r-progress-text').textContent = 'Connected. Waiting for session…';
-  };
-  channel.onmessage = async (e) => {
-    if (typeof e.data === 'string') {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'header') {
-        expectedSize = msg.size; receivedChunks = []; receivedSize = 0;
-        $('r-progress-text').textContent = `Receiving 0 / ${(expectedSize/1024).toFixed(1)} KB…`;
-      } else if (msg.type === 'done') {
-        try {
-          const text = await new Blob(receivedChunks).text();
-          const payload = JSON.parse(text);
-          $('r-progress-text').textContent = 'Applying session…';
-          const result = await applyIncomingSession(payload.session);
-          $('r-progress').style.width = '100%';
-          $('r-progress-text').textContent = `${result.action}: "${result.session?.name || ''}"`;
-          setStatus('r-status-recv', result.action, result.action === 'skipped' ? 'err' : 'ok');
-          channel.send(JSON.stringify({ type: 'ack', action: result.action }));
-        } catch (err) {
-          log('Apply failed: ' + err.message, 'err');
-          setStatus('r-status-recv', 'error', 'err');
-        }
-      }
-    } else {
-      receivedChunks.push(e.data); receivedSize += e.data.byteLength;
-      const pct = expectedSize ? (receivedSize / expectedSize) * 100 : 0;
-      $('r-progress').style.width = pct + '%';
-      $('r-progress-text').textContent = `Receiving ${(receivedSize/1024).toFixed(1)} / ${(expectedSize/1024).toFixed(1)} KB`;
-    }
-  };
-}
-
-$('r-raw-cam-start').addEventListener('click', async () => {
-  if (raw_r_scanner) return;
-  try {
-    setStatus('r-status-raw-3', 'scanning', 'active');
-    raw_r_scanner = new QRScanner($('r-raw-video'), onRawReceiverScan);
-    await raw_r_scanner.start();
-    setCamButtons('r-raw', true);
-  } catch (err) {
-    log('Camera error: ' + err.message, 'err');
-    setStatus('r-status-raw-3', 'error', 'err'); raw_r_scanner = null;
-  }
-});
-$('r-raw-cam-stop').addEventListener('click', () => {
-  if (raw_r_scanner) { raw_r_scanner.stop(); raw_r_scanner = null; }
-  setCamButtons('r-raw', false);
-});
-async function onRawReceiverScan(chunk) {
-  const res = raw_r_reassembler.feed(chunk);
-  if (!res) return;
-  if (res.complete && res.id === 'ANSWER') {
-    log('All answer chunks received.');
-    setStatus('r-status-raw-3', 'received', 'ok');
-    if (raw_r_scanner) { raw_r_scanner.stop(); raw_r_scanner = null; setCamButtons('r-raw', false); }
-    try {
-      const answerJson = await decompressString(res.data);
-      await raw_r_pc.setRemoteDescription(JSON.parse(answerJson));
-    } catch (err) { log('Answer apply failed: ' + err.message, 'err'); }
-  } else if (res.progress !== undefined) {
-    setStatus('r-status-raw-3', `${Math.round(res.progress * 100)}%`, 'active');
-    if (res.isNew) log(`Got chunk ${res.idx} · ${res.missing.length} missing`);
-  }
-}
-
-// Raw send
+// --- Raw sender ---
+let s_raw_scanner = null;
 $('s-raw-cam-start').addEventListener('click', async () => {
-  if (raw_s_scanner) return;
-  try {
-    setStatus('s-status-raw-2', 'scanning', 'active');
-    raw_s_scanner = new QRScanner($('s-raw-video'), onRawSenderScan);
-    await raw_s_scanner.start();
-    setCamButtons('s-raw', true);
-  } catch (err) {
-    log('Camera error: ' + err.message, 'err');
-    setStatus('s-status-raw-2', 'error', 'err'); raw_s_scanner = null;
+  if (!selectedSessionId) { log('Pick a session first.', 'err'); return; }
+  if (s_raw_scanner) return;
+  if (!activeTransfer || activeTransfer.backend !== 'raw') {
+    if (activeTransfer) activeTransfer.close();
+    activeTransfer = new SessionTransfer({ backend: 'raw' });
+    wireTransferToSendUI(activeTransfer);
+    // Queue the payload — library sends it when channel opens
+    const session = await getSession(selectedSessionId);
+    activeTransfer.send(session);
   }
+  try {
+    s_raw_scanner = new QRScanner($('s-raw-video'), (data) => {
+      activeTransfer.feedScannedChunk(data);
+    });
+    await s_raw_scanner.start();
+    setCamButtons('s-raw', true);
+    setStatus('s-status-raw-scan', 'scanning', 'active');
+  } catch (err) { log('Camera error: ' + err.message, 'err'); s_raw_scanner = null; }
 });
 $('s-raw-cam-stop').addEventListener('click', () => {
-  if (raw_s_scanner) { raw_s_scanner.stop(); raw_s_scanner = null; }
+  if (s_raw_scanner) { s_raw_scanner.stop(); s_raw_scanner = null; }
   setCamButtons('s-raw', false);
-});
-async function onRawSenderScan(chunk) {
-  const res = raw_s_reassembler.feed(chunk);
-  if (!res) return;
-  if (res.complete && res.id === 'OFFER') {
-    log('Offer received.');
-    setStatus('s-status-raw-2', 'received', 'ok');
-    if (raw_s_scanner) { raw_s_scanner.stop(); raw_s_scanner = null; setCamButtons('s-raw', false); }
-    try {
-      const offer = JSON.parse(await decompressString(res.data));
-      raw_s_pc = new RTCPeerConnection(RTC_CONFIG);
-      instrumentPC(raw_s_pc, 'send');
-      raw_s_pc.ondatachannel = (e) => setupRawSenderChannel(e.channel);
-      await raw_s_pc.setRemoteDescription(offer);
-      const answer = await raw_s_pc.createAnswer();
-      await raw_s_pc.setLocalDescription(answer);
-      await gatherCompleteSDP(raw_s_pc);
-      const compressed = await compressString(JSON.stringify(raw_s_pc.localDescription));
-      const chunks = makeChunks('ANSWER', compressed);
-      enableStep('s-step-raw-3');
-      setStatus('s-status-raw-3', `${chunks.length} chunks`, 'active');
-      startQRCycle('s-raw-qr', 's-raw-qr-info', chunks);
-    } catch (err) { log('Offer apply failed: ' + err.message, 'err'); }
-  } else if (res.progress !== undefined) {
-    setStatus('s-status-raw-2', `${Math.round(res.progress * 100)}%`, 'active');
-  }
-}
-
-function setupRawSenderChannel(channel) {
-  channel.binaryType = 'arraybuffer';
-  channel.onopen = async () => {
-    log('Data channel open.', 'ok');
-    setStatus('s-status-raw-3', 'connected', 'ok');
-    stopQRCycle('s-raw-qr');
-    enableStep('s-step-send'); setStatus('s-status-send', 'sending', 'active');
-    try {
-      const session = await getSession(selectedSessionId);
-      const encoded = await encodeSession(session);
-      const payload = { type: 'session', session: encoded };
-      const bytes = new TextEncoder().encode(JSON.stringify(payload));
-      const CHUNK = 16 * 1024;
-      channel.send(JSON.stringify({ type: 'header', size: bytes.byteLength }));
-      let sent = 0;
-      while (sent < bytes.byteLength) {
-        while (channel.bufferedAmount > 1024 * 1024) await new Promise(r => setTimeout(r, 20));
-        const slice = bytes.slice(sent, sent + CHUNK);
-        channel.send(slice); sent += slice.byteLength;
-        const pct = (sent / bytes.byteLength) * 100;
-        $('s-progress').style.width = pct + '%';
-        $('s-progress-text').textContent = `Sent ${(sent/1024).toFixed(1)} / ${(bytes.byteLength/1024).toFixed(1)} KB`;
-      }
-      channel.send(JSON.stringify({ type: 'done' }));
-      log(`Sent.`, 'ok');
-    } catch (err) { log('Send failed: ' + err.message, 'err'); setStatus('s-status-send', 'error', 'err'); }
-  };
-  channel.onmessage = (e) => {
-    if (typeof e.data === 'string') {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'ack') {
-        log(`Receiver: ${msg.action}.`, 'ok');
-        $('s-progress-text').textContent = `Receiver: ${msg.action}.`;
-        setStatus('s-status-send', msg.action, msg.action === 'skipped' ? 'err' : 'ok');
-      }
-    }
-  };
-}
-
-// --- Unified start handler ---
-$('r-start').addEventListener('click', () => {
-  if (currentBackend === 'peerjs') startPjsReceive();
-  else startRawReceive();
 });
 
 // --- Init ---
@@ -1314,10 +825,10 @@ window.addEventListener('load', async () => {
     log('Warning: WebRTC and camera require HTTPS.', 'err');
   }
   const ok = await (window.__libsReady || Promise.resolve(false));
-  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof Peer === 'undefined') {
+  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof Peer === 'undefined' || typeof SessionTransfer === 'undefined') {
     log('Some libraries failed to load.', 'err');
   } else {
-    log('Ready. Sessions live in IndexedDB on this device.', 'ok');
+    log('Ready. The demo uses webshare-transfer.js as a library.', 'ok');
   }
   applyVisibility();
   refreshSessionList();
