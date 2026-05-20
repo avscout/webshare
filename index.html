@@ -228,6 +228,88 @@
     animation: flash-in 1.2s ease-out;
   }
 
+  /* ===== Paper plane "sent" animation (sender only) ===== */
+  .plane-stage {
+    position: relative;
+    width: 100%;
+    height: 200px;
+    margin: 30px 0 18px;
+    overflow: hidden;
+  }
+  .plane-path {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    opacity: 0;
+    /* Draw the dashed line on first, then fade out at the end */
+    animation: path-fade 2.6s ease-out forwards;
+  }
+  @keyframes path-fade {
+    0%   { opacity: 0; }
+    20%  { opacity: 0.7; }
+    80%  { opacity: 0.7; }
+    100% { opacity: 0; }
+  }
+  .plane {
+    position: absolute;
+    width: 44px; height: 44px;
+    /* Follow the same curve as the dashed path. The path's coordinate system
+       is the 320x200 viewBox; CSS motion-path uses pixels relative to the
+       element's top-left after positioning. To keep them aligned the SVG
+       and motion path use proportional values scaled to the stage size. */
+    offset-path: path("M 20 150 Q 100 30, 200 100 T 300 50");
+    offset-rotate: auto;
+    offset-distance: 0%;
+    animation: plane-fly 2.2s cubic-bezier(0.4, 0.1, 0.5, 1) forwards;
+    /* Anchor at the path so transforms align — using top-left of the bounding box */
+    top: 0; left: 0;
+    /* Slight initial offset so the plane's center sits roughly on the path */
+    margin-top: -22px; margin-left: -22px;
+  }
+  @keyframes plane-fly {
+    0%   { offset-distance: 0%;   opacity: 0; }
+    8%   { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { offset-distance: 100%; opacity: 0; }
+  }
+  /* Fallback for browsers without offset-path: a simple left-to-right flight */
+  @supports not (offset-path: path("M 0 0 L 1 1")) {
+    .plane {
+      offset-path: none;
+      animation: plane-fly-simple 2.2s cubic-bezier(0.4, 0.1, 0.5, 1) forwards;
+    }
+    @keyframes plane-fly-simple {
+      0%   { transform: translate(0, 100px) rotate(-10deg);    opacity: 0; }
+      10%  { opacity: 1; }
+      50%  { transform: translate(150px, 0) rotate(-15deg);    opacity: 1; }
+      90%  { opacity: 1; }
+      100% { transform: translate(300px, -30px) rotate(-20deg); opacity: 0; }
+    }
+  }
+
+  .sent-headline {
+    font-size: 32px; font-weight: 700; color: var(--accent-deep);
+    text-align: center; letter-spacing: -0.01em;
+    margin-top: 8px;
+    opacity: 0;
+    animation: sent-text-in 0.5s ease-out 1.9s forwards;  /* fades in just as plane lands */
+  }
+  .sent-subline {
+    text-align: center; color: var(--dim); font-size: 14px;
+    margin-top: 6px;
+    opacity: 0;
+    animation: sent-text-in 0.5s ease-out 2.1s forwards;
+  }
+  @keyframes sent-text-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  /* Honor user preference for reduced motion: skip animations, show end state */
+  @media (prefers-reduced-motion: reduce) {
+    .plane-path { animation: none; opacity: 0; }
+    .plane { animation: none; opacity: 0; }
+    .sent-headline, .sent-subline { animation: none; opacity: 1; transform: none; }
+  }
+
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn-row button {
     background: var(--bg); border: 1px solid var(--line); padding: 10px 14px;
@@ -425,15 +507,40 @@
       <p class="screen-subtitle" id="transfer-subtitle">Please wait while the data is moved.</p>
     </div>
     <div class="screen-content">
-      <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
-      <div class="status-line" id="transfer-status">Waiting for connection…</div>
 
-      <!-- Session list appears below the status line after a successful transfer.
-           The just-touched session is highlighted with a "just received/sent" badge. -->
-      <div class="hidden" id="transfer-sessions-panel" style="margin-top: 26px;">
-        <div class="screen-eyebrow" style="margin-bottom: 10px;">Sessions on this device · <span id="transfer-sessions-count">0</span></div>
-        <div class="session-list" id="transfer-session-list"></div>
+      <!-- Progress + status view (in-progress + receiver done) -->
+      <div id="transfer-progress-view">
+        <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
+        <div class="status-line" id="transfer-status">Waiting for connection…</div>
+
+        <!-- Session list appears below the status line after a successful transfer.
+             The just-touched session is highlighted with a "just received/sent" badge. -->
+        <div class="hidden" id="transfer-sessions-panel" style="margin-top: 26px;">
+          <div class="screen-eyebrow" style="margin-bottom: 10px;">Sessions on this device · <span id="transfer-sessions-count">0</span></div>
+          <div class="session-list" id="transfer-session-list"></div>
+        </div>
       </div>
+
+      <!-- Whimsical sent view (sender only, after status='done') -->
+      <div class="hidden" id="transfer-sent-view">
+        <div class="plane-stage">
+          <!-- Dashed flight path that draws itself first -->
+          <svg class="plane-path" viewBox="0 0 320 200" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 20 150 Q 100 30, 200 100 T 300 50" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 5" stroke-linecap="round"/>
+          </svg>
+          <!-- The paper plane SVG flies along the same curve -->
+          <svg class="plane" viewBox="0 0 40 40" aria-hidden="true">
+            <g>
+              <!-- Body of the paper plane: two triangles giving the folded look -->
+              <path d="M 2 20 L 38 4 L 22 38 L 18 24 Z" fill="var(--accent)"/>
+              <path d="M 18 24 L 38 4 L 22 24 Z" fill="var(--tud-cyan-dark)"/>
+            </g>
+          </svg>
+        </div>
+        <h2 class="sent-headline" id="sent-headline">Sent!</h2>
+        <p class="sent-subline" id="sent-subline">Your session has been delivered.</p>
+      </div>
+
     </div>
   </section>
 
@@ -819,6 +926,8 @@ function updateNavBar() {
     nextBtn.textContent = 'Scanning…';
     nextBtn.disabled = true;
   } else if (screenId === 'transfer') {
+    // While transfer is in progress, the only useful action is to abandon
+    // and start over. The button is enabled so users can bail if something hangs.
     nextBtn.textContent = 'Start over';
     nextBtn.disabled = false;
   }
@@ -1048,6 +1157,11 @@ function setupTransferScreen() {
   $('transfer-num').textContent = currentStep + 1;
   $('transfer-of').textContent = `OF ${totalSteps()}`;
   $('transfer-progress').style.width = '0';
+  // Reset to the in-progress view by default
+  $('transfer-progress-view').classList.remove('hidden');
+  $('transfer-sent-view').classList.add('hidden');
+  // Restore the screen header (may have been hidden by a previous sender flow)
+  document.querySelector('[data-screen="transfer"] .screen-header').classList.remove('hidden');
   // Hide the post-transfer session list until 'done' status fires
   $('transfer-sessions-panel').classList.add('hidden');
   $('transfer-session-list').innerHTML = '';
@@ -1058,6 +1172,25 @@ function setupTransferScreen() {
     $('transfer-title').textContent = 'Receiving';
     setTransferStatus('Waiting for data…');
   }
+}
+
+// Sender's success state: swap the progress view for the paper-plane animation,
+// hide the screen header (the title/subtitle don't add anything once landed),
+// and update the nav bar to remove the now-meaningless Back affordance.
+function showSentAnimation() {
+  $('transfer-progress-view').classList.add('hidden');
+  $('transfer-sent-view').classList.remove('hidden');
+  // Clear the screen header so the page is just plane + headline + Start over
+  $('transfer-title').textContent = '';
+  $('transfer-subtitle').textContent = '';
+  document.querySelector('[data-screen="transfer"] .screen-header').classList.add('hidden');
+  // Disable both back buttons — going back means a stale QR screen
+  $('topbar-back').disabled = true;
+  $('nav-back').disabled = true;
+  // Re-style the Continue button so it reads as "send another", not "next step"
+  const nextBtn = $('nav-next');
+  nextBtn.disabled = false;
+  nextBtn.textContent = 'Send another →';
 }
 function setTransferStatus(text, kind = '') {
   const el = $('transfer-status');
@@ -1202,11 +1335,13 @@ function wireTransferToSendUI(t) {
   });
   t.on('status', (s) => {
     if (s === 'done') {
-      setTransferStatus('Done.', 'ok');
       // For the sender, the just-touched session is the one we picked.
       justTransferredId = selectedSessionId;
       justTransferredDirection = 'sent';
-      revealPostTransferSessions();
+      // Swap the entire view to the whimsical paper-plane animation. We do
+      // NOT show the session list here — at this point the user already
+      // chose what to send and doesn't need a list of what they have.
+      showSentAnimation();
     }
     if (s === 'error') setTransferStatus('Error during send', 'err');
   });
