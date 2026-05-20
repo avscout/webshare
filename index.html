@@ -14,7 +14,6 @@
     --accent: #d4f542;
     --warn: #ff7a59;
     --ok: #6fdc8c;
-    --info: #6db4ff;
     --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
     --serif: 'Spectral', 'Iowan Old Style', 'Georgia', serif;
   }
@@ -82,12 +81,12 @@
 
   /* QR area */
   .qr-frame {
-    background: #fff; padding: 14px; display: inline-block; border: 1px solid var(--line);
+    background: #fff; padding: 16px; border: 1px solid var(--line);
     margin: 0 auto; display: flex; justify-content: center; align-items: center;
     min-width: 280px; min-height: 280px;
   }
   .qr-center { text-align: center; padding: 12px 0; }
-  .qr-frame canvas, .qr-frame svg { display: block; width: 100%; max-width: 320px; height: auto; }
+  .qr-frame svg { display: block; width: 100%; max-width: 420px; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }
   .qr-chunk-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.1em; }
 
   /* Camera preview */
@@ -332,8 +331,8 @@
 <script>
 (function loadLibs() {
   const libs = [
-    { global: 'qrcode', cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
-    { global: 'jsQR',   cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' }
+    { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
+    { cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' }
   ];
   function loadOne(lib) {
     return new Promise((resolve) => {
@@ -352,9 +351,7 @@
 </script>
 
 <script>
-// =====================================================================
 // IDB Transfer · WebRTC + QR signaling
-// =====================================================================
 
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
@@ -376,9 +373,12 @@ function setStatus(id, text, kind = '') {
 }
 
 function enableStep(id) { $(id).classList.remove('disabled'); }
-function disableStep(id) { $(id).classList.add('disabled'); }
+function setCamButtons(prefix, scanning) {
+  $(`${prefix}-cam-start`).disabled = scanning;
+  $(`${prefix}-cam-stop`).disabled = !scanning;
+}
 
-// ============== Mode toggle ==============
+// Mode toggle
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
@@ -389,9 +389,7 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
   });
 });
 
-// =====================================================================
-// IndexedDB serialization (Blob/Date/Map/Set/TypedArray safe)
-// =====================================================================
+// --- IndexedDB serialization (Blob/Date/Map/Set/TypedArray safe) ---
 async function blobToBase64(blob) {
   const buf = await blob.arrayBuffer();
   const bytes = new Uint8Array(buf);
@@ -525,11 +523,10 @@ async function writeEntireDatabase(payload, targetDbName) {
   return total;
 }
 
-// =====================================================================
-// QR chunking — handshake data is bigger than 1 QR fits
-// =====================================================================
-const QR_CHUNK_SIZE = 700;  // safe for QR error-correction L
+// --- QR chunking (handshake data is bigger than 1 QR fits) ---
+const QR_CHUNK_SIZE = 350;  // smaller = less dense QR = easier for webcam to read
 const QR_TYPE_NUMBER = 0;   // auto
+const QR_CYCLE_MS = 900;    // slow enough for webcam analysis to keep up
 
 function makeChunks(id, str) {
   const chunks = [];
@@ -549,22 +546,22 @@ class ChunkReassembler {
     const [, id, idxStr, totalStr, data] = m;
     const idx = +idxStr, total = +totalStr;
     if (this.id !== id) { this.id = id; this.total = total; this.parts.clear(); }
+    const isNew = !this.parts.has(idx);
     this.parts.set(idx, data);
     if (this.parts.size === this.total) {
       let out = '';
       for (let i = 1; i <= this.total; i++) out += this.parts.get(i);
-      return { id, data: out };
+      return { id, data: out, complete: true };
     }
-    return { id, progress: this.parts.size / this.total };
+    const missing = [];
+    for (let i = 1; i <= this.total; i++) if (!this.parts.has(i)) missing.push(i);
+    return { id, progress: this.parts.size / this.total, isNew, idx, missing };
   }
-  reset() { this.id = null; this.total = 0; this.parts.clear(); }
 }
 
-// =====================================================================
-// QR rendering — cycles through chunks
-// =====================================================================
+// --- QR rendering (cycles through chunks) ---
 function renderQR(container, text) {
-  const qr = qrcode(QR_TYPE_NUMBER, 'L');
+  const qr = qrcode(QR_TYPE_NUMBER, 'M');  // 'M' = ~15% error correction, more robust than 'L'
   qr.addData(text);
   qr.make();
   container.innerHTML = qr.createSvgTag({ scalable: true, margin: 1 });
@@ -583,7 +580,7 @@ function startQRCycle(containerId, infoId, chunks) {
   };
   render();
   if (chunks.length > 1) {
-    const timer = setInterval(render, 400);
+    const timer = setInterval(render, QR_CYCLE_MS);
     qrCycleTimers.set(containerId, timer);
   }
 }
@@ -594,9 +591,7 @@ function stopQRCycle(containerId) {
   }
 }
 
-// =====================================================================
-// QR scanning — webcam + jsQR
-// =====================================================================
+// --- QR scanning (webcam + jsQR) ---
 class QRScanner {
   constructor(videoEl, onChunk) {
     this.video = videoEl;
@@ -610,7 +605,7 @@ class QRScanner {
   async start() {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false
       });
     } catch (err) {
@@ -644,9 +639,7 @@ class QRScanner {
   }
 }
 
-// =====================================================================
-// WebRTC helpers
-// =====================================================================
+// --- WebRTC helpers ---
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -683,9 +676,7 @@ async function decompressString(s) {
   return await new Response(stream).text();
 }
 
-// =====================================================================
-// RECEIVE FLOW (this is desktop)
-// =====================================================================
+// --- RECEIVE FLOW (desktop) ---
 let r_pc = null;
 let r_scanner = null;
 let r_reassembler = new ChunkReassembler();
@@ -783,8 +774,7 @@ $('r-cam-start').addEventListener('click', async () => {
     setStatus('r-status-3', 'scanning', 'active');
     r_scanner = new QRScanner($('r-video'), onReceiverScan);
     await r_scanner.start();
-    $('r-cam-start').disabled = true;
-    $('r-cam-stop').disabled = false;
+    setCamButtons('r', true);
     log('Webcam active. Point at phone screen.');
   } catch (err) {
     log('Camera error: ' + err.message, 'err');
@@ -794,17 +784,16 @@ $('r-cam-start').addEventListener('click', async () => {
 });
 $('r-cam-stop').addEventListener('click', () => {
   if (r_scanner) { r_scanner.stop(); r_scanner = null; }
-  $('r-cam-start').disabled = false;
-  $('r-cam-stop').disabled = true;
+  setCamButtons('r', false);
 });
 
 async function onReceiverScan(chunk) {
   const res = r_reassembler.feed(chunk);
   if (!res) return;
-  if (res.data && res.id === 'ANSWER') {
+  if (res.complete && res.id === 'ANSWER') {
     log('All answer chunks received. Applying…');
     setStatus('r-status-3', 'received', 'ok');
-    if (r_scanner) { r_scanner.stop(); r_scanner = null; $('r-cam-start').disabled = false; $('r-cam-stop').disabled = true; }
+    if (r_scanner) { r_scanner.stop(); r_scanner = null; setCamButtons('r', false); }
     try {
       const answerJson = await decompressString(res.data);
       const answer = JSON.parse(answerJson);
@@ -816,12 +805,13 @@ async function onReceiverScan(chunk) {
     }
   } else if (res.progress !== undefined) {
     setStatus('r-status-3', `${Math.round(res.progress * 100)}%`, 'active');
+    if (res.isNew) {
+      log(`Got chunk ${res.idx} · ${res.missing.length} still missing: [${res.missing.join(', ')}]`);
+    }
   }
 }
 
-// =====================================================================
-// SEND FLOW (this is phone)
-// =====================================================================
+// --- SEND FLOW (phone) ---
 let s_pc = null;
 let s_scanner = null;
 let s_reassembler = new ChunkReassembler();
@@ -884,7 +874,7 @@ $('s-dbselect').addEventListener('change', () => {
     enableStep('s-step-2');
     setStatus('s-status-1', 'done', 'ok');
   } else {
-    disableStep('s-step-2');
+    $('s-step-2').classList.add('disabled');
   }
 });
 
@@ -894,8 +884,7 @@ $('s-cam-start').addEventListener('click', async () => {
     setStatus('s-status-2', 'scanning', 'active');
     s_scanner = new QRScanner($('s-video'), onSenderScan);
     await s_scanner.start();
-    $('s-cam-start').disabled = true;
-    $('s-cam-stop').disabled = false;
+    setCamButtons('s', true);
     log('Camera active. Point at desktop QR.');
   } catch (err) {
     log('Camera error: ' + err.message + ' — make sure you allowed camera access.', 'err');
@@ -905,17 +894,16 @@ $('s-cam-start').addEventListener('click', async () => {
 });
 $('s-cam-stop').addEventListener('click', () => {
   if (s_scanner) { s_scanner.stop(); s_scanner = null; }
-  $('s-cam-start').disabled = false;
-  $('s-cam-stop').disabled = true;
+  setCamButtons('s', false);
 });
 
 async function onSenderScan(chunk) {
   const res = s_reassembler.feed(chunk);
   if (!res) return;
-  if (res.data && res.id === 'OFFER') {
+  if (res.complete && res.id === 'OFFER') {
     log('All offer chunks received. Building answer…');
     setStatus('s-status-2', 'received', 'ok');
-    if (s_scanner) { s_scanner.stop(); s_scanner = null; $('s-cam-start').disabled = false; $('s-cam-stop').disabled = true; }
+    if (s_scanner) { s_scanner.stop(); s_scanner = null; setCamButtons('s', false); }
     try {
       const offerJson = await decompressString(res.data);
       const offer = JSON.parse(offerJson);
@@ -940,6 +928,9 @@ async function onSenderScan(chunk) {
     }
   } else if (res.progress !== undefined) {
     setStatus('s-status-2', `${Math.round(res.progress * 100)}%`, 'active');
+    if (res.isNew) {
+      log(`Got chunk ${res.idx} · ${res.missing.length} still missing: [${res.missing.join(', ')}]`);
+    }
   }
 }
 
@@ -992,9 +983,7 @@ function setupSenderChannel(channel) {
   channel.onerror = (e) => log('Channel error: ' + (e.error?.message || 'unknown'), 'err');
 }
 
-// =====================================================================
-// Init
-// =====================================================================
+// --- Init ---
 window.addEventListener('load', async () => {
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS. Some features will fail.', 'err');
