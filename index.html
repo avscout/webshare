@@ -6,138 +6,216 @@
 <title>Session Transfer · Demo</title>
 <style>
   :root {
-    --bg: #0e0f0d; --ink: #e8e6df; --dim: #8a8a82;
-    --line: #2a2c28; --line-soft: #1c1e1a;
-    --accent: #d4f542; --accent-2: #8ad4f5;
-    --warn: #ff7a59; --ok: #6fdc8c;
+    /* TU Delft brand colors (Corporate Identity Manual 2025/2026) */
+    --tud-cyan: #00A6D6;
+    --tud-cyan-dark: #008CB3;
+    --tud-darkblue: #0C2340;
+    --tud-royalblue: #0076C2;
+
+    /* Application palette derived from brand */
+    --bg: #FFFFFF;
+    --bg-subtle: #F5F7F9;
+    --ink: #000000;
+    --ink-soft: #1A1A1A;
+    --dim: #5C5C5C;
+    --line: #D9DEE3;
+    --line-soft: #EDEFF2;
+    --accent: var(--tud-cyan);
+    --accent-deep: var(--tud-darkblue);
+    --warn: #E03C31;
+    --ok: #009B77;
+
+    --sans: Arial, 'Helvetica Neue', Helvetica, sans-serif;
     --mono: 'JetBrains Mono','SF Mono','Menlo','Consolas',monospace;
-    --serif: 'Spectral','Iowan Old Style','Georgia',serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.5; min-height: 100vh; }
-  body { background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0); background-size: 24px 24px; padding: 28px 18px 60px; }
-  .wrap { max-width: 680px; margin: 0 auto; }
+  html, body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.55; min-height: 100vh; }
+  body { padding: 32px 18px 60px; }
+  .wrap { max-width: 720px; margin: 0 auto; }
 
-  header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 18px; }
-  .label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
-  h1 { font-family: var(--serif); font-weight: 400; font-size: 36px; line-height: 1.05; margin-top: 6px; letter-spacing: -0.01em; }
-  h1 em { font-style: italic; color: var(--accent); }
-  .sub { color: var(--dim); margin-top: 8px; font-size: 13px; max-width: 56ch; }
+  header { border-bottom: 4px solid var(--accent); padding-bottom: 22px; margin-bottom: 24px; }
+  .label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+  h1 { font-family: var(--sans); font-weight: 700; font-size: 32px; line-height: 1.15; margin-top: 8px; letter-spacing: -0.01em; color: var(--ink); }
+  h1 em { font-style: normal; color: var(--accent); }
+  .sub { color: var(--dim); margin-top: 10px; font-size: 14px; max-width: 60ch; }
 
-  .backend-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); padding: 8px 10px; margin-bottom: 14px; background: rgba(255,255,255,0.012); }
-  .backend-row .lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
-  .backend-row .opts { display: flex; gap: 4px; flex: 1; }
-  .backend-btn { flex: 1; background: transparent; color: var(--dim); border: 1px solid var(--line); padding: 7px 10px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: all 0.15s; }
-  .backend-btn:hover:not(.active) { color: var(--ink); border-color: var(--ink); }
-  .backend-btn.active { background: var(--accent-2); color: #0e0f0d; border-color: var(--accent-2); font-weight: 600; }
-  .backend-btn small { display: block; font-size: 9px; opacity: 0.7; margin-top: 2px; font-weight: 400; }
+  .backend-row { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 16px; background: var(--bg-subtle); }
+  .backend-row .lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+  .backend-row .opts { display: flex; gap: 6px; flex: 1; }
+  .backend-btn { flex: 1; background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); padding: 8px 12px; font-family: var(--sans); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .backend-btn:hover:not(.active) { color: var(--accent); border-color: var(--accent); }
+  .backend-btn small { display: block; font-size: 9px; opacity: 0.85; margin-top: 3px; font-weight: 400; text-transform: none; letter-spacing: 0; }
 
   .net-banner {
-    border: 1px solid var(--line); border-left: 3px solid var(--warn);
-    padding: 12px 14px; margin-bottom: 14px;
-    background: rgba(255,122,89,0.04);
+    border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    padding: 14px 16px; margin-bottom: 16px;
+    background: #FFF6F4;
   }
-  .net-text { color: var(--ink); font-size: 12px; line-height: 1.55; }
-  .net-text strong { color: var(--warn); }
-  .net-id-row { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
-  .net-id-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .net-text { color: var(--ink); font-size: 13px; line-height: 1.55; }
+  .net-text strong { color: var(--warn); font-weight: 700; }
+  .net-id-row { display: flex; align-items: baseline; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .net-id-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
   .net-id {
-    font-family: var(--mono); font-size: 15px; color: var(--accent);
-    padding: 3px 8px; border: 1px dashed var(--line); background: rgba(0,0,0,0.2);
-    user-select: all;
+    font-family: var(--mono); font-size: 15px; color: var(--accent-deep);
+    padding: 3px 10px; background: var(--bg-subtle); border: 1px solid var(--line);
+    user-select: all; font-weight: 600;
   }
-  .net-hint { color: var(--dim); font-size: 11px; margin-top: 8px; line-height: 1.5; }
+  .net-hint { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.5; }
 
   .modes { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 28px; border: 1px solid var(--line); }
-  .mode-btn { background: transparent; color: var(--dim); border: none; padding: 20px 18px; font-family: var(--serif); font-size: 22px; cursor: pointer; transition: all 0.2s; text-align: center; }
+  .mode-btn { background: var(--bg); color: var(--ink-soft); border: none; padding: 18px 16px; font-family: var(--sans); font-size: 18px; font-weight: 700; cursor: pointer; transition: all 0.15s; text-align: center; }
   .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
-  .mode-btn:hover:not(.active) { color: var(--ink); background: rgba(255,255,255,0.02); }
-  .mode-btn.active { color: #0e0f0d; background: var(--accent); }
-  .mode-btn .arrow { display: block; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; font-family: var(--mono); margin-bottom: 4px; opacity: 0.7; }
-  .mode-btn em { font-style: italic; }
+  .mode-btn:hover:not(.active) { background: var(--bg-subtle); color: var(--accent); }
+  .mode-btn .arrow { display: block; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; font-family: var(--sans); margin-bottom: 4px; opacity: 0.75; font-weight: 700; }
+  .mode-btn em { font-style: normal; }
 
-  .step { border: 1px solid var(--line); margin-bottom: 16px; }
-  .step-head { display: flex; align-items: baseline; gap: 14px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.012); }
-  .step-head .num { font-family: var(--serif); font-size: 20px; color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums; }
-  .step-head h2 { font-family: var(--serif); font-weight: 400; font-size: 17px; }
-  .step-head .status { margin-left: auto; font-size: 10px; letter-spacing: 0.18em; color: var(--dim); text-transform: uppercase; }
+  .step { border: 1px solid var(--line); margin-bottom: 16px; background: var(--bg); }
+  .step-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--bg-subtle); }
+  .step-head .num { font-family: var(--sans); font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .step-head h2 { font-family: var(--sans); font-weight: 700; font-size: 16px; color: var(--ink); }
+  .step-head .status { margin-left: auto; font-size: 10px; letter-spacing: 0.16em; color: var(--dim); text-transform: uppercase; font-weight: 700; }
   .step-head .status.ok { color: var(--ok); }
   .step-head .status.active { color: var(--accent); }
   .step-head .status.err { color: var(--warn); }
-  .step-body { padding: 18px 16px; }
-  .step.disabled { opacity: 0.35; pointer-events: none; }
+  .step-body { padding: 20px 18px; }
+  .step.disabled { opacity: 0.4; pointer-events: none; }
 
-  label.field { display: block; margin-bottom: 14px; }
-  label.field > span { display: block; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
-  input[type="text"], select, textarea { width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--line); color: var(--ink); font-family: var(--mono); font-size: 15px; padding: 8px 0; outline: none; transition: border-color 0.15s; resize: vertical; }
-  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  label.field { display: block; margin-bottom: 16px; }
+  label.field > span { display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; font-weight: 700; }
+  input[type="text"], select, textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    color: var(--ink); font-family: var(--sans); font-size: 15px;
+    padding: 10px 12px; outline: none; transition: border-color 0.15s; resize: vertical;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0, 166, 214, 0.15); }
+  textarea { font-family: var(--mono); }
 
-  button { background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 11px 18px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: all 0.15s; }
-  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  button.primary { background: var(--accent); color: #0e0f0d; border-color: var(--accent); font-weight: 600; }
-  button.primary:hover:not(:disabled) { background: #e0ff5c; }
-  button.danger:hover:not(:disabled) { border-color: var(--warn); color: var(--warn); }
-  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  button { background: var(--bg); color: var(--ink); border: 1px solid var(--line); padding: 10px 18px; font-family: var(--sans); font-size: 13px; letter-spacing: 0.02em; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  button:hover:not(:disabled):not(.primary):not(.active) { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #FFFFFF; border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark); color: #FFFFFF; }
+  button.danger:hover:not(:disabled):not(.active) { border-color: var(--warn); color: var(--warn); }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  /* Selected toggle buttons (backend + mode tabs) should not react to hover —
+     they're already at their destination state. Restate the active styling
+     so any other :hover rule that would otherwise apply gets overridden. */
+  .backend-btn.active, .backend-btn.active:hover { background: var(--accent); color: #FFFFFF; border-color: var(--accent); cursor: default; }
+  .mode-btn.active, .mode-btn.active:hover { color: #FFFFFF; background: var(--accent-deep); cursor: default; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
 
-  .session-list { border: 1px solid var(--line-soft); margin-bottom: 12px; max-height: 240px; overflow-y: auto; }
-  .session-list:empty::before { content: 'No sessions yet — create one below.'; display: block; padding: 14px 16px; color: var(--dim); font-style: italic; font-family: var(--serif); }
-  .session-row { display: flex; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; }
+  .session-list { border: 1px solid var(--line); margin-bottom: 14px; max-height: 280px; overflow-y: auto; background: var(--bg); }
+  .session-list:empty::before { content: 'No sessions yet — create one below.'; display: block; padding: 16px; color: var(--dim); font-style: italic; }
+  .session-row { display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; }
   .session-row:last-child { border-bottom: none; }
-  .session-row:hover { background: rgba(255,255,255,0.02); }
-  .session-row.selected { background: rgba(212,245,66,0.06); border-left: 3px solid var(--accent); padding-left: 11px; }
+  .session-row:hover { background: var(--bg-subtle); }
+  .session-row.selected { background: rgba(0, 166, 214, 0.08); border-left: 4px solid var(--accent); padding-left: 12px; }
   .session-row .info { flex: 1; min-width: 0; }
-  .session-row .name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .session-row .meta { color: var(--dim); font-size: 11px; margin-top: 2px; }
-  .session-row .id { color: var(--accent); font-size: 10px; }
+  .session-row .name { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-row .meta { color: var(--dim); font-size: 11px; margin-top: 3px; }
+  .session-row .id { color: var(--accent-deep); font-size: 10px; font-family: var(--mono); }
 
   .qr-frame { background: #fff; padding: 16px; border: 1px solid var(--line); margin: 0 auto; display: flex; justify-content: center; align-items: center; min-width: 280px; min-height: 280px; }
   .qr-center { text-align: center; padding: 12px 0; }
   .qr-frame svg { display: block; width: 100%; max-width: 420px; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }
-  .qr-chunk-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.1em; }
-  .peer-id { font-family: var(--mono); font-size: 18px; color: var(--accent); text-align: center; margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--line); display: inline-block; user-select: all; cursor: pointer; }
+  .qr-chunk-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.08em; font-weight: 600; }
+  .peer-id { font-family: var(--mono); font-size: 18px; color: var(--accent-deep); text-align: center; margin-top: 12px; padding: 10px 16px; border: 1px dashed var(--accent); background: var(--bg-subtle); display: inline-block; user-select: all; cursor: pointer; font-weight: 600; }
 
   .cam-frame { position: relative; background: #000; border: 1px solid var(--line); aspect-ratio: 1; max-width: 360px; margin: 0 auto; overflow: hidden; }
   .cam-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cam-frame .reticle { position: absolute; inset: 12%; border: 2px solid var(--accent); pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.3); }
+  .cam-frame .reticle { position: absolute; inset: 12%; border: 2px solid var(--accent); pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); }
   .cam-frame .reticle::before, .cam-frame .reticle::after { content: ''; position: absolute; width: 18px; height: 18px; border: 3px solid var(--accent); }
   .cam-frame .reticle::before { top: -3px; left: -3px; border-right: none; border-bottom: none; }
   .cam-frame .reticle::after { bottom: -3px; right: -3px; border-left: none; border-top: none; }
 
-  .progress { background: var(--line-soft); height: 4px; overflow: hidden; margin: 12px 0; }
+  .progress { background: var(--line-soft); height: 6px; overflow: hidden; margin: 14px 0; }
   .progress-bar { background: var(--accent); height: 100%; width: 0; transition: width 0.2s; }
-  .or-div { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--dim); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; }
+  .or-div { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--dim); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; }
   .or-div::before, .or-div::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .modal { background: var(--bg); border: 1px solid var(--line); max-width: 480px; width: 100%; padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6); }
-  .modal h3 { font-family: var(--serif); font-weight: 400; font-size: 22px; margin-bottom: 6px; }
-  .modal .sub { margin-bottom: 16px; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(12, 35, 64, 0.55); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal { background: var(--bg); border: 1px solid var(--line); border-top: 4px solid var(--accent); max-width: 480px; width: 100%; padding: 24px; box-shadow: 0 16px 40px rgba(12, 35, 64, 0.18); }
+  .modal h3 { font-family: var(--sans); font-weight: 700; font-size: 20px; margin-bottom: 6px; color: var(--ink); }
+  .modal .sub { margin-bottom: 18px; }
 
-  .log { background: #0a0b09; border: 1px solid var(--line); padding: 10px 12px; font-size: 11.5px; line-height: 1.6; max-height: 160px; overflow-y: auto; margin-top: 16px; min-height: 64px; }
+  .log { background: var(--bg-subtle); border: 1px solid var(--line); padding: 12px 14px; font-size: 12px; line-height: 1.65; max-height: 180px; overflow-y: auto; margin-top: 20px; min-height: 64px; font-family: var(--mono); }
   .log .entry { display: flex; gap: 10px; padding: 1px 0; }
   .log .entry .t { color: var(--dim); flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .log .entry.ok .m { color: var(--ok); }
   .log .entry.err .m { color: var(--warn); }
   .log .entry.info .m { color: var(--ink); }
 
-  details { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; }
-  details summary { cursor: pointer; font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--dim); }
-  details .panel { padding-top: 12px; font-size: 13px; color: var(--dim); line-height: 1.65; }
-  details .panel p { margin-bottom: 10px; }
-  details .panel code { font-family: var(--mono); background: rgba(255,255,255,0.05); padding: 1px 5px; font-size: 12px; }
-  details .panel strong { color: var(--ink); font-weight: 600; }
+  details { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 18px; }
+  details summary { cursor: pointer; font-family: var(--sans); font-weight: 600; font-size: 14px; color: var(--accent-deep); }
+  details summary:hover { color: var(--accent); }
+  details .panel { padding-top: 14px; font-size: 13.5px; color: var(--ink-soft); line-height: 1.7; }
+  details .panel p { margin-bottom: 12px; }
+  details .panel code { font-family: var(--mono); background: var(--bg-subtle); padding: 1px 6px; font-size: 12px; color: var(--accent-deep); }
+  details .panel strong { color: var(--ink); font-weight: 700; }
 
-  footer { margin-top: 36px; font-size: 11px; color: var(--dim); text-align: center; }
-  footer span { color: var(--accent); }
+  /* Sessions panel (receive mode) — same details element but styled as a box */
+  details.sessions-panel { border: 1px solid var(--line); margin: 0 0 16px; padding: 0; background: var(--bg); }
+  details.sessions-panel > summary {
+    list-style: none; padding: 12px 16px; background: var(--bg-subtle);
+    color: var(--ink); font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid transparent;
+  }
+  details.sessions-panel > summary::-webkit-details-marker { display: none; }
+  details.sessions-panel > summary::before {
+    content: '▸'; color: var(--accent); font-size: 11px;
+    transition: transform 0.15s; display: inline-block;
+  }
+  details.sessions-panel[open] > summary { border-bottom-color: var(--line); }
+  details.sessions-panel[open] > summary::before { transform: rotate(90deg); }
+  details.sessions-panel .count-badge {
+    margin-left: auto;
+    font-size: 11px; font-weight: 600; color: var(--dim);
+    background: var(--bg); padding: 2px 8px; border: 1px solid var(--line);
+  }
+  details.sessions-panel .panel-body { padding: 16px; }
+
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 11px; color: var(--dim); text-align: center; letter-spacing: 0.04em; }
+  footer span { color: var(--accent); font-weight: 700; }
+
+  /* Persistent log dock — pinned to viewport bottom so it is always visible */
+  .log-dock {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    background: var(--bg); border-top: 2px solid var(--accent);
+    box-shadow: 0 -4px 16px rgba(12, 35, 64, 0.08);
+    max-height: 240px;
+    display: flex; flex-direction: column;
+    transition: transform 0.2s ease;
+  }
+  .log-dock.collapsed { transform: translateY(calc(100% - 38px)); }
+  .log-dock-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; cursor: pointer;
+    background: var(--bg-subtle); border-bottom: 1px solid var(--line);
+    user-select: none; flex-shrink: 0;
+  }
+  .log-dock-head .label { font-weight: 700; font-size: 11px; }
+  .log-dock-head .latest {
+    flex: 1; font-family: var(--mono); font-size: 11px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .log-dock-head .toggle { color: var(--accent); font-size: 12px; transition: transform 0.2s; }
+  .log-dock.collapsed .log-dock-head .toggle { transform: rotate(180deg); }
+  .log-dock .log {
+    margin: 0; border: none; background: var(--bg); min-height: 0; max-height: none;
+    flex: 1; overflow-y: auto;
+  }
+  /* Add bottom padding to body so the fixed log dock doesn't cover content
+     when expanded (240px max-height + small buffer). */
+  body { padding-bottom: 260px !important; }
+
   .hidden { display: none !important; }
 
   @media (max-width: 480px) {
-    body { padding: 20px 12px 40px; }
-    h1 { font-size: 28px; }
-    .mode-btn { font-size: 18px; padding: 18px 12px; }
+    body { padding: 22px 14px 40px; }
+    h1 { font-size: 26px; }
+    .mode-btn { font-size: 16px; padding: 16px 12px; }
     .row button { flex: 1; min-width: 0; }
-    .backend-row { flex-direction: column; align-items: stretch; gap: 6px; }
+    .backend-row { flex-direction: column; align-items: stretch; gap: 8px; }
   }
 </style>
 </head>
@@ -145,9 +223,9 @@
 <div class="wrap">
 
   <header>
-    <div class="label">demo · consumer of webshare-transfer.js</div>
-    <h1>Session <em>transfer</em><br>demo.</h1>
-    <p class="sub">This page is a thin example consumer of the transfer library. The library moves opaque payloads peer-to-peer. <strong style="color:var(--ink)">This demo</strong> decides what a "session" is, what to do when one arrives, and how to ask the user about conflicts.</p>
+    <div class="label">webshare · session transfer demo</div>
+    <h1>Session <em>transfer</em> between devices.</h1>
+    <p class="sub">A thin example consumer of the <code style="font-family: var(--mono); background: var(--bg-subtle); padding: 1px 6px; color: var(--accent-deep);">webshare-transfer.js</code> library. The library moves opaque payloads peer-to-peer over WebRTC. This demo decides what a session is, what to do when one arrives, and how to handle conflicts.</p>
   </header>
 
   <div class="backend-row">
@@ -178,22 +256,24 @@
 
   <!-- RECEIVE -->
   <section id="receive-mode">
-    <div class="step" id="r-step-1">
-      <div class="step-head">
-        <span class="num">1</span><h2>Start receiving</h2>
-        <span class="status" id="r-status-1">ready</span>
-      </div>
-      <div class="step-body">
-        <p class="sub" style="margin-bottom: 14px;">When a session arrives, this demo will show you what was received and ask whether to merge or replace — that decision lives in the demo, not the transfer library.</p>
+
+    <!-- Collapsible: sessions currently on this device (manage existing data) -->
+    <details class="sessions-panel" id="r-sessions-panel">
+      <summary>Sessions on this device <span class="count-badge" id="r-sessions-count"></span></summary>
+      <div class="panel-body">
+        <p class="sub" style="margin-bottom: 12px;">Review what is already on this device. Incoming sessions with a matching ID will trigger a conflict dialog.</p>
+        <div class="session-list" id="r-session-list"></div>
         <div class="row">
-          <button class="primary" id="r-start">Start</button>
+          <button id="r-new-btn">New session</button>
+          <button id="r-edit-btn" disabled>Edit</button>
+          <button class="danger" id="r-delete-btn" disabled>Delete</button>
         </div>
       </div>
-    </div>
+    </details>
 
     <!-- PeerJS handshake step -->
-    <div class="step disabled" id="r-step-pjs">
-      <div class="step-head"><span class="num">2</span><h2>Share with the sender</h2><span class="status" id="r-status-pjs">waiting</span></div>
+    <div class="step" id="r-step-pjs">
+      <div class="step-head"><span class="num">1</span><h2>Share with the sender</h2><span class="status" id="r-status-pjs">waiting</span></div>
       <div class="step-body">
         <div class="qr-center">
           <div class="qr-frame" id="r-pjs-qr"></div>
@@ -204,8 +284,8 @@
     </div>
 
     <!-- Raw handshake steps -->
-    <div class="step disabled hidden" id="r-step-raw-show">
-      <div class="step-head"><span class="num">2</span><h2>Scan this QR with phone</h2><span class="status" id="r-status-raw-show">waiting</span></div>
+    <div class="step hidden" id="r-step-raw-show">
+      <div class="step-head"><span class="num">1</span><h2>Scan this QR with phone</h2><span class="status" id="r-status-raw-show">waiting</span></div>
       <div class="step-body">
         <div class="qr-center">
           <div class="qr-frame" id="r-raw-qr"></div>
@@ -214,7 +294,7 @@
       </div>
     </div>
     <div class="step disabled hidden" id="r-step-raw-scan">
-      <div class="step-head"><span class="num">3</span><h2>Scan response from phone</h2><span class="status" id="r-status-raw-scan">waiting</span></div>
+      <div class="step-head"><span class="num">2</span><h2>Scan response from phone</h2><span class="status" id="r-status-raw-scan">waiting</span></div>
       <div class="step-body">
         <div class="cam-frame"><video id="r-raw-video" playsinline muted></video><div class="reticle"></div></div>
         <div class="row" style="margin-top: 14px; justify-content: center;">
@@ -225,7 +305,7 @@
     </div>
 
     <div class="step disabled" id="r-step-recv">
-      <div class="step-head"><span class="num" id="r-step-recv-num">3</span><h2>Receiving</h2><span class="status" id="r-status-recv">waiting</span></div>
+      <div class="step-head"><span class="num" id="r-step-recv-num">2</span><h2>Receiving</h2><span class="status" id="r-status-recv">waiting</span></div>
       <div class="step-body">
         <div class="progress"><div class="progress-bar" id="r-progress"></div></div>
         <p class="sub" id="r-progress-text" style="text-align: center;">Waiting…</p>
@@ -291,7 +371,14 @@
     </div>
   </section>
 
-  <div class="log" id="log"><div class="entry info"><span class="t">[ready]</span><span class="m">Pick a backend and mode.</span></div></div>
+  <div class="log-dock" id="log-dock">
+    <div class="log-dock-head" id="log-dock-head">
+      <span class="label">LOG</span>
+      <span class="latest" id="log-latest">Ready.</span>
+      <span class="toggle">▾</span>
+    </div>
+    <div class="log" id="log"><div class="entry info"><span class="t">[ready]</span><span class="m">Pick a backend and mode.</span></div></div>
+  </div>
 
   <details>
     <summary>How the layers work</summary>
@@ -345,7 +432,16 @@ function log(msg, kind = 'info') {
   entry.querySelector('.m').textContent = msg;
   logEl.appendChild(entry);
   logEl.scrollTop = logEl.scrollHeight;
+  // Mirror the latest message in the collapsed-state header so the user can
+  // see activity even with the log collapsed.
+  const latest = $('log-latest');
+  if (latest) latest.textContent = msg;
 }
+
+// Toggle the log dock. Default state: expanded so users can see activity.
+$('log-dock-head').addEventListener('click', () => {
+  $('log-dock').classList.toggle('collapsed');
+});
 function setStatus(id, text, kind = '') {
   const el = $(id); if (!el) return;
   el.textContent = text; el.className = 'status' + (kind ? ' ' + kind : '');
@@ -435,7 +531,6 @@ function exampleData() {
 let currentBackend = 'peerjs';
 let currentMode = 'receive';
 let activeTransfer = null;
-let selectedSessionId = null;
 
 function applyVisibility() {
   $('receive-mode').classList.toggle('hidden', currentMode !== 'receive');
@@ -446,13 +541,58 @@ function applyVisibility() {
   $('s-step-pjs').classList.toggle('hidden', currentBackend !== 'peerjs');
   $('s-step-raw-scan').classList.toggle('hidden', currentBackend !== 'raw');
   $('s-step-raw-show').classList.toggle('hidden', currentBackend !== 'raw');
-  $('r-step-recv-num').textContent = currentBackend === 'raw' ? '4' : '3';
+  // Receive: PeerJS = step 1 + recv (2); Raw = show (1) + scan (2) + recv (3)
+  $('r-step-recv-num').textContent = currentBackend === 'raw' ? '3' : '2';
+  // Send: PeerJS = step 1 (sessions) + connect (2) + send (3); Raw = 1 + scan (2) + show (3) + send (4)
   $('s-step-send-num').textContent = currentBackend === 'raw' ? '4' : '3';
-  // Network banner is only relevant for the Raw backend (same-network requirement).
-  // For PeerJS, cross-network works fine and the banner would mislead.
   $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
   if (currentBackend === 'raw') updateNetworkIdUI();
-  if (currentMode === 'send') refreshSessionList();
+  // Refresh whichever session list is currently visible.
+  if (currentMode === 'send') refreshSessionList('send');
+  if (currentMode === 'receive') refreshSessionList('receive');
+  // Auto-manage the receive transfer: start when entering Receive mode,
+  // tear down when leaving. Backend changes also trigger restart.
+  syncReceiveTransfer();
+}
+
+// Manages the lifecycle of the receive-mode SessionTransfer. Called on every
+// mode/backend change. Idempotent — calling it repeatedly with the same state
+// won't restart anything.
+let receiveTransferState = null;  // 'peerjs' | 'raw' | null — what's currently running
+async function syncReceiveTransfer() {
+  const desired = currentMode === 'receive' ? currentBackend : null;
+  if (desired === receiveTransferState) return;  // nothing to do
+  // Tear down previous transfer if any
+  if (activeTransfer && receiveTransferState !== null) {
+    try { activeTransfer.close(); } catch {}
+    activeTransfer = null;
+    // Reset UI from previous backend
+    resetReceiveUI();
+  }
+  receiveTransferState = desired;
+  if (desired === null) return;  // user left Receive mode
+  // Start fresh transfer with current backend
+  activeTransfer = new SessionTransfer({ backend: desired });
+  wireTransferToReceiveUI(activeTransfer);
+  try {
+    await activeTransfer.startReceiving();
+  } catch (err) {
+    log('Failed to start receiving: ' + err.message, 'err');
+  }
+}
+
+function resetReceiveUI() {
+  // Clear QR areas and reset status indicators so a fresh start looks clean.
+  ['r-pjs-qr', 'r-raw-qr', 'r-raw-qr-info'].forEach(id => { const el = $(id); if (el) el.innerHTML = ''; });
+  const peer = $('r-pjs-peerid'); if (peer) peer.textContent = '…';
+  ['r-status-pjs', 'r-status-raw-show', 'r-status-raw-scan', 'r-status-recv'].forEach(id => setStatus(id, 'waiting'));
+  $('r-progress').style.width = '0';
+  $('r-progress-text').textContent = 'Waiting…';
+  // Re-disable the receive step (will be re-enabled when connection happens)
+  $('r-step-recv').classList.add('disabled');
+  // Stop any active webcam scanner on the receive side
+  if (r_raw_scanner) { try { r_raw_scanner.stop(); } catch {} r_raw_scanner = null; setCamButtons('r-raw', false); }
+  stopQRCycle('r-raw-qr');
 }
 
 // --- Public IP / "network ID" detection ---
@@ -525,14 +665,33 @@ document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', 
   currentMode = b.dataset.mode; applyVisibility();
 }));
 
-// --- Session list ---
-async function refreshSessionList() {
-  const list = $('s-session-list');
+// --- Session lists (used by both send and receive modes) ---
+// Selection is tracked separately per panel because their meanings differ:
+//   send: selection picks which session to transfer
+//   receive: selection enables Edit/Delete buttons for that panel
+let sendSelectedId = null;
+let receiveSelectedId = null;
+
+// Backwards-compat alias used by sender flow code below.
+function getSelectedSendSessionId() { return sendSelectedId; }
+
+async function refreshSessionList(panel) {
+  // panel is 'send' or 'receive' — render only one panel per call (cheaper)
+  // but if no arg given, refresh both.
+  if (!panel) {
+    await refreshSessionList('send');
+    await refreshSessionList('receive');
+    return;
+  }
+  const prefix = panel === 'send' ? 's' : 'r';
+  const list = $(`${prefix}-session-list`);
+  if (!list) return;
   list.innerHTML = '';
   const sessions = await listSessions();
+  const selectedId = panel === 'send' ? sendSelectedId : receiveSelectedId;
   for (const s of sessions) {
     const row = document.createElement('div');
-    row.className = 'session-row' + (s.id === selectedSessionId ? ' selected' : '');
+    row.className = 'session-row' + (s.id === selectedId ? ' selected' : '');
     row.innerHTML = `<div class="info"><div class="name"></div><div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div></div>`;
     row.querySelector('.name').textContent = s.name;
     row.querySelector('.id').textContent = s.id;
@@ -540,38 +699,77 @@ async function refreshSessionList() {
     row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
     row.querySelector('.mod').textContent = `modified ${formatRelative(s.modifiedAt)}`;
     row.addEventListener('click', () => {
-      selectedSessionId = s.id;
-      refreshSessionList();
-      $('s-edit-btn').disabled = false;
-      $('s-delete-btn').disabled = false;
-      enableStep('s-step-pjs'); enableStep('s-step-raw-scan');
-      setStatus('s-status-1', `selected: ${s.name}`, 'ok');
+      if (panel === 'send') {
+        sendSelectedId = s.id;
+        refreshSessionList('send');
+        $('s-edit-btn').disabled = false;
+        $('s-delete-btn').disabled = false;
+        enableStep('s-step-pjs'); enableStep('s-step-raw-scan');
+        setStatus('s-status-1', `selected: ${s.name}`, 'ok');
+      } else {
+        receiveSelectedId = s.id;
+        refreshSessionList('receive');
+        $('r-edit-btn').disabled = false;
+        $('r-delete-btn').disabled = false;
+      }
     });
     list.appendChild(row);
   }
+  // Update the count badge in the receive panel header
+  if (panel === 'receive') {
+    const badge = $('r-sessions-count');
+    if (badge) badge.textContent = sessions.length === 0 ? '(none)' : `(${sessions.length})`;
+  }
   if (sessions.length === 0) {
-    selectedSessionId = null;
-    $('s-edit-btn').disabled = true;
-    $('s-delete-btn').disabled = true;
+    if (panel === 'send') {
+      sendSelectedId = null;
+      $('s-edit-btn').disabled = true;
+      $('s-delete-btn').disabled = true;
+    } else {
+      receiveSelectedId = null;
+      $('r-edit-btn').disabled = true;
+      $('r-delete-btn').disabled = true;
+    }
   }
 }
 
-$('s-new-btn').addEventListener('click', () => showSessionModal(null));
+// --- Send-side session buttons ---
+$('s-new-btn').addEventListener('click', () => showSessionModal(null, 'send'));
 $('s-edit-btn').addEventListener('click', async () => {
-  if (!selectedSessionId) return;
-  const s = await getSession(selectedSessionId);
-  if (s) showSessionModal(s);
+  if (!sendSelectedId) return;
+  const s = await getSession(sendSelectedId);
+  if (s) showSessionModal(s, 'send');
 });
 $('s-delete-btn').addEventListener('click', async () => {
-  if (!selectedSessionId) return;
-  const s = await getSession(selectedSessionId);
+  if (!sendSelectedId) return;
+  const s = await getSession(sendSelectedId);
   if (!s) return;
   if (!confirm(`Delete "${s.name}"?`)) return;
-  await deleteSession(selectedSessionId);
-  selectedSessionId = null; log('Deleted.', 'ok'); refreshSessionList();
+  await deleteSession(sendSelectedId);
+  sendSelectedId = null;
+  log('Deleted.', 'ok');
+  refreshSessionList();
 });
 
-function showSessionModal(existing) {
+// --- Receive-side session buttons (identical UX, separate selection) ---
+$('r-new-btn').addEventListener('click', () => showSessionModal(null, 'receive'));
+$('r-edit-btn').addEventListener('click', async () => {
+  if (!receiveSelectedId) return;
+  const s = await getSession(receiveSelectedId);
+  if (s) showSessionModal(s, 'receive');
+});
+$('r-delete-btn').addEventListener('click', async () => {
+  if (!receiveSelectedId) return;
+  const s = await getSession(receiveSelectedId);
+  if (!s) return;
+  if (!confirm(`Delete "${s.name}"?`)) return;
+  await deleteSession(receiveSelectedId);
+  receiveSelectedId = null;
+  log('Deleted.', 'ok');
+  refreshSessionList();
+});
+
+function showSessionModal(existing, panel) {
   const isNew = !existing;
   const session = existing || { name: suggestSessionName(), data: exampleData() };
   const backdrop = document.createElement('div');
@@ -602,7 +800,8 @@ function showSessionModal(existing) {
       const fresh = { id: generateFriendlyId(), name, createdAt: now, modifiedAt: now, data };
       await putSession(fresh);
       log(`Created "${fresh.name}" (${fresh.id}).`, 'ok');
-      selectedSessionId = fresh.id;
+      if (panel === 'send') sendSelectedId = fresh.id;
+      else if (panel === 'receive') receiveSelectedId = fresh.id;
     } else {
       await putSession({ ...session, name, data, modifiedAt: now });
       log(`Updated "${name}".`, 'ok');
@@ -660,6 +859,7 @@ async function handleIncomingSession(payload) {
   if (!existing) {
     await putSession(incoming);
     log(`New session "${incoming.name}" stored (${Object.keys(incoming.data).length} records).`, 'ok');
+    refreshSessionList();
     return { ok: true, action: 'created' };
   }
   const choice = await showConflictModal(existing, incoming);
@@ -670,6 +870,7 @@ async function handleIncomingSession(payload) {
   if (choice === 'replace') {
     await putSession(incoming);
     log(`Replaced "${existing.name}".`, 'ok');
+    refreshSessionList();
     return { ok: true, action: 'replaced' };
   }
   // merge
@@ -683,6 +884,7 @@ async function handleIncomingSession(payload) {
   const added = Object.keys(merged.data).length - Object.keys(existing.data).length;
   const overlap = Object.keys(incoming.data).filter(k => k in existing.data).length;
   log(`Merged: +${added} new, ${overlap} overwritten.`, 'ok');
+  refreshSessionList();
   return { ok: true, action: 'merged' };
 }
 
@@ -782,19 +984,6 @@ function wireTransferToReceiveUI(t) {
   t.onPayload = handleIncomingSession;
 }
 
-$('r-start').addEventListener('click', async () => {
-  if (activeTransfer) { activeTransfer.close(); }
-  activeTransfer = new SessionTransfer({ backend: currentBackend });
-  wireTransferToReceiveUI(activeTransfer);
-  setStatus('r-status-1', 'running', 'ok');
-  try {
-    await activeTransfer.startReceiving();
-  } catch (err) {
-    log('Failed to start: ' + err.message, 'err');
-    setStatus('r-status-1', 'error', 'err');
-  }
-});
-
 // --- Raw receiver: scan answer QR back into library ---
 let r_raw_scanner = null;
 $('r-raw-cam-start').addEventListener('click', async () => {
@@ -845,8 +1034,8 @@ function wireTransferToSendUI(t) {
 }
 
 async function startSenderPeerJS(targetPeerId) {
-  if (!selectedSessionId) { log('Pick a session first.', 'err'); return; }
-  const session = await getSession(selectedSessionId);
+  if (!sendSelectedId) { log('Pick a session first.', 'err'); return; }
+  const session = await getSession(sendSelectedId);
   if (!session) { log('Session not found.', 'err'); return; }
   if (activeTransfer) activeTransfer.close();
   activeTransfer = new SessionTransfer({ backend: 'peerjs' });
@@ -890,14 +1079,14 @@ $('s-pjs-cam-stop').addEventListener('click', () => {
 // --- Raw sender ---
 let s_raw_scanner = null;
 $('s-raw-cam-start').addEventListener('click', async () => {
-  if (!selectedSessionId) { log('Pick a session first.', 'err'); return; }
+  if (!sendSelectedId) { log('Pick a session first.', 'err'); return; }
   if (s_raw_scanner) return;
   if (!activeTransfer || activeTransfer.backend !== 'raw') {
     if (activeTransfer) activeTransfer.close();
     activeTransfer = new SessionTransfer({ backend: 'raw' });
     wireTransferToSendUI(activeTransfer);
     // Queue the payload — library sends it when channel opens
-    const session = await getSession(selectedSessionId);
+    const session = await getSession(sendSelectedId);
     activeTransfer.send(session);
   }
   try {
@@ -925,8 +1114,11 @@ window.addEventListener('load', async () => {
   } else {
     log('Ready. The demo uses webshare-transfer.js as a library.', 'ok');
   }
-  applyVisibility();
-  refreshSessionList();
+  await refreshSessionList();
+  // Open the receive-mode sessions panel automatically if there's data to show.
+  const existing = await listSessions();
+  if (existing.length > 0) $('r-sessions-panel').open = true;
+  applyVisibility();  // also triggers auto-start of receive transfer
 });
 </script>
 </body>
