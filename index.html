@@ -3,7 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Session Transfer · Demo</title>
+<title>P2P Transfer</title>
+
+<!-- PWA manifest: enables Add to Home Screen on Chromium and the iOS
+     "Add to Home Screen" flow. The manifest itself lives at /manifest.json
+     in the deployed app. Icons must exist at icon-192.png / icon-512.png. -->
+<link rel="manifest" href="manifest.json">
+
+<!-- iOS-specific PWA support. iOS doesn't read most manifest.json fields,
+     so we duplicate the essentials via meta tags. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="P2P Transfer">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<!-- Theme color used by Chrome on Android for the system UI -->
+<meta name="theme-color" content="#00A6D6">
+
 <style>
   :root {
     /* TU Delft brand colors */
@@ -44,12 +60,6 @@
     display: flex; align-items: center; padding: 0 14px;
     z-index: 10;
   }
-  .topbar .back-btn {
-    background: transparent; border: none; padding: 6px 10px;
-    font-size: 22px; color: var(--accent-deep); cursor: pointer;
-    line-height: 1; transition: opacity 0.15s;
-  }
-  .topbar .back-btn:disabled { opacity: 0.25; cursor: not-allowed; }
   .topbar .title {
     flex: 1; text-align: center;
     font-size: 12px; font-weight: 700; color: var(--ink-soft);
@@ -57,13 +67,26 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .topbar .title em { font-style: normal; color: var(--accent); }
-  .topbar .sessions-btn {
-    background: var(--bg); border: 1px solid var(--line); padding: 6px 10px;
-    font-family: var(--sans); font-size: 11px; font-weight: 600; color: var(--ink-soft);
-    cursor: pointer; letter-spacing: 0.04em;
+
+  /* Identity badge — top-right entry point to the My device panel.
+     Always present; before identity is set, only the empty device frame
+     shows. Tap target is the whole button. Subtle opacity hover signals
+     interactivity without competing for attention. */
+  .topbar .identity-badge {
+    display: flex; align-items: center; gap: 8px;
+    background: transparent; border: none; padding: 4px 6px 4px 10px;
+    cursor: pointer; max-width: 160px; min-width: 0;
+    transition: opacity 0.15s;
+    margin-left: auto;
   }
-  .topbar .sessions-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .topbar .sessions-btn .count { color: var(--accent); font-weight: 700; }
+  .topbar .identity-badge:hover { opacity: 0.7; }
+  .topbar .identity-badge:active { opacity: 0.5; }
+  .topbar .identity-badge-name {
+    font-size: 12px; font-weight: 600; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+  }
+  .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
 
   /* ===== Screen container ===== */
   .stage {
@@ -308,6 +331,338 @@
     .plane-path { animation: none; opacity: 0; }
     .plane { animation: none; opacity: 0; }
     .sent-headline, .sent-subline { animation: none; opacity: 1; transform: none; }
+    .sent-actions-hidden { opacity: 1 !important; pointer-events: auto !important; }
+  }
+
+  /* In-content action buttons (Start over / Send another). Placed inside the
+     content area so they're contextually adjacent to the message they relate
+     to, rather than floating in a global nav bar. */
+  .transfer-actions {
+    margin-top: 28px;
+    display: flex; gap: 10px; justify-content: center;
+  }
+  .transfer-actions button {
+    min-width: 200px; height: 44px;
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .transfer-actions button:hover:not(:disabled):not(.primary) {
+    border-color: var(--accent); color: var(--accent);
+  }
+  .transfer-actions button.primary {
+    background: var(--accent); color: #FFFFFF; border-color: var(--accent);
+  }
+  .transfer-actions button.primary:hover:not(:disabled) {
+    background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark);
+  }
+
+  /* The "Send another" button in the sent view fades in 0.4s AFTER the
+     subline finishes — total delay 2.6s from screen entry, which is roughly
+     when the plane animation ends. Hidden until then so the user isn't
+     tempted to dismiss the moment. */
+  .sent-actions-hidden {
+    opacity: 0; pointer-events: none;
+    animation: sent-text-in 0.5s ease-out 2.6s forwards;
+  }
+
+  /* ===== Onboarding overlay (home → disclaimer → setup) ===== */
+  /* The onboarding overlay sits above everything else at z-index 1000. The
+     entire viewport is filled. Each .ob-screen is a flex container that
+     centers its content vertically. Screens are stacked but only the
+     active one is visible (others have .hidden). Forward-only navigation. */
+  .onboarding {
+    position: fixed; inset: 0; background: var(--bg);
+    z-index: 1000;
+    display: flex; flex-direction: column;
+  }
+  .onboarding.hidden { display: none; }
+  .ob-screen {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 32px 24px;
+    overflow: hidden;
+  }
+  .ob-screen.hidden { display: none; }
+  .ob-content {
+    width: 100%; max-width: 380px;
+    display: flex; flex-direction: column; align-items: stretch;
+  }
+  .ob-content-scroll {
+    max-height: 100%; overflow-y: auto;
+  }
+
+  /* Home screen */
+  .ob-plane {
+    width: 88px; height: 88px;
+    display: block; margin: 0 auto 28px;
+  }
+  .ob-title {
+    text-align: center; font-size: 34px; font-weight: 700;
+    color: var(--ink); margin: 0 0 12px;
+    letter-spacing: -0.01em;
+  }
+  .ob-title em { font-style: normal; color: var(--accent); }
+  .ob-tagline {
+    text-align: center; color: var(--dim); font-size: 15px;
+    margin: 0 0 36px; line-height: 1.55;
+  }
+
+  /* Buttons used across onboarding */
+  .ob-btn {
+    width: 100%; padding: 14px;
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    border: none; cursor: pointer; transition: background 0.15s, opacity 0.15s;
+  }
+  .ob-btn.primary {
+    background: var(--accent); color: #FFFFFF;
+  }
+  .ob-btn.primary:hover:not(:disabled) { background: var(--tud-cyan-dark); }
+  .ob-btn.primary:disabled {
+    background: var(--accent); opacity: 0.35; cursor: not-allowed;
+  }
+  .ob-btn.secondary {
+    background: var(--bg); color: var(--ink-soft);
+    border: 1px solid var(--line);
+  }
+  .ob-btn.secondary:hover:not(:disabled) {
+    border-color: var(--accent); color: var(--accent);
+  }
+  .ob-btn.saved { background: var(--ok); }
+
+  /* Disclaimer screen */
+  .ob-disc-title {
+    font-size: 22px; font-weight: 700; color: var(--ink);
+    margin: 0 0 24px;
+  }
+  .ob-disc-section {
+    margin-bottom: 20px;
+  }
+  .ob-disc-heading {
+    font-size: 13px; font-weight: 700; color: var(--accent);
+    margin-bottom: 6px;
+    letter-spacing: 0.01em;
+  }
+  .ob-disc-section p {
+    font-size: 14px; line-height: 1.55; color: var(--ink-soft);
+    margin: 0;
+  }
+  .ob-disc-agree {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin: 28px 0 20px;
+    cursor: pointer;
+    font-size: 14px; color: var(--ink); line-height: 1.45;
+  }
+  .ob-disc-agree input[type="checkbox"] {
+    margin: 2px 0 0 0;
+    accent-color: var(--accent);
+    width: 18px; height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  /* Setup screen */
+  .ob-device-frame {
+    display: flex; justify-content: center;
+    margin: 0 auto 24px;
+  }
+  .ob-device-frame svg {
+    cursor: pointer;
+    transition: transform 120ms ease-out;
+  }
+  .ob-device-frame svg:hover { transform: scale(1.03); }
+  .ob-field-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 6px;
+  }
+  #ob-setup-pick input.netid,
+  #ob-setup-pick input.netid:focus {
+    width: 100%; font-size: 16px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    border: 1px solid var(--line);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  #ob-setup-pick input.netid:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 166, 214, 0.15);
+  }
+  #ob-setup-pick input.netid.error::placeholder { color: var(--warn); opacity: 1; }
+  #ob-setup-pick input.netid.error::-webkit-input-placeholder { color: var(--warn); }
+  #ob-setup-pick input.netid.error::-moz-placeholder { color: var(--warn); opacity: 1; }
+
+  /* Setup confirmation step (Save → "Are you sure?") */
+  .ob-confirm-warn {
+    text-align: center; color: var(--warn); font-size: 13px;
+    margin: -16px 0 24px;
+  }
+  .ob-confirm-netid {
+    font-size: 16px; padding: 12px 14px;
+    margin-bottom: 22px;
+    border: 1px solid var(--line);
+    background: var(--bg-soft, #F7F8FA);
+    color: var(--ink);
+    font-family: var(--mono, monospace);
+  }
+  .ob-confirm-actions {
+    display: flex; gap: 10px;
+  }
+  .ob-confirm-actions .ob-btn {
+    flex: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ob-device-frame svg { transition: none; }
+    .ob-device-frame svg:hover { transform: none; }
+  }
+
+  /* ===== My device panel (opened by tapping the identity badge) ===== */
+  /* Full-screen modal on mobile; uses the existing modal-backdrop pattern.
+     Sections separated by a thin divider for scannability. Identity section
+     at the top mirrors the topbar badge but enlarged. */
+  .mydev-modal { display: flex; flex-direction: column; }
+  .mydev-section {
+    padding: 18px 18px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .mydev-section:last-of-type { border-bottom: none; }
+  .mydev-section-head {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim);
+    margin-bottom: 12px;
+  }
+
+  .mydev-identity {
+    display: flex; align-items: center; gap: 16px;
+    padding-top: 22px; padding-bottom: 22px;
+  }
+  .mydev-identity-svg svg { display: block; }
+  .mydev-identity-name {
+    font-size: 18px; font-weight: 700; color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .mydev-identity-device {
+    font-size: 13px; color: var(--dim);
+    text-transform: capitalize;
+  }
+
+  .mydev-sessions-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px;
+  }
+  .mydev-sessions-count {
+    font-size: 14px; color: var(--ink-soft);
+  }
+  #mydev-session-count {
+    font-size: 22px; font-weight: 700; color: var(--ink);
+    margin-right: 6px;
+  }
+  .mydev-sessions-label { color: var(--dim); }
+  .mydev-browse-btn {
+    background: var(--bg); border: 1px solid var(--line);
+    padding: 9px 14px; font-family: var(--sans); font-size: 12px;
+    font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--ink-soft); cursor: pointer; transition: all 0.15s;
+  }
+  .mydev-browse-btn:hover {
+    border-color: var(--accent); color: var(--accent);
+  }
+
+  .mydev-storage-state {
+    margin-bottom: 14px;
+  }
+  .mydev-storage-state.ok { margin-bottom: 0; }
+  .mydev-storage-label {
+    font-size: 15px; font-weight: 700; color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .mydev-storage-state.ok .mydev-storage-label { color: var(--ok); }
+  .mydev-storage-state p {
+    font-size: 13px; color: var(--ink-soft); line-height: 1.5;
+    margin: 0;
+  }
+  .mydev-install-btn {
+    width: 100%; padding: 12px;
+    background: var(--accent); color: #FFFFFF; border: none;
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    cursor: pointer; transition: background 0.15s;
+    margin-bottom: 8px;
+  }
+  .mydev-install-btn:hover { background: var(--tud-cyan-dark); }
+  .mydev-install-hint {
+    font-size: 12px; color: var(--dim); line-height: 1.45;
+    margin: 0;
+  }
+
+  .mydev-ios-steps {
+    padding-left: 22px;
+    margin: 0 0 14px;
+  }
+  .mydev-ios-steps li {
+    font-size: 14px; line-height: 1.6; color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+  .mydev-ios-steps li strong { color: var(--ink); font-weight: 700; }
+  .mydev-back-btn {
+    background: transparent; border: 1px solid var(--line);
+    padding: 10px 16px; font-family: var(--sans); font-size: 12px;
+    font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--ink-soft); cursor: pointer; transition: all 0.15s;
+    margin-top: 8px;
+  }
+  .mydev-back-btn:hover {
+    border-color: var(--accent); color: var(--accent);
+  }
+
+  .mydev-footer {
+    padding: 16px 18px;
+    text-align: center;
+    font-size: 11px; color: var(--dim);
+    border-top: 1px solid var(--line-soft);
+  }
+
+  /* ===== Identity modal (first-use setup + edit-via-settings) ===== */
+  /* Device frame with rolling emoji "screen". Whole SVG is the tap target;
+     hover gives a small scale-up to suggest tappability (desktop only).
+     The reroll discovery is intentionally hint-less — easter egg. */
+  .identity-frame {
+    display: block; margin: 0 auto;
+    cursor: pointer;
+    transition: transform 120ms ease-out;
+  }
+  .identity-frame:hover { transform: scale(1.03); }
+  .identity-emoji { transform-origin: center; }
+  .identity-modal h3 { text-align: center; margin: 0 0 18px; font-size: 18px; font-weight: 700; }
+  .identity-modal .field-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 6px;
+  }
+  .identity-modal input.netid {
+    width: 100%; font-size: 16px;
+    padding: 12px 14px; border: 1px solid var(--line);
+    outline: none; transition: border-color 0.15s;
+  }
+  .identity-modal input.netid:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 166, 214, 0.15); }
+  /* Error state: placeholder turns red, no border change (per the design
+     decision in the conversation — keep the input visually calm, only the
+     text changes). */
+  .identity-modal input.netid.error::placeholder { color: var(--warn); opacity: 1; }
+  .identity-modal input.netid.error::-webkit-input-placeholder { color: var(--warn); }
+  .identity-modal input.netid.error::-moz-placeholder { color: var(--warn); opacity: 1; }
+  .identity-modal .save-btn {
+    width: 100%; padding: 12px; margin-top: 18px;
+    background: var(--accent); color: #FFFFFF; border: none;
+    font-family: var(--sans); font-size: 14px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .identity-modal .save-btn:hover { background: var(--tud-cyan-dark); }
+  .identity-modal .save-btn.saved { background: var(--ok); }
+  /* Honor reduced motion: skip the slot animation; emoji just appears. */
+  @media (prefers-reduced-motion: reduce) {
+    .identity-frame { transition: none; }
+    .identity-frame:hover { transform: none; }
   }
 
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -407,11 +762,116 @@
 </head>
 <body>
 
+<!-- ONBOARDING OVERLAY (home → disclaimer → setup) -->
+<!-- Full-viewport overlay shown only on first run. Linear forward-only flow:
+     the user can't navigate back between these screens. Once they finish
+     setup, the overlay is removed and the main app is revealed. Returning
+     users (both `identity` AND `consentAgreed` in IDB) skip this entirely.
+     Hidden by default (no `active` class); JS reveals it at startup if
+     onboarding is needed. -->
+<div class="onboarding hidden" id="onboarding" data-step="home">
+
+  <!-- Home screen: minimal welcome -->
+  <section class="ob-screen" data-ob-screen="home">
+    <div class="ob-content">
+      <svg class="ob-plane" viewBox="0 0 80 80" aria-hidden="true">
+        <path d="M 6 40 L 76 12 L 50 70 L 42 50 Z" fill="var(--accent)"/>
+        <path d="M 42 50 L 76 12 L 50 50 Z" fill="var(--tud-cyan-dark)"/>
+      </svg>
+      <h1 class="ob-title">P2P <em>Transfer</em></h1>
+      <p class="ob-tagline">Move sessions between devices,<br>directly and privately.</p>
+      <button class="ob-btn primary" id="ob-home-btn">Get started</button>
+    </div>
+  </section>
+
+  <!-- Disclaimer screen: scannable, with checkbox -->
+  <section class="ob-screen hidden" data-ob-screen="disclaimer">
+    <div class="ob-content ob-content-scroll">
+      <h2 class="ob-disc-title">Before you begin</h2>
+
+      <div class="ob-disc-section">
+        <div class="ob-disc-heading">Local-first</div>
+        <p>Sessions and your identity are stored in this browser only. There's no account, no server-side storage, no cloud sync.</p>
+      </div>
+
+      <div class="ob-disc-section">
+        <div class="ob-disc-heading">You're in control of transfers</div>
+        <p>Data moves between devices only when you actively scan or share a QR code. Each transfer is a deliberate action.</p>
+      </div>
+
+      <div class="ob-disc-section">
+        <div class="ob-disc-heading">Peer-to-peer</div>
+        <p>Devices connect directly. With "PeerJS" mode, a public signaling server (peerjs.com) helps the two devices find each other, but your data never passes through it. With "Raw WebRTC" mode, no server is involved at all.</p>
+      </div>
+
+      <div class="ob-disc-section">
+        <div class="ob-disc-heading">Stays on this device</div>
+        <p>Your identity and sessions are stored here only. They're removed if you clear browser data or uninstall this app. For longest-term storage, install this as an app.</p>
+      </div>
+
+      <div class="ob-disc-section">
+        <div class="ob-disc-heading">A prototype from TU Delft</div>
+        <p>This is a demonstration. Treat it as a working draft rather than a production tool.</p>
+      </div>
+
+      <label class="ob-disc-agree">
+        <input type="checkbox" id="ob-disc-checkbox">
+        <span>I have read and understood the above.</span>
+      </label>
+
+      <button class="ob-btn primary" id="ob-disc-btn" disabled>Continue →</button>
+    </div>
+  </section>
+
+  <!-- Setup screen: device frame + slot machine + NetID input -->
+  <!-- The setup view here is the same UI as the editable identity modal,
+       but rendered inline as part of onboarding (no modal backdrop). The
+       confirmation step is built into the same screen — when the user
+       hits Save with valid input, the screen swaps to a confirmation
+       view before committing. -->
+  <section class="ob-screen hidden" data-ob-screen="setup">
+    <div class="ob-content ob-content-scroll">
+
+      <!-- Initial setup view -->
+      <div id="ob-setup-pick">
+        <div class="ob-device-frame" id="ob-setup-device"></div>
+        <h2 class="ob-disc-title" id="ob-setup-title">Set up your device's identity</h2>
+        <div class="ob-field-label">Your NetID</div>
+        <input type="text" class="netid" id="ob-setup-netid" placeholder="" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="ob-btn primary" id="ob-setup-save">Save</button>
+      </div>
+
+      <!-- Confirmation view (shown after first Save click with valid input) -->
+      <div class="hidden" id="ob-setup-confirm">
+        <div class="ob-device-frame" id="ob-confirm-device"></div>
+        <h2 class="ob-disc-title">Save this as your identity?</h2>
+        <p class="ob-confirm-warn">This can't be changed later.</p>
+        <div class="ob-field-label">Your NetID</div>
+        <div class="ob-confirm-netid" id="ob-confirm-netid"></div>
+        <div class="ob-confirm-actions">
+          <button class="ob-btn secondary" id="ob-confirm-back">Go back</button>
+          <button class="ob-btn primary" id="ob-confirm-save">Yes, save</button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</div>
+
 <!-- TOPBAR -->
+<!-- Identity badge is on the right side; the left is intentionally empty
+     to keep the wordmark visually anchored against the badge. The badge is
+     tappable and opens the My device panel where the user can see their
+     sessions, storage status, install the app, etc. Before identity is set
+     (an edge case since onboarding requires it), the badge shows just the
+     empty device shape. -->
 <header class="topbar">
-  <button class="back-btn" id="topbar-back" aria-label="Back">←</button>
-  <div class="title" id="topbar-title">Session <em>transfer</em></div>
-  <button class="sessions-btn" id="topbar-sessions" aria-label="Sessions">Sessions <span class="count" id="topbar-sessions-count">0</span></button>
+  <div class="title" id="topbar-title">P2P <em>Transfer</em></div>
+  <button class="identity-badge" id="topbar-identity" aria-label="My device">
+    <span class="identity-badge-svg" id="topbar-identity-svg"></span>
+    <span class="identity-badge-name" id="topbar-identity-name"></span>
+  </button>
 </header>
 
 <!-- STAGE -->
@@ -501,10 +961,12 @@
 
   <!-- ============ TRANSFERRING / DONE ============ -->
   <section class="screen hidden" data-screen="transfer">
-    <div class="screen-header">
+    <div class="screen-header" id="transfer-header">
       <div class="screen-eyebrow"><span class="num" id="transfer-num">3</span> · <span id="transfer-of">OF 3</span></div>
       <h1 class="screen-title" id="transfer-title">Transferring…</h1>
-      <p class="screen-subtitle" id="transfer-subtitle">Please wait while the data is moved.</p>
+      <!-- Note: no static subtitle here. All dynamic status text lives below
+           the progress bar in #transfer-status, so it's always co-located with
+           what's actually happening. -->
     </div>
     <div class="screen-content">
 
@@ -518,6 +980,13 @@
         <div class="hidden" id="transfer-sessions-panel" style="margin-top: 26px;">
           <div class="screen-eyebrow" style="margin-bottom: 10px;">Sessions on this device · <span id="transfer-sessions-count">0</span></div>
           <div class="session-list" id="transfer-session-list"></div>
+        </div>
+
+        <!-- Inline action area: only rendered when a terminal state is reached
+             (done on receiver, or error on either side). During active transfer
+             this is empty so there's no button to confuse the user. -->
+        <div class="transfer-actions hidden" id="transfer-progress-actions">
+          <button class="primary" id="progress-restart-btn">Start over</button>
         </div>
       </div>
 
@@ -539,6 +1008,12 @@
         </div>
         <h2 class="sent-headline" id="sent-headline">Sent!</h2>
         <p class="sent-subline" id="sent-subline">Your session has been delivered.</p>
+        <!-- The "Send another" button is rendered here, INSIDE the content area
+             rather than in the bottom nav bar, and only appears after the
+             plane animation finishes (controlled by a delayed reveal class). -->
+        <div class="transfer-actions sent-actions-hidden" id="transfer-sent-actions">
+          <button class="primary" id="sent-restart-btn">Send another →</button>
+        </div>
       </div>
 
     </div>
@@ -556,8 +1031,10 @@
   <div class="log" id="log"></div>
 </div>
 
-<!-- BOTTOM NAV -->
-<nav class="bottombar">
+<!-- BOTTOM NAV — hidden on the transfer screen since the action buttons
+     for that screen live inline with the content (under the animation /
+     under the status). See updateNavBar(). -->
+<nav class="bottombar" id="bottombar">
   <button id="nav-back">← Back</button>
   <button id="nav-next" class="primary" disabled>Continue →</button>
 </nav>
@@ -648,6 +1125,67 @@ async function deleteSession(id) {
   tx.objectStore('sessions').delete(id);
   await txPromise(tx); db.close();
 }
+
+// ---------- IndexedDB (preferences) ----------
+// Stores device identity (emoji + nickname/NetID), dev-mode flag, and any
+// other per-device settings. Single-key store; values are JSON objects.
+// Kept in a separate database from sessions because the lifecycles differ —
+// sessions are payloads, preferences are settings.
+const PREFS_DB = 'webshare-demo-prefs';
+function openPrefsDb() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(PREFS_DB, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('preferences')) db.createObjectStore('preferences', { keyPath: 'key' });
+    };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+async function getPref(key) {
+  const db = await openPrefsDb();
+  const tx = db.transaction('preferences', 'readonly');
+  const r = tx.objectStore('preferences').get(key);
+  const result = await new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  db.close();
+  return result ? result.value : null;
+}
+async function setPref(key, value) {
+  const db = await openPrefsDb();
+  const tx = db.transaction('preferences', 'readwrite');
+  tx.objectStore('preferences').put({ key, value });
+  await txPromise(tx); db.close();
+}
+
+// ---------- Device detection ----------
+// Runs once at module load. Categorises the current device into one of
+// three buckets for the purposes of the device icon shown next to a
+// transfer. The heuristic combines pointer type (coarse = touch primary)
+// with viewport dimensions. Imperfect on hybrid devices but good enough
+// since the icon is decorative, not load-bearing.
+const DEVICE_TYPE = (() => {
+  const isCoarse = matchMedia && matchMedia('(pointer: coarse)').matches;
+  const minDim = Math.min(window.innerWidth, window.innerHeight);
+  if (isCoarse) {
+    if (minDim < 600) return 'phone';
+    if (minDim <= 1100) return 'tablet';
+    return 'laptop';
+  }
+  return 'laptop';
+})();
+
+// ---------- Emoji set for device identity ----------
+// 29 emojis, curated for distinct silhouettes at small sizes (audit rows
+// show these at 16px) and vibrant colors. See past design discussion for
+// rationale on the specific picks.
+const IDENTITY_EMOJIS = [
+  '🦄','🐼','🐧','🐸','🦊','🐰','🐮','🐷','🐨','🐶','🐔',
+  '🍿','🍆','🥑','🍑','🍕','🍩','🍒',
+  '⚡','🌈','☀️','🌙','🔥','🚀',
+  '🌵','🌻','🍄','⭐',
+  '❤️'
+];
 
 function suggestSessionName() {
   const d = new Date();
@@ -911,10 +1449,15 @@ function prevStep() { goToStep(currentStep - 1, 'back'); }
 function updateNavBar() {
   const flow = activeFlow();
   const screenId = flow[currentStep];
-  $('topbar-back').disabled = currentStep === 0;
+  // Transfer screen has its own inline actions — hide the global bottom nav.
+  // For every other screen, show it and configure the buttons.
+  const bottombar = $('bottombar');
+  if (screenId === 'transfer') {
+    bottombar.classList.add('hidden');
+    return;
+  }
+  bottombar.classList.remove('hidden');
   $('nav-back').disabled = currentStep === 0;
-  // Hide bottom nav back/next on certain screens; show on others
-  // Default: back enabled (except step 0), next disabled until per-screen logic enables it
   const nextBtn = $('nav-next');
   nextBtn.disabled = true;
   nextBtn.textContent = 'Continue →';
@@ -930,11 +1473,6 @@ function updateNavBar() {
   } else if (screenId === 'scan-qr') {
     nextBtn.textContent = 'Scanning…';
     nextBtn.disabled = true;
-  } else if (screenId === 'transfer') {
-    // While transfer is in progress, the only useful action is to abandon
-    // and start over. The button is enabled so users can bail if something hangs.
-    nextBtn.textContent = 'Start over';
-    nextBtn.disabled = false;
   }
 }
 
@@ -1137,7 +1675,9 @@ async function onScanResult(data) {
       await activeTransfer.send(session);
     } catch (err) {
       log('Connect failed: ' + err.message, 'err');
+      $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Connection failed: ' + err.message, 'err');
+      showProgressRestartButton('Start over');
     }
   } else if (isRawSender || isRawReceiver) {
     // 'data' is a QR chunk — feed back to library; library will advance via events
@@ -1168,30 +1708,56 @@ function setupTransferScreen() {
   $('transfer-progress-view').classList.remove('hidden');
   $('transfer-sent-view').classList.add('hidden');
   // Restore the screen header (may have been hidden by a previous sender flow)
-  document.querySelector('[data-screen="transfer"] .screen-header').classList.remove('hidden');
-  // Hide the post-transfer session list until 'done' status fires
+  $('transfer-header').classList.remove('hidden');
+  // Hide post-transfer session list and inline action buttons until a
+  // terminal state fires (done or error).
   $('transfer-sessions-panel').classList.add('hidden');
   $('transfer-session-list').innerHTML = '';
+  $('transfer-progress-actions').classList.add('hidden');
+  // Title reflects what the device is doing. Status line under the progress
+  // bar carries the granular detail. No static subtitle exists in the markup
+  // anymore — the previous "Please wait while the data is moved" was stale
+  // and never reflected actual state.
   if (currentMode === 'send') {
     $('transfer-title').textContent = 'Sending session';
     setTransferStatus('Connecting…');
   } else {
     $('transfer-title').textContent = 'Receiving';
-    setTransferStatus('Waiting for data…');
+    setTransferStatus('Waiting for sender…');
   }
 }
 
-// Sender's success state: swap the progress view for the paper-plane animation,
-// hide the screen header (the title/subtitle don't add anything once landed),
-// and update the nav bar to remove the now-meaningless Back affordance.
-// The headline and subline are chosen based on what the receiver did, so the
-// sender gets explicit feedback on the outcome rather than a generic "sent".
+// Show the inline "Start over" button at terminal states (done or error).
+// Used by both progress-view (receiver done, any error) and sent-view (CSS
+// handles the sent-view button's delayed reveal, so this is only called for
+// the progress view).
+function showProgressRestartButton(label = 'Start over') {
+  const area = $('transfer-progress-actions');
+  area.classList.remove('hidden');
+  $('progress-restart-btn').textContent = label;
+}
+
+// Sender's success state: swap the progress view for the paper-plane
+// animation. The bottom nav bar is already hidden by updateNavBar() since
+// we're on the transfer screen, so no nav button management needed here.
+// The "Send another" button lives inside the sent view and reveals itself
+// via CSS animation 2.6s after the screen swap (after the plane lands).
+// The headline and subline are chosen based on what the receiver did, so
+// the sender gets explicit feedback on the outcome.
 function showSentAnimation() {
   $('transfer-progress-view').classList.add('hidden');
   $('transfer-sent-view').classList.remove('hidden');
+  // Reset the sent-actions animation by removing/re-adding the class so the
+  // delayed reveal fires fresh each time (in case user does multiple sends
+  // in the same page session without a hard reload).
+  const actions = $('transfer-sent-actions');
+  actions.classList.remove('sent-actions-hidden');
+  void actions.offsetWidth;  // force reflow so the animation restarts
+  actions.classList.add('sent-actions-hidden');
+
   // Choose headline + subline based on the receiver's reported action.
-  // receiverAction comes from onAck — may not have arrived yet on slow networks,
-  // but in practice onAck fires immediately before status='done' (see library).
+  // receiverAction comes from onAck — fires immediately before status='done'
+  // in the library, so it's always set by the time we run.
   let headline = 'Sent!';
   let subline  = 'Your session has been delivered.';
   if (receiverError) {
@@ -1220,17 +1786,8 @@ function showSentAnimation() {
   }
   $('sent-headline').textContent = headline;
   $('sent-subline').textContent = subline;
-  // Clear the screen header so the page is just plane + headline + Start over
-  $('transfer-title').textContent = '';
-  $('transfer-subtitle').textContent = '';
-  document.querySelector('[data-screen="transfer"] .screen-header').classList.add('hidden');
-  // Disable both back buttons — going back means a stale QR screen
-  $('topbar-back').disabled = true;
-  $('nav-back').disabled = true;
-  // Re-style the Continue button so it reads as "send another", not "next step"
-  const nextBtn = $('nav-next');
-  nextBtn.disabled = false;
-  nextBtn.textContent = 'Send another →';
+  // Hide the screen header so the moment is just plane + headline + button
+  $('transfer-header').classList.add('hidden');
 }
 function setTransferStatus(text, kind = '') {
   const el = $('transfer-status');
@@ -1246,6 +1803,9 @@ async function revealPostTransferSessions() {
   const list  = $('transfer-session-list');
   panel.classList.remove('hidden');
   list.innerHTML = '';
+  // Reveal the inline action button — the receiver's terminal state should
+  // give them a way to start over without the bottom nav.
+  showProgressRestartButton('Start over');
 
   const sessions = await listSessions();
   $('transfer-sessions-count').textContent = sessions.length;
@@ -1327,12 +1887,18 @@ function wireTransferToReceiveUI(t) {
   });
   t.on('status', (s) => {
     if (s === 'done') {
+      // Title reflects the terminal state. Status line carries the detail.
+      $('transfer-title').textContent = 'Received';
       setTransferStatus('Done.', 'ok');
       // justTransferredId was set by handleIncomingSession above; reveal the
-      // session list with that row highlighted.
+      // session list with that row highlighted and the Start Over button.
       revealPostTransferSessions();
     }
-    if (s === 'error') setTransferStatus('Error during receive', 'err');
+    if (s === 'error') {
+      $('transfer-title').textContent = 'Something went wrong';
+      setTransferStatus('Error during receive.', 'err');
+      showProgressRestartButton('Start over');
+    }
   });
   t.onPayload = handleIncomingSession;
 }
@@ -1395,7 +1961,11 @@ function wireTransferToSendUI(t) {
       // (onAck fires immediately before status='done' in the library).
       showSentAnimation();
     }
-    if (s === 'error') setTransferStatus('Error during send', 'err');
+    if (s === 'error') {
+      $('transfer-title').textContent = 'Something went wrong';
+      setTransferStatus('Error during send.', 'err');
+      showProgressRestartButton('Start over');
+    }
   });
   t.onAck = (response, error) => {
     // Store the receiver's verdict for showSentAnimation to read. We don't
@@ -1506,14 +2076,20 @@ function showConflictModal(existing, incoming) {
 }
 
 // =====================================================================
-// Sessions modal (accessible from topbar on any screen)
+// Sessions modal (reached via the My device panel → Browse sessions)
 // =====================================================================
+// The count is no longer permanently displayed in the topbar; it now
+// lives inside the My device panel. When the panel is open and the
+// count changes (e.g. a new transfer just landed), this updates the
+// number in place. When the panel isn't open, the next time it opens
+// it'll fetch fresh.
+let mostRecentSessionCount = 0;
 async function refreshSessionsCount() {
   const all = await listSessions();
-  $('topbar-sessions-count').textContent = all.length;
+  mostRecentSessionCount = all.length;
+  const countEl = document.getElementById('mydev-session-count');
+  if (countEl) countEl.textContent = all.length;
 }
-
-$('topbar-sessions').addEventListener('click', showSessionsModal);
 
 async function showSessionsModal() {
   const backdrop = document.createElement('div');
@@ -1633,21 +2209,648 @@ function showSessionModal(existing, returnTo) {
 }
 
 // =====================================================================
-// Navigation buttons
+// Identity modal (first-use setup + edit-via-settings)
 // =====================================================================
-$('nav-back').addEventListener('click', prevStep);
-$('topbar-back').addEventListener('click', prevStep);
-$('nav-next').addEventListener('click', () => {
+// Per past design decisions: required, not skippable; slot-machine emoji
+// picker; "Save" button; NetID validation requires ≥3 chars; on Save
+// click with <3 chars the typed value is wiped and the placeholder
+// becomes "Please enter your NetID here" in red. Live error clears as
+// soon as the user types any character.
+
+// Cache: in-memory copy of the identity to avoid hitting IDB constantly.
+// Loaded once at startup, kept in sync on save.
+let identity = null;  // { emoji, nickname, device } or null if not set yet
+
+async function loadIdentity() {
+  identity = await getPref('identity');
+  updateIdentityBadge();
+  return identity;
+}
+function hasIdentity() {
+  return identity && identity.nickname && identity.emoji;
+}
+
+// Render or re-render the identity badge in the topbar. Called whenever
+// the identity changes (initial load, save, edit). The badge always shows
+// the device shape; emoji and name only appear if identity is set.
+function updateIdentityBadge() {
+  const svgEl = document.getElementById('topbar-identity-svg');
+  const nameEl = document.getElementById('topbar-identity-name');
+  if (!svgEl) return;
+  const emoji = identity?.emoji || '';
+  // Smaller size for the topbar — 32px square for laptop/tablet, 28px for
+  // phone since phone shape is taller and needs less width.
+  const size = DEVICE_TYPE === 'phone' ? 28 : 32;
+  svgEl.innerHTML = renderDeviceSVG(emoji, { size });
+  nameEl.textContent = identity?.nickname || '';
+}
+
+// SVG device-frame template. The shape depends on the device type detected
+// at page load. Emoji sits inside the "screen" area. Returns the SVG markup
+// as a string (the caller injects it into the DOM).
+function renderDeviceSVG(emoji, opts = {}) {
+  const size = opts.size || 80;
+  const id = opts.id || '';
+  const type = opts.type || DEVICE_TYPE;
+  // viewBox is always 80x80; size scales display. Emoji size varies by
+  // device shape: phone screen is tall+narrow, tablet is square-ish,
+  // laptop has a wider but shorter screen area.
+  let frame, emojiSize, emojiY;
+  if (type === 'phone') {
+    frame = `<rect x="24" y="8" width="32" height="64" rx="4" fill="none" stroke="var(--accent)" stroke-width="2"/>
+             <line x1="34" y1="66" x2="46" y2="66" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
+    emojiSize = 24; emojiY = 48;
+  } else if (type === 'tablet') {
+    frame = `<rect x="12" y="12" width="56" height="56" rx="4" fill="none" stroke="var(--accent)" stroke-width="2"/>
+             <line x1="34" y1="62" x2="46" y2="62" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
+    emojiSize = 32; emojiY = 38;
+  } else {
+    frame = `<rect x="16" y="14" width="48" height="34" rx="2" fill="none" stroke="var(--accent)" stroke-width="2"/>
+             <path d="M 6 54 L 74 54 L 68 60 L 12 60 Z" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+    emojiSize = 22; emojiY = 32;
+  }
+  return `<svg viewBox="0 0 80 80" width="${size}" height="${size}"${id ? ` id="${id}"` : ''}>
+    ${frame}
+    <text class="identity-emoji" x="40" y="${emojiY}" text-anchor="middle" font-size="${emojiSize}" dominant-baseline="middle">${emoji || ''}</text>
+  </svg>`;
+}
+
+// Slot-machine animation. Cycles emojis with decelerating intervals over
+// `duration` ms, landing on a random emoji different from `current`.
+// Calls `onLand` with the final emoji.
+function rollSlotMachine(textEl, current, duration, onLand) {
+  const start = performance.now();
+  const intervalCurve = [50, 60, 75, 95, 120, 160, 220, 320];
+  let cur = current;
+
+  function pickDifferent() {
+    let next;
+    do { next = IDENTITY_EMOJIS[Math.floor(Math.random() * IDENTITY_EMOJIS.length)]; }
+    while (next === cur && IDENTITY_EMOJIS.length > 1);
+    return next;
+  }
+
+  function tick() {
+    const elapsed = performance.now() - start;
+    if (elapsed >= duration) {
+      cur = pickDifferent();
+      textEl.textContent = cur;
+      // Bounce on landing
+      textEl.style.transform = 'scale(1.18)';
+      textEl.style.transformOrigin = '40px 48px';
+      setTimeout(() => {
+        textEl.style.transition = 'transform 0.2s ease-out';
+        textEl.style.transform = 'scale(1)';
+      }, 30);
+      setTimeout(() => { textEl.style.transition = ''; }, 280);
+      onLand(cur);
+      return;
+    }
+    const progress = elapsed / duration;
+    const intervalIdx = Math.min(Math.floor(progress * intervalCurve.length), intervalCurve.length - 1);
+    cur = pickDifferent();
+    textEl.textContent = cur;
+    setTimeout(tick, intervalCurve[intervalIdx]);
+  }
+  tick();
+}
+
+// Show the identity modal. Used for both first-use setup and editing via
+// settings — only the title differs. Returns a Promise that resolves with
+// the saved identity object, or null if the user cancels (only possible
+// when isEditing=true; first-use cannot be dismissed).
+function showIdentityModal(isEditing = false) {
+  return new Promise((resolve) => {
+    // Pre-fill with existing identity if editing, otherwise start with
+    // a random emoji that the slot machine will replace on first roll.
+    const startEmoji = (isEditing && identity?.emoji) || IDENTITY_EMOJIS[0];
+    const startNickname = (isEditing && identity?.nickname) || '';
+    let currentEmoji = startEmoji;
+    let isRolling = false;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal identity-modal">
+        <div class="modal-head">
+          <h3 style="flex:1; text-align:center; margin:0;">${isEditing ? 'Edit this device' : 'Set up this device'}</h3>
+          ${isEditing ? '<button class="close" id="id-cancel">×</button>' : ''}
+        </div>
+        <div class="modal-body" style="display:flex; flex-direction:column; justify-content:center;">
+          <div style="margin-bottom: 24px;">
+            ${renderDeviceSVG(currentEmoji, { size: 96, id: 'id-frame' })}
+          </div>
+          <div class="field-label">Your NetID</div>
+          <input type="text" class="netid" id="id-netid" value="${startNickname}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button class="save-btn" id="id-save">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+
+    // Patch the SVG class so hover scaling applies (renderDeviceSVG doesn't
+    // set the class for general callers; only the identity modal needs it).
+    const frameEl = backdrop.querySelector('#id-frame');
+    frameEl.classList.add('identity-frame');
+    const emojiEl = frameEl.querySelector('.identity-emoji');
+    const inputEl = backdrop.querySelector('#id-netid');
+    const saveBtn = backdrop.querySelector('#id-save');
+
+    // Kick off the initial slot animation 200ms after mount, so the user
+    // sees the modal arrive then the emoji start cycling. Without this
+    // delay the cycle starts during the modal's fade-in and feels rushed.
+    setTimeout(() => {
+      if (isRolling) return;
+      isRolling = true;
+      rollSlotMachine(emojiEl, currentEmoji, 1200, (final) => {
+        currentEmoji = final; isRolling = false;
+      });
+    }, 200);
+
+    // Tap device to reroll — no on-screen hint, this is the easter egg.
+    frameEl.addEventListener('click', () => {
+      if (isRolling) return;
+      isRolling = true;
+      rollSlotMachine(emojiEl, currentEmoji, 700, (final) => {
+        currentEmoji = final; isRolling = false;
+      });
+    });
+
+    // Validation: option 3 from the design conversation. On Save click
+    // with <3 trimmed chars, wipe the field and show the red placeholder.
+    function attemptSave() {
+      // Guard: don't save while slot is still rolling — see initOnboardingSetup
+      // for the same fix in the onboarding setup view.
+      if (isRolling) return;
+      if (inputEl.value.trim().length >= 3) {
+        // Use the DOM's text content as the source of truth for the emoji
+        const newIdentity = {
+          emoji: emojiEl.textContent,
+          nickname: inputEl.value.trim(),
+          device: DEVICE_TYPE
+        };
+        setPref('identity', newIdentity).then(() => {
+          identity = newIdentity;
+          updateIdentityBadge();
+          saveBtn.textContent = 'Saved ✓';
+          saveBtn.classList.add('saved');
+          setTimeout(() => {
+            backdrop.remove();
+            resolve(newIdentity);
+          }, 700);
+        });
+      } else {
+        inputEl.value = '';
+        inputEl.placeholder = 'Please enter your NetID here';
+        inputEl.classList.add('error');
+        inputEl.focus();
+      }
+    }
+    saveBtn.addEventListener('click', attemptSave);
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') attemptSave();
+    });
+    inputEl.addEventListener('input', () => {
+      if (inputEl.classList.contains('error')) {
+        inputEl.classList.remove('error');
+        inputEl.placeholder = '';
+      }
+    });
+
+    // Only the edit-mode flow allows dismissal. First-use is required.
+    if (isEditing) {
+      const cancelBtn = backdrop.querySelector('#id-cancel');
+      cancelBtn.addEventListener('click', () => {
+        backdrop.remove();
+        resolve(null);
+      });
+    }
+  });
+}
+
+// =====================================================================
+// First-use trigger
+// =====================================================================
+// Called from the transfer flow before any peer connection begins. With
+// the onboarding flow in place, identity will normally already be set
+// by the time the user reaches the start screen — but this stays as a
+// belt-and-braces safety net (e.g. if the user cleared just the identity
+// preference but not the consent flag).
+async function ensureIdentity() {
+  if (hasIdentity()) return identity;
+  return await showIdentityModal(false);
+}
+
+// =====================================================================
+// Install detection (beforeinstallprompt + standalone mode)
+// =====================================================================
+// Chromium browsers fire a `beforeinstallprompt` event when the app is
+// installable. We catch and stash it; tapping our Install button calls
+// `.prompt()` on the stashed event to show the native install dialog.
+//
+// iOS Safari has no equivalent API. Detection of iOS Safari is by UA
+// string. The install "button" on iOS Safari shows instructions instead
+// of triggering anything.
+//
+// `appinstalled` event fires after the user accepts a Chromium install
+// prompt. `navigator.standalone` (iOS) and matchMedia('(display-mode:
+// standalone)') indicate we're already running as an installed PWA.
+
+let deferredInstallPrompt = null;
+let isAlreadyInstalled = false;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  isAlreadyInstalled = true;
+  // If My device is open, refresh it to show the new installed state
+  const panel = document.getElementById('mydev-modal');
+  if (panel) {
+    panel.remove();
+    showMyDevicePanel();
+  }
+});
+
+function detectStandalone() {
+  // True when the app is running as an installed PWA (any platform)
+  if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+  if (window.navigator.standalone === true) return true;  // iOS Safari PWA
+  return false;
+}
+function detectIOSSafari() {
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/.test(ua) && !window.MSStream;
+  // On iOS, all browsers use WebKit, so "Safari" check is loose — any iOS
+  // browser hits the same ITP limits
+  return isIOS && !detectStandalone();
+}
+
+// =====================================================================
+// My device panel (opened by tapping the identity badge in the topbar)
+// =====================================================================
+// Mobile-first modal containing: identity display, sessions count + Browse
+// link, storage state + Install button, dev section (when dev mode is on),
+// and app version footer. Replaces the old separate Sessions and Settings
+// modals.
+async function showMyDevicePanel() {
+  // If identity isn't set somehow (edge case), open setup instead
+  if (!hasIdentity()) {
+    const result = await showIdentityModal(false);
+    if (!result) return;
+    // After saving, fall through to show the panel with the new identity
+  }
+
+  isAlreadyInstalled = detectStandalone();
+  const iosSafariNoStandalone = detectIOSSafari();
+  // Persistent storage state — best effort; on browsers that don't
+  // expose this API, treat as "best-effort" (i.e. show as not yet
+  // persistent so the user is nudged toward installing).
+  let persistedGranted = false;
+  if (navigator.storage && navigator.storage.persisted) {
+    try { persistedGranted = await navigator.storage.persisted(); }
+    catch (e) { /* ignore */ }
+  }
+  const safelyStored = isAlreadyInstalled || persistedGranted;
+
+  // Storage section content depends on state:
+  //   - Installed → calm "Saved safely" message, no install button
+  //   - Not installed but persistent → moderate "Saved for now" but with
+  //     install offered as an upgrade
+  //   - Not installed and not persistent → loudest "Running in the browser"
+  //     with install front and center
+  let storageHTML;
+  if (isAlreadyInstalled) {
+    storageHTML = `
+      <div class="mydev-storage-state ok">
+        <div class="mydev-storage-label">✓ Installed as an app</div>
+        <p>Your identity and sessions are safe here.</p>
+      </div>`;
+  } else {
+    storageHTML = `
+      <div class="mydev-storage-state">
+        <div class="mydev-storage-label">Running in the browser</div>
+        <p>Your identity and sessions are stored here. The browser may clear them.</p>
+      </div>
+      <button class="mydev-install-btn" id="mydev-install-btn">Add to home screen</button>
+      <p class="mydev-install-hint">Installs this as an app for longest-term storage of your identity and sessions.</p>`;
+  }
+
+  const sessionsCount = mostRecentSessionCount || 0;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'mydev-modal';
+  backdrop.innerHTML = `
+    <div class="modal mydev-modal">
+      <div class="modal-head">
+        <h3>My device</h3>
+        <button class="close" id="mydev-close">×</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="mydev-section mydev-identity">
+          <div class="mydev-identity-svg">${renderDeviceSVG(identity.emoji, { size: 60 })}</div>
+          <div class="mydev-identity-text">
+            <div class="mydev-identity-name">${identity.nickname}</div>
+            <div class="mydev-identity-device">${identity.device}</div>
+          </div>
+        </div>
+
+        <div class="mydev-section">
+          <div class="mydev-section-head">My sessions</div>
+          <div class="mydev-sessions-row">
+            <div class="mydev-sessions-count">
+              <span id="mydev-session-count">${sessionsCount}</span>
+              <span class="mydev-sessions-label">${sessionsCount === 1 ? 'session' : 'sessions'} on this device</span>
+            </div>
+            <button class="mydev-browse-btn" id="mydev-browse-btn">Browse →</button>
+          </div>
+        </div>
+
+        <div class="mydev-section">
+          <div class="mydev-section-head">Storage</div>
+          ${storageHTML}
+        </div>
+
+        <div class="mydev-footer">P2P Transfer · TU Delft prototype</div>
+
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  backdrop.querySelector('#mydev-close').addEventListener('click', () => backdrop.remove());
+
+  // Browse → opens existing Sessions modal. The old top-right Sessions
+  // button is gone; this is the new entry point.
+  backdrop.querySelector('#mydev-browse-btn').addEventListener('click', () => {
+    backdrop.remove();
+    showSessionsModal();
+  });
+
+  // Install button — only present when not installed
+  const installBtn = backdrop.querySelector('#mydev-install-btn');
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (deferredInstallPrompt) {
+        // Chromium path: trigger the native install prompt
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        if (choice.outcome === 'accepted') {
+          deferredInstallPrompt = null;
+          // appinstalled event will refresh the panel
+        }
+      } else if (iosSafariNoStandalone) {
+        // iOS Safari path: show instructions
+        showIOSInstallInstructions(backdrop);
+      } else {
+        // Some other browser without the API. Show a generic hint.
+        showGenericInstallInstructions(backdrop);
+      }
+    });
+  }
+}
+
+// Show iOS-specific Add to Home Screen instructions. Inline overlay
+// inside the modal — replaces the storage section with step-by-step.
+function showIOSInstallInstructions(backdrop) {
+  const body = backdrop.querySelector('.modal-body');
+  body.innerHTML = `
+    <div class="mydev-section">
+      <div class="mydev-section-head">Install on iOS</div>
+      <ol class="mydev-ios-steps">
+        <li>Tap the <strong>Share</strong> icon at the bottom of your screen.</li>
+        <li>Scroll down and tap <strong>"Add to Home Screen"</strong>.</li>
+        <li>Tap <strong>Add</strong> in the top-right.</li>
+      </ol>
+      <p class="mydev-install-hint">After installing, open the app from your home screen to get long-term storage of your identity and sessions.</p>
+      <button class="mydev-back-btn" id="mydev-ios-back">← Back</button>
+    </div>`;
+  body.querySelector('#mydev-ios-back').addEventListener('click', () => {
+    backdrop.remove();
+    showMyDevicePanel();
+  });
+}
+
+function showGenericInstallInstructions(backdrop) {
+  const body = backdrop.querySelector('.modal-body');
+  body.innerHTML = `
+    <div class="mydev-section">
+      <div class="mydev-section-head">Install this app</div>
+      <p>Your browser doesn't seem to support one-tap installation. To get longer-term storage:</p>
+      <ul class="mydev-ios-steps" style="list-style: disc;">
+        <li>Bookmark this page, and</li>
+        <li>Visit it regularly so the browser doesn't clear data.</li>
+      </ul>
+      <button class="mydev-back-btn" id="mydev-generic-back">← Back</button>
+    </div>`;
+  body.querySelector('#mydev-generic-back').addEventListener('click', () => {
+    backdrop.remove();
+    showMyDevicePanel();
+  });
+}
+
+// Wire the topbar identity badge to open the panel
+document.getElementById('topbar-identity').addEventListener('click', () => {
+  showMyDevicePanel();
+});
+
+// =====================================================================
+// Onboarding flow (home → disclaimer → setup)
+// =====================================================================
+// Three full-viewport overlay screens shown on first run only. Returning
+// users — defined as having BOTH consentAgreed AND identity set in IDB —
+// skip the onboarding entirely. The progression is strictly forward: no
+// back navigation between screens. Once setup completes, the overlay is
+// removed and the main app is revealed.
+
+function showOnboardingScreen(name) {
+  const root = document.getElementById('onboarding');
+  root.querySelectorAll('.ob-screen').forEach(s => s.classList.add('hidden'));
+  const target = root.querySelector(`[data-ob-screen="${name}"]`);
+  if (target) target.classList.remove('hidden');
+  root.dataset.step = name;
+}
+
+// Device-specific title text for the setup screen and the identity modal.
+// Maps detected DEVICE_TYPE to a natural-language noun the user recognises.
+function setupTitleForDevice() {
+  const n = DEVICE_TYPE === 'phone' ? "phone" :
+            DEVICE_TYPE === 'tablet' ? "tablet" : "laptop";
+  return `Set up your ${n}'s identity`;
+}
+
+// Initialise the setup screen content (device SVG + title) on first show.
+// The slot machine kicks off here too.
+function initOnboardingSetup() {
+  document.getElementById('ob-setup-title').textContent = setupTitleForDevice();
+
+  // Render the device frame at a larger size for the onboarding view —
+  // 110px instead of the identity-modal default of 96px. Gives the slot
+  // machine real presence on its own dedicated screen.
+  const frame = document.getElementById('ob-setup-device');
+  frame.innerHTML = renderDeviceSVG(IDENTITY_EMOJIS[0], { size: 110, id: 'ob-setup-svg' });
+  const svgEl = document.getElementById('ob-setup-svg');
+  const emojiEl = svgEl.querySelector('.identity-emoji');
+  let currentEmoji = IDENTITY_EMOJIS[0];
+  let isRolling = false;
+
+  // Kick off the initial slot animation 200ms after the setup screen
+  // becomes visible. Same easing as the modal-based version.
+  setTimeout(() => {
+    if (isRolling) return;
+    isRolling = true;
+    rollSlotMachine(emojiEl, currentEmoji, 1200, (final) => {
+      currentEmoji = final; isRolling = false;
+    });
+  }, 200);
+
+  // Tap device to reroll — the easter egg, no on-screen hint.
+  svgEl.addEventListener('click', () => {
+    if (isRolling) return;
+    isRolling = true;
+    rollSlotMachine(emojiEl, currentEmoji, 700, (final) => {
+      currentEmoji = final; isRolling = false;
+    });
+  });
+
+  const inputEl = document.getElementById('ob-setup-netid');
+  const saveBtn = document.getElementById('ob-setup-save');
+
+  // Save → goes to confirmation step, NOT direct commit. Validation per
+  // earlier decision: ≥3 trimmed chars, otherwise wipe + red placeholder.
+  function attemptSave() {
+    // Guard: if the slot machine is still rolling, do nothing. The user
+    // probably tapped Save before the emoji landed; let the animation
+    // finish so they're committing to what they actually see.
+    if (isRolling) return;
+    const value = inputEl.value.trim();
+    if (value.length >= 3) {
+      // Capture the emoji from the DOM (not from the closure variable),
+      // because the slot machine updates textEl.textContent on every tick
+      // but only updates the JS closure on landing. The DOM is the source
+      // of truth for what the user sees.
+      const committedEmoji = emojiEl.textContent;
+      // Show confirmation view, hide the pick view
+      document.getElementById('ob-setup-pick').classList.add('hidden');
+      document.getElementById('ob-setup-confirm').classList.remove('hidden');
+      // Render the SAME device + emoji in the confirmation view so the
+      // user sees exactly what they're committing to
+      document.getElementById('ob-confirm-device').innerHTML = renderDeviceSVG(committedEmoji, { size: 110 });
+      document.getElementById('ob-confirm-netid').textContent = value;
+      // Wire up the confirmation buttons
+      document.getElementById('ob-confirm-back').onclick = () => {
+        document.getElementById('ob-setup-confirm').classList.add('hidden');
+        document.getElementById('ob-setup-pick').classList.remove('hidden');
+        inputEl.focus();
+      };
+      document.getElementById('ob-confirm-save').onclick = async () => {
+        const saveBtn = document.getElementById('ob-confirm-save');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        const newIdentity = {
+          emoji: committedEmoji,
+          nickname: value,
+          device: DEVICE_TYPE
+        };
+        await setPref('identity', newIdentity);
+        identity = newIdentity;
+        // Mark consent at the same moment — by completing setup the user
+        // has implicitly walked through the disclaimer. Storing it here
+        // means a returning user with identity but no consent flag (e.g.
+        // from before this code existed) won't see the disclaimer again
+        // unless they also lose identity.
+        await setPref('consentAgreed', true);
+        updateIdentityBadge();
+        // Quietly request persistent storage. Don't block on it, don't
+        // surface failure to the user — they'll see the "Running in the
+        // browser" state in My device if it didn't take.
+        if (navigator.storage && navigator.storage.persist) {
+          try {
+            const granted = await navigator.storage.persist();
+            log(`Persistent storage: ${granted ? 'granted' : 'best-effort'}.`, granted ? 'ok' : 'info');
+          } catch (e) {
+            log('Persistent storage request failed: ' + e.message, 'info');
+          }
+        }
+        finishOnboarding();
+      };
+    } else {
+      inputEl.value = '';
+      inputEl.placeholder = 'Please enter your NetID here';
+      inputEl.classList.add('error');
+      inputEl.focus();
+    }
+  }
+  saveBtn.addEventListener('click', attemptSave);
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') attemptSave();
+  });
+  inputEl.addEventListener('input', () => {
+    if (inputEl.classList.contains('error')) {
+      inputEl.classList.remove('error');
+      inputEl.placeholder = '';
+    }
+  });
+}
+
+function finishOnboarding() {
+  const root = document.getElementById('onboarding');
+  root.classList.add('hidden');
+}
+
+// Decide whether to show onboarding at startup. Called once at load.
+// Returns true if onboarding was shown, false if skipped.
+async function maybeShowOnboarding() {
+  const consent = await getPref('consentAgreed');
+  if (consent && hasIdentity()) {
+    // Returning user — skip onboarding entirely
+    return false;
+  }
+  // Wire up the onboarding buttons once, then show the right starting screen
+  document.getElementById('ob-home-btn').addEventListener('click', () => {
+    showOnboardingScreen('disclaimer');
+  });
+  const discCheckbox = document.getElementById('ob-disc-checkbox');
+  const discBtn = document.getElementById('ob-disc-btn');
+  discCheckbox.addEventListener('change', () => {
+    discBtn.disabled = !discCheckbox.checked;
+  });
+  discBtn.addEventListener('click', () => {
+    if (!discCheckbox.checked) return;
+    showOnboardingScreen('setup');
+    initOnboardingSetup();
+  });
+  // Decide which screen to enter on. If the user has consent but no
+  // identity (edge case: identity was cleared but consent persisted),
+  // skip the disclaimer and go straight to setup. Otherwise start at home.
+  if (consent && !hasIdentity()) {
+    showOnboardingScreen('setup');
+    initOnboardingSetup();
+  } else {
+    showOnboardingScreen('home');
+  }
+  document.getElementById('onboarding').classList.remove('hidden');
+  return true;
+}
+
+$('nav-next').addEventListener('click', async () => {
   const screenId = currentScreenId();
   if (screenId === 'start') {
+    const id = await ensureIdentity();
+    if (!id) return;
     nextStep();
   } else if (screenId === 'pick') {
     if (selectedSessionId) nextStep();
-  } else if (screenId === 'transfer') {
-    // "Start over" — go all the way back to start
-    goToStep(0, 'back');
   }
+  // Transfer screen has no bottom nav (see updateNavBar); its actions live
+  // inline below the content via the buttons wired below.
 });
+// Inline restart buttons — same destination as the old bottom-nav Start over
+const restartToStart = () => goToStep(0, 'back');
+$('progress-restart-btn').addEventListener('click', restartToStart);
+$('sent-restart-btn').addEventListener('click', restartToStart);
 
 // =====================================================================
 // Init
@@ -1663,9 +2866,13 @@ window.addEventListener('load', async () => {
     log('Ready.', 'ok');
   }
   try { await refreshSessionsCount(); } catch (e) { log('Session count failed: ' + e.message, 'err'); }
+  try { await loadIdentity(); } catch (e) { log('Identity load failed: ' + e.message, 'err'); }
   // Always set the nav bar to its correct state for the start screen,
   // regardless of whether libs or IDB succeeded.
   updateNavBar();
+  // Onboarding decision happens AFTER identity is loaded so the consent
+  // and identity checks have fresh data to work with.
+  try { await maybeShowOnboarding(); } catch (e) { log('Onboarding error: ' + e.message, 'err'); }
 });
 </script>
 
