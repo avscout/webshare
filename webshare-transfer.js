@@ -238,6 +238,28 @@
       this._reassembler = new ChunkReassembler();
       this._pendingSend = null;   // payload waiting for raw channel to open
       this._sendResolve = null;   // resolves when raw send completes
+
+      // Once the data channel is open, the signaling peer (PeerJS) is no
+      // longer needed — the data flows directly via WebRTC. We destroy
+      // the signaling peer at that point so the QR code (which encodes
+      // our peer ID) is no longer a valid connection target. Anyone who
+      // captured the QR mid-transfer or later cannot use it to reach us.
+      // This flag tells the 'disconnected' handler not to attempt a
+      // reconnect, since the disconnection was deliberate.
+      this._releasedSignalingPeer = false;
+    }
+
+    // Destroy the signaling peer (PeerJS) WITHOUT closing the active data
+    // channel. After this, the QR code's peer ID is no longer routable.
+    // The already-established WebRTC connection survives because the
+    // signaling server is only needed for setup, not ongoing transport.
+    _releaseSignalingPeer() {
+      if (this._releasedSignalingPeer) return;
+      if (!this._peer) return;
+      this._releasedSignalingPeer = true;
+      try { this._peer.destroy(); } catch {}
+      this._peer = null;
+      this._log('info', 'Signaling peer released; QR code is no longer reachable.');
     }
 
     _log(level, message) { this.emit('log', { level, message }); }
@@ -307,6 +329,13 @@
           // Send our peerInfo immediately on channel open. Don't block —
           // the payload can still flow before peer-info round-trips.
           this._sendPeerInfo();
+          // Drop the signaling peer now that the data channel is up.
+          // The QR code's peer ID is no longer reachable after this —
+          // important so that anyone who photographed the QR mid-transfer
+          // or later can't connect using it. The data channel itself
+          // survives because WebRTC doesn't need the signaling server
+          // once the connection is established.
+          this._releaseSignalingPeer();
         });
         conn.on('data', async (msg) => {
           if (msg && msg.type === 'peer-info') {
@@ -336,6 +365,10 @@
         this._status('error');
       });
       this._peer.on('disconnected', () => {
+        // If we deliberately released the signaling peer, this is a normal
+        // shutdown — don't try to reconnect (that would re-register our
+        // peer ID, defeating the whole point of releasing it).
+        if (this._releasedSignalingPeer) return;
         this._log('info', 'Disconnected from signaling, reconnecting…');
         try { this._peer.reconnect(); } catch {}
       });
@@ -443,6 +476,11 @@
       this.emit('connected');
       // Send our peerInfo right after the channel opens.
       this._sendPeerInfo();
+      // Drop the signaling peer — same rationale as the receiver. The
+      // sender's auto-generated peer ID isn't shown to the user, but
+      // it's still registered with peerjs.com and would persist for as
+      // long as the WebSocket stays open. No reason to keep it alive.
+      this._releaseSignalingPeer();
     }
 
     /**
