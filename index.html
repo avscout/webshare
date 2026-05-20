@@ -32,6 +32,24 @@
   .backend-btn.active { background: var(--accent-2); color: #0e0f0d; border-color: var(--accent-2); font-weight: 600; }
   .backend-btn small { display: block; font-size: 9px; opacity: 0.7; margin-top: 2px; font-weight: 400; }
 
+  .net-banner {
+    border: 1px solid var(--line); border-left: 3px solid var(--warn);
+    padding: 12px 14px; margin-bottom: 14px;
+    background: rgba(255,122,89,0.04);
+  }
+  .net-text { color: var(--ink); font-size: 12px; line-height: 1.55; }
+  .net-text strong { color: var(--warn); }
+  .net-id-row { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+  .net-id-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .net-id {
+    font-family: var(--mono); font-size: 15px; color: var(--accent);
+    padding: 3px 8px; border: 1px dashed var(--line); background: rgba(0,0,0,0.2);
+    user-select: all;
+  }
+  .net-id.detecting { color: var(--dim); }
+  .net-id.error { color: var(--warn); }
+  .net-hint { color: var(--dim); font-size: 11px; margin-top: 8px; line-height: 1.5; }
+
   .modes { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 28px; border: 1px solid var(--line); }
   .mode-btn { background: transparent; color: var(--dim); border: none; padding: 20px 18px; font-family: var(--serif); font-size: 22px; cursor: pointer; transition: all 0.2s; text-align: center; }
   .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
@@ -140,6 +158,18 @@
       <button class="backend-btn active" data-backend="peerjs">PeerJS<small>cross-network · easy</small></button>
       <button class="backend-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
     </div>
+  </div>
+
+  <!-- Network indicator: shown only for Raw backend, where same-network matters -->
+  <div class="net-banner hidden" id="net-banner">
+    <div class="net-text">
+      Raw WebRTC requires both devices on the <strong>same network</strong>. Compare your network ID with the other device's:
+    </div>
+    <div class="net-id-row">
+      <span class="net-id-label">Your network ID:</span>
+      <code class="net-id" id="net-id">detecting…</code>
+    </div>
+    <div class="net-hint">Same prefix on both devices → likely compatible. Different prefix → switch to PeerJS or change networks.</div>
   </div>
 
   <div class="modes">
@@ -419,7 +449,110 @@ function applyVisibility() {
   $('s-step-raw-show').classList.toggle('hidden', currentBackend !== 'raw');
   $('r-step-recv-num').textContent = currentBackend === 'raw' ? '4' : '3';
   $('s-step-send-num').textContent = currentBackend === 'raw' ? '4' : '3';
+  // Network banner is only relevant for the Raw backend (same-network requirement).
+  // For PeerJS, cross-network works fine and the banner would mislead.
+  $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
+  if (currentBackend === 'raw') detectNetworkId();
   if (currentMode === 'send') refreshSessionList();
+}
+
+// --- Public IP / "network ID" detection ---
+// Pre-flight indicator for the Raw backend, which needs both devices on the
+// same network. Uses a throwaway RTCPeerConnection against a public STUN
+// server to extract the server-reflexive (srflx) ICE candidate — that
+// contains the device's public IP as seen from outside the NAT.
+//
+// This is a HINT not a guarantee: campus networks may route different
+// VLANs/buildings through different egress IPs (matching prefix ≠ guaranteed
+// connectivity), and matching ground truth is whether the WebRTC connection
+// actually succeeds. We display the first two octets for IPv4 (or /32 prefix
+// for IPv6) so users can visually compare with their peer.
+
+let networkIdCache = null;  // { masked, raw } — detected once per page load
+
+function maskIP(ip) {
+  // IPv6 detection: contains a colon
+  if (ip.includes(':')) {
+    // Show up to the first 4 hex groups (≈ /64 prefix, which typically identifies the network).
+    // For shorter addresses (rare in srflx context) just show what we have.
+    const parts = ip.split(':').filter(Boolean);
+    const prefix = parts.slice(0, Math.min(4, parts.length)).join(':');
+    return parts.length > 4 ? prefix + ':…' : prefix;
+  }
+  // IPv4: show first two octets
+  const parts = ip.split('.');
+  if (parts.length !== 4) return ip;  // unexpected format, show as-is
+  return parts.slice(0, 2).join('.') + '.x.x';
+}
+
+function getPublicIP() {
+  return new Promise((resolve, reject) => {
+    let pc;
+    try {
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
+      });
+    } catch (err) { return reject(err); }
+
+    let settled = false;
+    const finish = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try { pc.close(); } catch {}
+      fn(val);
+    };
+    const timeout = setTimeout(() => finish(reject, new Error('STUN timeout')), 4000);
+
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return;
+      // Candidate string format (RFC 5245):
+      // candidate:foundation component protocol priority address port typ <type> ...
+      const parts = e.candidate.candidate.split(' ');
+      const typIdx = parts.indexOf('typ');
+      if (typIdx === -1) return;
+      const type = parts[typIdx + 1];
+      if (type === 'srflx') finish(resolve, parts[4]);
+    };
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete' && !settled) {
+        finish(reject, new Error('No srflx candidate found (no public IP)'));
+      }
+    };
+
+    pc.createDataChannel('probe');
+    pc.createOffer()
+      .then(o => pc.setLocalDescription(o))
+      .catch(err => finish(reject, err));
+  });
+}
+
+async function detectNetworkId() {
+  const el = $('net-id');
+  if (networkIdCache) {
+    el.textContent = networkIdCache.masked;
+    el.className = 'net-id';
+    return;
+  }
+  if (el.dataset.detecting === 'true') return;  // already in progress
+  el.dataset.detecting = 'true';
+  el.textContent = 'detecting…';
+  el.className = 'net-id detecting';
+  try {
+    const ip = await getPublicIP();
+    const masked = maskIP(ip);
+    networkIdCache = { masked, raw: ip };
+    el.textContent = masked;
+    el.className = 'net-id';
+    el.title = 'Compare this with the other device. Matching = likely same network.';
+  } catch (err) {
+    el.textContent = 'could not detect';
+    el.className = 'net-id error';
+    el.title = err.message;
+    log('Network ID detection failed: ' + err.message, 'err');
+  } finally {
+    el.dataset.detecting = 'false';
+  }
 }
 document.querySelectorAll('.backend-btn').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.backend-btn').forEach(x => x.classList.toggle('active', x === b));
