@@ -3,97 +3,143 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IDB Transfer · v1</title>
+<title>IDB Transfer · WebRTC</title>
 <style>
   :root {
     --bg: #0e0f0d;
-    --panel: #16181500;
     --ink: #e8e6df;
     --dim: #8a8a82;
     --line: #2a2c28;
+    --line-soft: #1c1e1a;
     --accent: #d4f542;
     --warn: #ff7a59;
     --ok: #6fdc8c;
+    --info: #6db4ff;
     --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
     --serif: 'Spectral', 'Iowan Old Style', 'Georgia', serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.5; min-height: 100vh; }
   body {
-    background-image:
-      radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0);
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0);
     background-size: 24px 24px;
-    padding: 32px 20px 60px;
+    padding: 28px 18px 60px;
   }
-  .wrap { max-width: 720px; margin: 0 auto; }
+  .wrap { max-width: 680px; margin: 0 auto; }
 
-  header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 32px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 24px; }
   .label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
-  h1 { font-family: var(--serif); font-weight: 400; font-size: 42px; line-height: 1.05; margin-top: 6px; letter-spacing: -0.01em; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 38px; line-height: 1.05; margin-top: 6px; letter-spacing: -0.01em; }
   h1 em { font-style: italic; color: var(--accent); }
-  .sub { color: var(--dim); margin-top: 10px; font-size: 13px; max-width: 56ch; }
+  .sub { color: var(--dim); margin-top: 8px; font-size: 13px; max-width: 56ch; }
 
-  .section { border: 1px solid var(--line); margin-bottom: 20px; }
-  .section-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.015); }
-  .section-head .num { font-family: var(--serif); font-size: 22px; color: var(--accent); line-height: 1; }
-  .section-head h2 { font-family: var(--serif); font-weight: 400; font-size: 18px; letter-spacing: -0.005em; }
-  .section-head .tag { margin-left: auto; font-size: 10px; letter-spacing: 0.18em; color: var(--dim); text-transform: uppercase; }
-  .section-body { padding: 18px 16px; }
+  /* Mode toggle — big and obvious */
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 32px; border: 1px solid var(--line); }
+  .mode-btn {
+    background: transparent; color: var(--dim); border: none; padding: 22px 18px;
+    font-family: var(--serif); font-size: 22px; font-weight: 400; letter-spacing: -0.01em;
+    cursor: pointer; transition: all 0.2s; text-align: center; position: relative;
+  }
+  .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
+  .mode-btn:hover:not(.active) { color: var(--ink); background: rgba(255,255,255,0.02); }
+  .mode-btn.active { color: #0e0f0d; background: var(--accent); }
+  .mode-btn .arrow { display: block; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; font-family: var(--mono); margin-bottom: 4px; opacity: 0.7; }
+  .mode-btn em { font-style: italic; }
 
+  /* Steps */
+  .step { border: 1px solid var(--line); margin-bottom: 16px; }
+  .step-head { display: flex; align-items: baseline; gap: 14px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.012); }
+  .step-head .num { font-family: var(--serif); font-size: 20px; color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums; }
+  .step-head h2 { font-family: var(--serif); font-weight: 400; font-size: 17px; letter-spacing: -0.005em; }
+  .step-head .status { margin-left: auto; font-size: 10px; letter-spacing: 0.18em; color: var(--dim); text-transform: uppercase; }
+  .step-head .status.ok { color: var(--ok); }
+  .step-head .status.active { color: var(--accent); }
+  .step-head .status.err { color: var(--warn); }
+  .step-body { padding: 18px 16px; }
+  .step.disabled { opacity: 0.35; pointer-events: none; }
+
+  /* Form bits */
   label.field { display: block; margin-bottom: 14px; }
   label.field > span { display: block; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
-  input[type="text"] {
+  input[type="text"], select {
     width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--line);
     color: var(--ink); font-family: var(--mono); font-size: 15px; padding: 8px 0; outline: none;
     transition: border-color 0.15s;
   }
-  input[type="text"]:focus { border-color: var(--accent); }
+  select { -webkit-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%), linear-gradient(135deg, var(--dim) 50%, transparent 50%); background-position: calc(100% - 12px) 14px, calc(100% - 7px) 14px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 24px; }
+  input:focus, select:focus { border-color: var(--accent); }
 
-  .row { display: flex; gap: 10px; flex-wrap: wrap; }
   button {
-    background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 11px 16px;
+    background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 11px 18px;
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
-    cursor: pointer; transition: all 0.15s; flex: 1; min-width: 140px;
+    cursor: pointer; transition: all 0.15s;
   }
-  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   button.primary { background: var(--accent); color: #0e0f0d; border-color: var(--accent); font-weight: 600; }
-  button.primary:hover { background: #e0ff5c; color: #0e0f0d; }
-  button.danger:hover { border-color: var(--warn); color: var(--warn); }
+  button.primary:hover:not(:disabled) { background: #e0ff5c; }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
 
-  .filezone {
-    border: 1px dashed var(--line); padding: 24px; text-align: center;
-    cursor: pointer; transition: all 0.15s; position: relative;
+  /* QR area */
+  .qr-frame {
+    background: #fff; padding: 14px; display: inline-block; border: 1px solid var(--line);
+    margin: 0 auto; display: flex; justify-content: center; align-items: center;
+    min-width: 280px; min-height: 280px;
   }
-  .filezone:hover, .filezone.drag { border-color: var(--accent); background: rgba(212,245,66,0.03); }
-  .filezone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-  .filezone .big { font-family: var(--serif); font-size: 20px; font-style: italic; }
-  .filezone .small { color: var(--dim); font-size: 12px; margin-top: 4px; }
+  .qr-center { text-align: center; padding: 12px 0; }
+  .qr-frame canvas, .qr-frame svg { display: block; width: 100%; max-width: 320px; height: auto; }
+  .qr-chunk-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.1em; }
 
+  /* Camera preview */
+  .cam-frame {
+    position: relative; background: #000; border: 1px solid var(--line);
+    aspect-ratio: 1; max-width: 360px; margin: 0 auto; overflow: hidden;
+  }
+  .cam-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-frame .reticle {
+    position: absolute; inset: 12%; border: 2px solid var(--accent);
+    pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.3);
+  }
+  .cam-frame .reticle::before, .cam-frame .reticle::after {
+    content: ''; position: absolute; width: 18px; height: 18px; border: 3px solid var(--accent);
+  }
+  .cam-frame .reticle::before { top: -3px; left: -3px; border-right: none; border-bottom: none; }
+  .cam-frame .reticle::after { bottom: -3px; right: -3px; border-left: none; border-top: none; }
+
+  /* Progress */
+  .progress { background: var(--line-soft); height: 4px; overflow: hidden; margin: 12px 0; }
+  .progress-bar { background: var(--accent); height: 100%; width: 0; transition: width 0.2s; }
+
+  /* Log */
   .log {
-    background: #0a0b09; border: 1px solid var(--line); padding: 12px 14px;
-    font-size: 12px; line-height: 1.6; max-height: 220px; overflow-y: auto;
-    margin-top: 16px; min-height: 80px;
+    background: #0a0b09; border: 1px solid var(--line); padding: 10px 12px;
+    font-size: 11.5px; line-height: 1.6; max-height: 160px; overflow-y: auto;
+    margin-top: 16px; min-height: 64px;
   }
-  .log .entry { display: flex; gap: 10px; padding: 2px 0; }
-  .log .entry .t { color: var(--dim); flex-shrink: 0; }
+  .log .entry { display: flex; gap: 10px; padding: 1px 0; }
+  .log .entry .t { color: var(--dim); flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .log .entry.ok .m { color: var(--ok); }
   .log .entry.err .m { color: var(--warn); }
   .log .entry.info .m { color: var(--ink); }
 
-  details { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 18px; }
+  details { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; }
   details summary { cursor: pointer; font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--dim); }
   details summary:hover { color: var(--ink); }
-  details .panel { padding-top: 14px; font-size: 13px; color: var(--dim); line-height: 1.65; }
+  details .panel { padding-top: 12px; font-size: 13px; color: var(--dim); line-height: 1.65; }
   details .panel p { margin-bottom: 10px; }
   details .panel code { font-family: var(--mono); background: rgba(255,255,255,0.05); padding: 1px 5px; font-size: 12px; }
+  details .panel strong { color: var(--ink); font-weight: 600; }
 
-  footer { margin-top: 40px; font-size: 11px; color: var(--dim); letter-spacing: 0.05em; text-align: center; }
+  footer { margin-top: 36px; font-size: 11px; color: var(--dim); letter-spacing: 0.05em; text-align: center; }
   footer span { color: var(--accent); }
 
+  .hidden { display: none !important; }
+
   @media (max-width: 480px) {
-    body { padding: 20px 14px 40px; }
-    h1 { font-size: 32px; }
-    button { flex-basis: 100%; }
+    body { padding: 20px 12px 40px; }
+    h1 { font-size: 30px; }
+    .mode-btn { font-size: 18px; padding: 18px 12px; }
+    .row button { flex: 1; min-width: 0; }
   }
 </style>
 </head>
@@ -101,113 +147,193 @@
 <div class="wrap">
 
   <header>
-    <div class="label">utility · indexeddb · v1</div>
-    <h1>Transfer <em>IDB</em> data<br>between devices.</h1>
-    <p class="sub">Export an IndexedDB database to a portable file, send it to another device via Bluetooth / USB / AirDrop / etc., then import it back into the browser. Same origin required on both ends.</p>
+    <div class="label">webrtc · qr signaling · v2</div>
+    <h1>Push <em>IDB</em> data<br>device to device.</h1>
+    <p class="sub">Pick a side, follow the steps. Desktop shows a QR code, phone scans it, data flows directly between the two browsers. No files saved, no servers in the middle.</p>
   </header>
 
-  <!-- DEMO DATA -->
-  <div class="section">
-    <div class="section-head">
-      <span class="num">00</span>
-      <h2>Seed demo data</h2>
-      <span class="tag">optional</span>
-    </div>
-    <div class="section-body">
-      <p class="sub" style="margin-bottom: 14px;">If you don't have an IndexedDB to test with, click below to create one named <code style="font-family:var(--mono);background:rgba(255,255,255,0.05);padding:1px 5px;">demoDB</code> with sample records (including a small Blob).</p>
-      <div class="row">
-        <button id="seedBtn">Create demoDB</button>
-        <button id="listBtn">List databases</button>
-      </div>
-    </div>
+  <!-- MODE TOGGLE -->
+  <div class="modes">
+    <button class="mode-btn active" data-mode="receive">
+      <span class="arrow">← receive</span>
+      <em>On this device</em>
+    </button>
+    <button class="mode-btn" data-mode="send">
+      <span class="arrow">send →</span>
+      <em>From this device</em>
+    </button>
   </div>
 
-  <!-- EXPORT -->
-  <div class="section">
-    <div class="section-head">
-      <span class="num">01</span>
-      <h2>Export</h2>
-      <span class="tag">device a</span>
-    </div>
-    <div class="section-body">
-      <label class="field">
-        <span>Database name</span>
-        <input type="text" id="exportDbName" placeholder="e.g. demoDB" value="demoDB">
-      </label>
-      <div class="row">
-        <button class="primary" id="exportBtn">Export to file</button>
-      </div>
-    </div>
-  </div>
+  <!-- ============================================================ -->
+  <!-- RECEIVE MODE (desktop) -->
+  <!-- ============================================================ -->
+  <section id="receiveMode">
 
-  <!-- SHARE (Web Share API) -->
-  <div class="section">
-    <div class="section-head">
-      <span class="num">02</span>
-      <h2>Share via OS</h2>
-      <span class="tag" id="shareSupport">checking…</span>
-    </div>
-    <div class="section-body">
-      <p class="sub" style="margin-bottom: 14px;">
-        Skip the download step. Build the <code style="font-family:var(--mono);background:rgba(255,255,255,0.05);padding:1px 5px;">.idbx</code> in memory and hand it to the operating system's share sheet — AirDrop, Nearby Share, Bluetooth, LocalSend, Messages, email, whatever you have installed. Mobile only, mostly.
-      </p>
-      <label class="field">
-        <span>Database name</span>
-        <input type="text" id="shareDbName" placeholder="e.g. demoDB" value="demoDB">
-      </label>
-      <div class="row">
-        <button class="primary" id="shareBtn">Open share sheet</button>
+    <div class="step" id="r-step-1">
+      <div class="step-head">
+        <span class="num">1</span>
+        <h2>Choose target database</h2>
+        <span class="status" id="r-status-1">setup</span>
       </div>
-      <p class="sub" id="shareHint" style="margin-top: 12px; font-size: 11px;">
-        Requires HTTPS, a real user tap, and a browser that supports <code style="font-family:var(--mono);background:rgba(255,255,255,0.05);padding:1px 5px;">navigator.canShare({files})</code>. Falls back to download on unsupported browsers.
-      </p>
+      <div class="step-body">
+        <p class="sub" style="margin-bottom: 14px;">Name the IndexedDB that will receive the data. If it exists, you'll be asked whether to wipe or merge.</p>
+        <label class="field">
+          <span>Database name</span>
+          <input type="text" id="r-dbname" placeholder="e.g. demoDB" value="demoDB">
+        </label>
+        <div class="row">
+          <button class="primary" id="r-start-btn">Generate QR code</button>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <!-- IMPORT -->
-  <div class="section">
-    <div class="section-head">
-      <span class="num">03</span>
-      <h2>Import</h2>
-      <span class="tag">device b</span>
-    </div>
-    <div class="section-body">
-      <label class="filezone" id="dropzone">
-        <input type="file" id="importFile" accept=".idbx,.json,application/octet-stream">
-        <div class="big">Drop file or tap to choose</div>
-        <div class="small">.idbx file from the export step</div>
-      </label>
-      <div class="row" style="margin-top: 14px;">
-        <button class="primary" id="importBtn" disabled>Import to IndexedDB</button>
-        <button class="danger" id="clearBtn">Wipe target DB first</button>
+    <div class="step disabled" id="r-step-2">
+      <div class="step-head">
+        <span class="num">2</span>
+        <h2>Scan this QR with your phone</h2>
+        <span class="status" id="r-status-2">waiting</span>
+      </div>
+      <div class="step-body">
+        <div class="qr-center">
+          <div class="qr-frame" id="r-qr"></div>
+          <div class="qr-chunk-info" id="r-qr-info"></div>
+        </div>
+        <p class="sub" style="text-align: center; margin-top: 14px;">Open this page on your phone, tap <strong style="color:var(--ink)">Send</strong>, then scan the code above.</p>
       </div>
     </div>
-  </div>
+
+    <div class="step disabled" id="r-step-3">
+      <div class="step-head">
+        <span class="num">3</span>
+        <h2>Scan the response from your phone</h2>
+        <span class="status" id="r-status-3">waiting</span>
+      </div>
+      <div class="step-body">
+        <p class="sub" style="text-align: center; margin-bottom: 14px;">After your phone scans step 2, it will show its own QR code. Point your webcam at it.</p>
+        <div class="cam-frame" id="r-cam-frame">
+          <video id="r-video" playsinline muted></video>
+          <div class="reticle"></div>
+        </div>
+        <div class="row" style="margin-top: 14px; justify-content: center;">
+          <button id="r-cam-start">Start webcam</button>
+          <button id="r-cam-stop" disabled>Stop</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="step disabled" id="r-step-4">
+      <div class="step-head">
+        <span class="num">4</span>
+        <h2>Receiving data</h2>
+        <span class="status" id="r-status-4">waiting</span>
+      </div>
+      <div class="step-body">
+        <div class="progress"><div class="progress-bar" id="r-progress"></div></div>
+        <p class="sub" id="r-progress-text" style="text-align: center;">Waiting for connection…</p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- SEND MODE (phone) -->
+  <!-- ============================================================ -->
+  <section id="sendMode" class="hidden">
+
+    <div class="step" id="s-step-1">
+      <div class="step-head">
+        <span class="num">1</span>
+        <h2>Choose database to send</h2>
+        <span class="status" id="s-status-1">setup</span>
+      </div>
+      <div class="step-body">
+        <label class="field">
+          <span>Database on this device</span>
+          <select id="s-dbselect">
+            <option value="">— select a database —</option>
+          </select>
+        </label>
+        <div class="row">
+          <button id="s-refresh">Refresh list</button>
+          <button id="s-seed">Create demoDB</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="step disabled" id="s-step-2">
+      <div class="step-head">
+        <span class="num">2</span>
+        <h2>Scan QR from desktop</h2>
+        <span class="status" id="s-status-2">waiting</span>
+      </div>
+      <div class="step-body">
+        <p class="sub" style="text-align: center; margin-bottom: 14px;">Tap below and point your phone camera at the QR code on the desktop screen.</p>
+        <div class="cam-frame" id="s-cam-frame">
+          <video id="s-video" playsinline muted></video>
+          <div class="reticle"></div>
+        </div>
+        <div class="row" style="margin-top: 14px; justify-content: center;">
+          <button class="primary" id="s-cam-start">Start camera</button>
+          <button id="s-cam-stop" disabled>Stop</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="step disabled" id="s-step-3">
+      <div class="step-head">
+        <span class="num">3</span>
+        <h2>Show this QR to the desktop</h2>
+        <span class="status" id="s-status-3">waiting</span>
+      </div>
+      <div class="step-body">
+        <div class="qr-center">
+          <div class="qr-frame" id="s-qr"></div>
+          <div class="qr-chunk-info" id="s-qr-info"></div>
+        </div>
+        <p class="sub" style="text-align: center; margin-top: 14px;">Hold your phone screen toward the desktop webcam.</p>
+      </div>
+    </div>
+
+    <div class="step disabled" id="s-step-4">
+      <div class="step-head">
+        <span class="num">4</span>
+        <h2>Sending data</h2>
+        <span class="status" id="s-status-4">waiting</span>
+      </div>
+      <div class="step-body">
+        <div class="progress"><div class="progress-bar" id="s-progress"></div></div>
+        <p class="sub" id="s-progress-text" style="text-align: center;">Waiting for connection…</p>
+      </div>
+    </div>
+
+  </section>
 
   <div class="log" id="log">
-    <div class="entry info"><span class="t">[ready]</span><span class="m">Waiting for action.</span></div>
+    <div class="entry info"><span class="t">[ready]</span><span class="m">Pick a mode above and follow the numbered steps.</span></div>
   </div>
 
   <details>
-    <summary>How the file is structured & known limits</summary>
+    <summary>How it works & troubleshooting</summary>
     <div class="panel">
-      <p><strong>Format.</strong> A single binary file: 4-byte header length, then a JSON header (DB name, version, store schemas, index definitions), then concatenated record blobs. Records are serialized with <code>structuredClone</code>-friendly encoding so Blobs, ArrayBuffers, Dates, Maps, and Sets survive the round trip.</p>
-      <p><strong>Same origin required.</strong> IndexedDB is partitioned per origin. Both devices must open this page from the same URL (same scheme + host + port) for the import to land in the right sandbox.</p>
-      <p><strong>Not preserved:</strong> open cursors, ongoing transactions, encryption keys tied to the origin (e.g. WebCrypto non-extractable keys stored as references).</p>
-      <p><strong>Tested in:</strong> Chromium 120+, Firefox 120+, Safari 17+. iOS Safari has stricter quota — large DBs may need user permission.</p>
+      <p><strong>Flow.</strong> Desktop (receiver) creates a WebRTC offer and shows it as a QR. Phone (sender) scans it, builds the answer, shows that as a QR. Desktop's webcam scans the answer. The connection is now established and the IDB data streams directly between browsers — no server in the middle.</p>
+      <p><strong>QR chunks.</strong> WebRTC handshake data is too big for one QR code (typically 3-5 KB), so it's split into multiple QR codes that cycle automatically. Cameras stay on until all chunks are received in any order.</p>
+      <p><strong>Same origin required.</strong> Both devices must open this page from the same URL. IndexedDB is partitioned per origin.</p>
+      <p><strong>Needs internet.</strong> WebRTC uses public STUN servers (Google's free ones) to discover network paths. Tiny amount of traffic, but a working internet connection is required on both ends.</p>
+      <p><strong>If connection fails:</strong> typically a strict firewall blocking WebRTC. Reload both pages and start over. Some corporate networks block this entirely.</p>
     </div>
   </details>
 
-  <footer>
-    <span>●</span> single-file utility · no network · works offline
-  </footer>
+  <footer><span>●</span> single page · peer-to-peer · no file storage</footer>
 </div>
 
+<!-- External libs: QR generator + QR scanner. CDN once, then cached. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+
 <script>
-// ============================================================
-// IndexedDB Transfer Utility
-// Single-file: export/import IDB databases across devices.
-// ============================================================
+// =====================================================================
+// IDB Transfer · WebRTC + QR signaling
+// =====================================================================
 
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
@@ -222,10 +348,29 @@ function log(msg, kind = 'info') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// ---------- Serialization helpers ----------
-// Convert any IDB-storable value into a JSON-safe representation,
-// then back. Handles Blob, File, ArrayBuffer, TypedArrays, Date, Map, Set.
+function setStatus(id, text, kind = '') {
+  const el = $(id);
+  el.textContent = text;
+  el.className = 'status' + (kind ? ' ' + kind : '');
+}
 
+function enableStep(id) { $(id).classList.remove('disabled'); }
+function disableStep(id) { $(id).classList.add('disabled'); }
+
+// ============== Mode toggle ==============
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+    const mode = btn.dataset.mode;
+    $('receiveMode').classList.toggle('hidden', mode !== 'receive');
+    $('sendMode').classList.toggle('hidden', mode !== 'send');
+    if (mode === 'send') refreshDbList();
+  });
+});
+
+// =====================================================================
+// IndexedDB serialization (Blob/Date/Map/Set/TypedArray safe)
+// =====================================================================
 async function blobToBase64(blob) {
   const buf = await blob.arrayBuffer();
   const bytes = new Uint8Array(buf);
@@ -239,18 +384,11 @@ function base64ToBytes(b64) {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
 }
-
 async function encodeValue(v) {
   if (v === null || v === undefined) return v;
-  if (v instanceof Blob) {
-    return { __t: 'Blob', type: v.type, name: v instanceof File ? v.name : undefined, data: await blobToBase64(v) };
-  }
-  if (v instanceof ArrayBuffer) {
-    return { __t: 'ArrayBuffer', data: await blobToBase64(new Blob([v])) };
-  }
-  if (ArrayBuffer.isView(v)) {
-    return { __t: 'TypedArray', name: v.constructor.name, data: await blobToBase64(new Blob([v.buffer])) };
-  }
+  if (v instanceof Blob) return { __t: 'Blob', type: v.type, name: v instanceof File ? v.name : undefined, data: await blobToBase64(v) };
+  if (v instanceof ArrayBuffer) return { __t: 'ArrayBuffer', data: await blobToBase64(new Blob([v])) };
+  if (ArrayBuffer.isView(v)) return { __t: 'TypedArray', name: v.constructor.name, data: await blobToBase64(new Blob([v.buffer])) };
   if (v instanceof Date) return { __t: 'Date', iso: v.toISOString() };
   if (v instanceof Map) {
     const entries = [];
@@ -263,18 +401,13 @@ async function encodeValue(v) {
     return { __t: 'Set', values };
   }
   if (Array.isArray(v)) {
-    const out = [];
-    for (const item of v) out.push(await encodeValue(item));
-    return out;
+    const out = []; for (const item of v) out.push(await encodeValue(item)); return out;
   }
   if (typeof v === 'object') {
-    const out = {};
-    for (const k of Object.keys(v)) out[k] = await encodeValue(v[k]);
-    return out;
+    const out = {}; for (const k of Object.keys(v)) out[k] = await encodeValue(v[k]); return out;
   }
   return v;
 }
-
 function decodeValue(v) {
   if (v === null || v === undefined) return v;
   if (typeof v !== 'object') return v;
@@ -285,129 +418,29 @@ function decodeValue(v) {
     return new Blob([bytes], { type: v.type });
   }
   if (v.__t === 'ArrayBuffer') return base64ToBytes(v.data).buffer;
-  if (v.__t === 'TypedArray') {
-    const ctor = window[v.name];
-    return new ctor(base64ToBytes(v.data).buffer);
-  }
+  if (v.__t === 'TypedArray') { const ctor = window[v.name]; return new ctor(base64ToBytes(v.data).buffer); }
   if (v.__t === 'Date') return new Date(v.iso);
-  if (v.__t === 'Map') {
-    const m = new Map();
-    for (const [k, val] of v.entries) m.set(decodeValue(k), decodeValue(val));
-    return m;
-  }
-  if (v.__t === 'Set') {
-    const s = new Set();
-    for (const val of v.values) s.add(decodeValue(val));
-    return s;
-  }
-  const out = {};
-  for (const k of Object.keys(v)) out[k] = decodeValue(v[k]);
-  return out;
+  if (v.__t === 'Map') { const m = new Map(); for (const [k, val] of v.entries) m.set(decodeValue(k), decodeValue(val)); return m; }
+  if (v.__t === 'Set') { const s = new Set(); for (const val of v.values) s.add(decodeValue(val)); return s; }
+  const out = {}; for (const k of Object.keys(v)) out[k] = decodeValue(v[k]); return out;
 }
 
-// ---------- IDB primitives ----------
 function openDb(name, version, onUpgrade) {
   return new Promise((resolve, reject) => {
     const req = version ? indexedDB.open(name, version) : indexedDB.open(name);
     if (onUpgrade) req.onupgradeneeded = (e) => onUpgrade(e.target.result, e.target.transaction, e.oldVersion, e.newVersion);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('DB open blocked — close other tabs using this database.'));
+    req.onblocked = () => reject(new Error('DB open blocked — close other tabs.'));
   });
 }
-
 function reqToPromise(req) {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
 }
 
-// ---------- Export ----------
-async function exportDatabase(dbName) {
-  log(`Opening "${dbName}"…`);
+async function readEntireDatabase(dbName) {
   const db = await openDb(dbName);
-
-  const schema = {
-    dbName: db.name,
-    version: db.version,
-    stores: []
-  };
-  const storeRecords = {};
-
-  for (const storeName of db.objectStoreNames) {
-    const tx = db.transaction(storeName, 'readonly');
-    const store = tx.objectStore(storeName);
-
-    const storeSchema = {
-      name: storeName,
-      keyPath: store.keyPath,
-      autoIncrement: store.autoIncrement,
-      indexes: []
-    };
-    for (const idxName of store.indexNames) {
-      const idx = store.index(idxName);
-      storeSchema.indexes.push({
-        name: idxName,
-        keyPath: idx.keyPath,
-        unique: idx.unique,
-        multiEntry: idx.multiEntry
-      });
-    }
-    schema.stores.push(storeSchema);
-
-    // Read all records. If no keyPath (out-of-line keys), we need keys too.
-    const records = [];
-    if (store.keyPath === null) {
-      const keys = await reqToPromise(store.getAllKeys());
-      const values = await reqToPromise(store.getAll());
-      for (let i = 0; i < keys.length; i++) {
-        records.push({ key: await encodeValue(keys[i]), value: await encodeValue(values[i]) });
-      }
-    } else {
-      const values = await reqToPromise(store.getAll());
-      for (const v of values) records.push({ value: await encodeValue(v) });
-    }
-    storeRecords[storeName] = records;
-    log(`  · ${storeName}: ${records.length} records`);
-  }
-
-  db.close();
-
-  const payload = {
-    format: 'idbx',
-    formatVersion: 1,
-    exportedAt: new Date().toISOString(),
-    origin: location.origin,
-    schema,
-    records: storeRecords
-  };
-
-  const json = JSON.stringify(payload);
-  const blob = new Blob([json], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${dbName}-${new Date().toISOString().slice(0,10)}.idbx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-  log(`Exported ${(blob.size / 1024).toFixed(1)} KB → ${a.download}`, 'ok');
-}
-
-// ---------- Share (Web Share API) ----------
-// Build the same .idbx payload in memory, then hand it to navigator.share().
-// Falls back to a regular download if the browser can't share files.
-
-async function buildIdbxFile(dbName) {
-  // Reuse the exact same serialization as exportDatabase, just return the File
-  // object instead of triggering a download.
-  const db = await openDb(dbName);
-  const schema = { dbName: db.name, version: db.version, stores: [] };
-  const storeRecords = {};
-
+  const payload = { dbName: db.name, version: db.version, stores: [], records: {} };
   for (const storeName of db.objectStoreNames) {
     const tx = db.transaction(storeName, 'readonly');
     const store = tx.objectStore(storeName);
@@ -416,125 +449,28 @@ async function buildIdbxFile(dbName) {
     };
     for (const idxName of store.indexNames) {
       const idx = store.index(idxName);
-      storeSchema.indexes.push({
-        name: idxName, keyPath: idx.keyPath, unique: idx.unique, multiEntry: idx.multiEntry
-      });
+      storeSchema.indexes.push({ name: idxName, keyPath: idx.keyPath, unique: idx.unique, multiEntry: idx.multiEntry });
     }
-    schema.stores.push(storeSchema);
-
+    payload.stores.push(storeSchema);
     const records = [];
     if (store.keyPath === null) {
       const keys = await reqToPromise(store.getAllKeys());
       const values = await reqToPromise(store.getAll());
-      for (let i = 0; i < keys.length; i++) {
-        records.push({ key: await encodeValue(keys[i]), value: await encodeValue(values[i]) });
-      }
+      for (let i = 0; i < keys.length; i++) records.push({ key: await encodeValue(keys[i]), value: await encodeValue(values[i]) });
     } else {
       const values = await reqToPromise(store.getAll());
       for (const v of values) records.push({ value: await encodeValue(v) });
     }
-    storeRecords[storeName] = records;
+    payload.records[storeName] = records;
   }
   db.close();
-
-  const payload = {
-    format: 'idbx', formatVersion: 1,
-    exportedAt: new Date().toISOString(), origin: location.origin,
-    schema, records: storeRecords
-  };
-  const json = JSON.stringify(payload);
-  const filename = `${dbName}-${new Date().toISOString().slice(0,10)}.idbx`;
-  // Use application/octet-stream — some share targets reject unknown extensions
-  // when the MIME is too specific.
-  return new File([json], filename, { type: 'application/octet-stream' });
+  return payload;
 }
 
-async function shareDatabase(dbName) {
-  log(`Building share payload for "${dbName}"…`);
-  const file = await buildIdbxFile(dbName);
-  log(`  · ${(file.size/1024).toFixed(1)} KB ready`);
-
-  // Feature detect specifically for file sharing — text-only share is wider.
-  const canShareFiles = navigator.canShare && navigator.canShare({ files: [file] });
-
-  if (canShareFiles) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: 'IndexedDB Export',
-        text: `${dbName} backup · ${new Date().toLocaleString()}`
-      });
-      log('Share sheet dismissed.', 'ok');
-    } catch (err) {
-      // AbortError = user cancelled. Anything else is a real failure.
-      if (err.name === 'AbortError') {
-        log('Share cancelled by user.');
-      } else {
-        log(`Share failed: ${err.message}. Falling back to download…`, 'err');
-        triggerDownload(file);
-      }
-    }
-  } else {
-    log('Web Share API (files) not available on this browser. Falling back to download.', 'err');
-    triggerDownload(file);
-  }
-}
-
-function triggerDownload(file) {
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url; a.download = file.name;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  log(`Downloaded ${file.name}.`, 'ok');
-}
-
-// Detect support on load and update the badge in the section header.
-function detectShareSupport() {
-  const badge = $('shareSupport');
-  const hint = $('shareHint');
-  // Probe with a tiny dummy file — canShare must be called with the actual shape.
-  const probe = new File(['x'], 'probe.idbx', { type: 'application/octet-stream' });
-  const ok = !!(navigator.canShare && navigator.canShare({ files: [probe] }));
-  if (ok) {
-    badge.textContent = 'supported';
-    badge.style.color = 'var(--ok)';
-  } else if (navigator.share) {
-    badge.textContent = 'text only';
-    badge.style.color = 'var(--warn)';
-    hint.textContent = 'This browser supports share but not file share. The button will download instead.';
-  } else {
-    badge.textContent = 'unsupported';
-    badge.style.color = 'var(--warn)';
-    hint.textContent = 'No Web Share API here (typical on desktop Firefox / Chrome desktop). The button will download instead.';
-  }
-}
-
-// ---------- Import ----------
-async function importDatabase(file, wipeFirst) {
-  log(`Reading ${file.name} (${(file.size/1024).toFixed(1)} KB)…`);
-  const text = await file.text();
-  const payload = JSON.parse(text);
-
-  if (payload.format !== 'idbx') throw new Error('Not an .idbx file');
-
-  const { schema, records } = payload;
-  log(`Origin of export: ${payload.origin}  ·  current: ${location.origin}`,
-      payload.origin === location.origin ? 'info' : 'err');
-
-  if (wipeFirst) {
-    log(`Deleting existing "${schema.dbName}"…`);
-    await new Promise((resolve, reject) => {
-      const req = indexedDB.deleteDatabase(schema.dbName);
-      req.onsuccess = resolve;
-      req.onerror = () => reject(req.error);
-      req.onblocked = () => reject(new Error('Delete blocked — close other tabs.'));
-    });
-  }
-
-  log(`Creating "${schema.dbName}" v${schema.version}…`);
-  const db = await openDb(schema.dbName, schema.version, (db, tx, oldV) => {
-    for (const s of schema.stores) {
+async function writeEntireDatabase(payload, targetDbName) {
+  const dbName = targetDbName || payload.dbName;
+  const db = await openDb(dbName, payload.version, (db, tx) => {
+    for (const s of payload.stores) {
       let store;
       if (db.objectStoreNames.contains(s.name)) {
         store = tx.objectStore(s.name);
@@ -551,131 +487,503 @@ async function importDatabase(file, wipeFirst) {
       }
     }
   });
-
   let total = 0;
-  for (const s of schema.stores) {
+  for (const s of payload.stores) {
     const tx = db.transaction(s.name, 'readwrite');
     const store = tx.objectStore(s.name);
-    const recs = records[s.name] || [];
+    const recs = payload.records[s.name] || [];
     for (const r of recs) {
       const value = decodeValue(r.value);
-      if (r.key !== undefined) {
-        store.put(value, decodeValue(r.key));
-      } else {
-        store.put(value);
-      }
+      if (r.key !== undefined) store.put(value, decodeValue(r.key));
+      else store.put(value);
     }
-    await new Promise((resolve, reject) => {
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
-    log(`  · ${s.name}: ${recs.length} records imported`);
+    await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
     total += recs.length;
   }
   db.close();
-  log(`Done. ${total} records into "${schema.dbName}".`, 'ok');
+  return total;
 }
 
-// ---------- Seed demo data ----------
-async function seedDemo() {
-  log('Seeding demoDB…');
-  const db = await openDb('demoDB', 1, (db) => {
-    if (!db.objectStoreNames.contains('notes')) {
-      const s = db.createObjectStore('notes', { keyPath: 'id', autoIncrement: true });
-      s.createIndex('byTag', 'tag', { unique: false });
+// =====================================================================
+// QR chunking — handshake data is bigger than 1 QR fits
+// =====================================================================
+const QR_CHUNK_SIZE = 700;  // safe for QR error-correction L
+const QR_TYPE_NUMBER = 0;   // auto
+
+function makeChunks(id, str) {
+  const chunks = [];
+  const total = Math.ceil(str.length / QR_CHUNK_SIZE);
+  for (let i = 0; i < total; i++) {
+    const part = str.slice(i * QR_CHUNK_SIZE, (i + 1) * QR_CHUNK_SIZE);
+    chunks.push(`${id}:${i + 1}/${total}:${part}`);
+  }
+  return chunks;
+}
+
+class ChunkReassembler {
+  constructor() { this.id = null; this.total = 0; this.parts = new Map(); }
+  feed(chunk) {
+    const m = chunk.match(/^([A-Z]+):(\d+)\/(\d+):(.*)$/s);
+    if (!m) return null;
+    const [, id, idxStr, totalStr, data] = m;
+    const idx = +idxStr, total = +totalStr;
+    if (this.id !== id) { this.id = id; this.total = total; this.parts.clear(); }
+    this.parts.set(idx, data);
+    if (this.parts.size === this.total) {
+      let out = '';
+      for (let i = 1; i <= this.total; i++) out += this.parts.get(i);
+      return { id, data: out };
     }
-    if (!db.objectStoreNames.contains('files')) {
-      db.createObjectStore('files', { keyPath: 'name' });
-    }
-  });
-
-  // Notes
-  const tx1 = db.transaction('notes', 'readwrite');
-  const notes = tx1.objectStore('notes');
-  await reqToPromise(notes.clear());
-  notes.put({ tag: 'idea', text: 'Animated QR codes for offline transfer.', createdAt: new Date() });
-  notes.put({ tag: 'todo', text: 'Test cross-origin import (should fail gracefully).', createdAt: new Date() });
-  notes.put({ tag: 'idea', text: 'Bluetooth handoff is underrated.', createdAt: new Date() });
-  await new Promise(r => tx1.oncomplete = r);
-
-  // A small synthetic blob (so we can verify binary survives the round trip)
-  const canvas = document.createElement('canvas');
-  canvas.width = 64; canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#d4f542'; ctx.fillRect(0, 0, 64, 64);
-  ctx.fillStyle = '#0e0f0d'; ctx.font = 'bold 28px monospace'; ctx.fillText('IDB', 6, 42);
-  const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-
-  const tx2 = db.transaction('files', 'readwrite');
-  tx2.objectStore('files').put({ name: 'badge.png', blob, size: blob.size });
-  await new Promise(r => tx2.oncomplete = r);
-
-  db.close();
-  log('demoDB ready (3 notes + 1 blob).', 'ok');
+    return { id, progress: this.parts.size / this.total };
+  }
+  reset() { this.id = null; this.total = 0; this.parts.clear(); }
 }
 
-async function listDbs() {
-  if (!indexedDB.databases) { log('Browser does not support indexedDB.databases().', 'err'); return; }
-  const list = await indexedDB.databases();
-  if (!list.length) { log('No IndexedDB databases for this origin.'); return; }
-  for (const d of list) log(`  · ${d.name} (v${d.version})`);
+// =====================================================================
+// QR rendering — cycles through chunks
+// =====================================================================
+function renderQR(container, text) {
+  const qr = qrcode(QR_TYPE_NUMBER, 'L');
+  qr.addData(text);
+  qr.make();
+  container.innerHTML = qr.createSvgTag({ scalable: true, margin: 1 });
 }
 
-// ---------- Wire up UI ----------
-$('seedBtn').addEventListener('click', () => seedDemo().catch(e => log(e.message, 'err')));
-$('listBtn').addEventListener('click', () => listDbs().catch(e => log(e.message, 'err')));
-$('exportBtn').addEventListener('click', () => {
-  const name = $('exportDbName').value.trim();
-  if (!name) { log('Enter a database name.', 'err'); return; }
-  exportDatabase(name).catch(e => log(e.message, 'err'));
-});
-
-$('shareBtn').addEventListener('click', () => {
-  const name = $('shareDbName').value.trim();
-  if (!name) { log('Enter a database name.', 'err'); return; }
-  shareDatabase(name).catch(e => log(e.message, 'err'));
-});
-
-detectShareSupport();
-
-let pendingFile = null;
-const dropzone = $('dropzone');
-const fileInput = $('importFile');
-const importBtn = $('importBtn');
-const clearBtn = $('clearBtn');
-
-function setFile(f) {
-  pendingFile = f;
-  if (f) {
-    dropzone.querySelector('.big').textContent = f.name;
-    dropzone.querySelector('.small').textContent = `${(f.size/1024).toFixed(1)} KB · ready to import`;
-    importBtn.disabled = false;
-  } else {
-    dropzone.querySelector('.big').textContent = 'Drop file or tap to choose';
-    dropzone.querySelector('.small').textContent = '.idbx file from the export step';
-    importBtn.disabled = true;
+let qrCycleTimers = new Map();
+function startQRCycle(containerId, infoId, chunks) {
+  stopQRCycle(containerId);
+  const container = $(containerId);
+  const info = $(infoId);
+  let i = 0;
+  const render = () => {
+    renderQR(container, chunks[i]);
+    info.textContent = `chunk ${i + 1} / ${chunks.length}`;
+    i = (i + 1) % chunks.length;
+  };
+  render();
+  if (chunks.length > 1) {
+    const timer = setInterval(render, 400);
+    qrCycleTimers.set(containerId, timer);
+  }
+}
+function stopQRCycle(containerId) {
+  if (qrCycleTimers.has(containerId)) {
+    clearInterval(qrCycleTimers.get(containerId));
+    qrCycleTimers.delete(containerId);
   }
 }
 
-fileInput.addEventListener('change', (e) => setFile(e.target.files[0] || null));
-['dragover','dragenter'].forEach(ev => dropzone.addEventListener(ev, (e) => {
-  e.preventDefault(); dropzone.classList.add('drag');
-}));
-['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, () => dropzone.classList.remove('drag')));
-dropzone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  const f = e.dataTransfer.files[0];
-  if (f) setFile(f);
+// =====================================================================
+// QR scanning — webcam + jsQR
+// =====================================================================
+class QRScanner {
+  constructor(videoEl, onChunk) {
+    this.video = videoEl;
+    this.onChunk = onChunk;
+    this.stream = null;
+    this.canvas = document.createElement('canvas');
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+    this.running = false;
+    this.lastDecoded = null;
+  }
+  async start() {
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+    } catch (err) {
+      // fall back to any camera
+      this.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+    this.video.srcObject = this.stream;
+    await this.video.play();
+    this.running = true;
+    this.loop();
+  }
+  stop() {
+    this.running = false;
+    if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
+    this.video.srcObject = null;
+  }
+  loop() {
+    if (!this.running) return;
+    if (this.video.readyState >= 2) {
+      this.canvas.width = this.video.videoWidth;
+      this.canvas.height = this.video.videoHeight;
+      this.ctx.drawImage(this.video, 0, 0);
+      const img = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data && code.data !== this.lastDecoded) {
+        this.lastDecoded = code.data;
+        this.onChunk(code.data);
+      }
+    }
+    requestAnimationFrame(() => this.loop());
+  }
+}
+
+// =====================================================================
+// WebRTC helpers
+// =====================================================================
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
+async function gatherCompleteSDP(pc) {
+  if (pc.iceGatheringState === 'complete') return;
+  await new Promise((resolve) => {
+    const check = () => { if (pc.iceGatheringState === 'complete') resolve(); };
+    pc.addEventListener('icegatheringstatechange', check);
+    // Safety timeout — STUN should be quick
+    setTimeout(resolve, 4000);
+  });
+}
+
+// Compress SDP to save QR bytes (it's mostly repetitive text)
+async function compressString(str) {
+  if (!window.CompressionStream) return btoa(unescape(encodeURIComponent(str)));
+  const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+  const buf = await new Response(stream).arrayBuffer();
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return 'G:' + btoa(bin);
+}
+async function decompressString(s) {
+  if (!s.startsWith('G:')) return decodeURIComponent(escape(atob(s)));
+  const bin = atob(s.slice(2));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+
+// =====================================================================
+// RECEIVE FLOW (this is desktop)
+// =====================================================================
+let r_pc = null;
+let r_scanner = null;
+let r_reassembler = new ChunkReassembler();
+
+$('r-start-btn').addEventListener('click', async () => {
+  try {
+    const dbname = $('r-dbname').value.trim();
+    if (!dbname) { log('Enter a database name first.', 'err'); return; }
+
+    setStatus('r-status-1', 'generating', 'active');
+    log(`Creating WebRTC offer for "${dbname}"…`);
+
+    r_pc = new RTCPeerConnection(RTC_CONFIG);
+
+    // Pre-create the data channel before the offer (so it's in the SDP)
+    const channel = r_pc.createDataChannel('idb', { ordered: true });
+    setupReceiverChannel(channel, dbname);
+
+    const offer = await r_pc.createOffer();
+    await r_pc.setLocalDescription(offer);
+    await gatherCompleteSDP(r_pc);
+
+    const fullOffer = JSON.stringify(r_pc.localDescription);
+    const compressed = await compressString(fullOffer);
+    log(`Offer ready · ${(compressed.length/1024).toFixed(2)} KB compressed`);
+
+    const chunks = makeChunks('OFFER', compressed);
+    enableStep('r-step-2');
+    enableStep('r-step-3');
+    setStatus('r-status-1', 'done', 'ok');
+    setStatus('r-status-2', `${chunks.length} chunks`, 'active');
+    startQRCycle('r-qr', 'r-qr-info', chunks);
+    log(`Showing ${chunks.length} QR chunks. Scan with your phone.`);
+  } catch (err) {
+    log('Error creating offer: ' + err.message, 'err');
+    setStatus('r-status-1', 'error', 'err');
+  }
 });
 
-importBtn.addEventListener('click', () => {
-  if (!pendingFile) return;
-  importDatabase(pendingFile, false).catch(e => log(e.message, 'err'));
+function setupReceiverChannel(channel, targetDbName) {
+  channel.binaryType = 'arraybuffer';
+  let receivedChunks = [];
+  let expectedSize = null;
+  let receivedSize = 0;
+
+  channel.onopen = () => {
+    log('Data channel open.', 'ok');
+    enableStep('r-step-4');
+    setStatus('r-status-4', 'connected', 'active');
+    $('r-progress-text').textContent = 'Connected. Waiting for data…';
+  };
+  channel.onclose = () => log('Data channel closed.');
+  channel.onerror = (e) => log('Channel error: ' + (e.error?.message || 'unknown'), 'err');
+
+  channel.onmessage = async (e) => {
+    if (typeof e.data === 'string') {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'header') {
+        expectedSize = msg.size;
+        receivedChunks = [];
+        receivedSize = 0;
+        $('r-progress-text').textContent = `Receiving 0 / ${(expectedSize/1024).toFixed(1)} KB…`;
+        log(`Header: ${(expectedSize/1024).toFixed(1)} KB incoming`);
+      } else if (msg.type === 'done') {
+        try {
+          const blob = new Blob(receivedChunks);
+          const text = await blob.text();
+          const payload = JSON.parse(text);
+          log(`Payload received. Writing to "${targetDbName}"…`);
+          $('r-progress-text').textContent = 'Writing to IndexedDB…';
+          const total = await writeEntireDatabase(payload, targetDbName);
+          $('r-progress').style.width = '100%';
+          $('r-progress-text').textContent = `Done. ${total} records written to "${targetDbName}".`;
+          setStatus('r-status-4', 'complete', 'ok');
+          log(`Done. ${total} records imported.`, 'ok');
+          channel.send(JSON.stringify({ type: 'ack' }));
+        } catch (err) {
+          log('Write failed: ' + err.message, 'err');
+          setStatus('r-status-4', 'error', 'err');
+        }
+      }
+    } else {
+      receivedChunks.push(e.data);
+      receivedSize += e.data.byteLength;
+      const pct = expectedSize ? (receivedSize / expectedSize) * 100 : 0;
+      $('r-progress').style.width = pct + '%';
+      $('r-progress-text').textContent = `Receiving ${(receivedSize/1024).toFixed(1)} / ${(expectedSize/1024).toFixed(1)} KB`;
+    }
+  };
+}
+
+$('r-cam-start').addEventListener('click', async () => {
+  if (r_scanner) return;
+  try {
+    setStatus('r-status-3', 'scanning', 'active');
+    r_scanner = new QRScanner($('r-video'), onReceiverScan);
+    await r_scanner.start();
+    $('r-cam-start').disabled = true;
+    $('r-cam-stop').disabled = false;
+    log('Webcam active. Point at phone screen.');
+  } catch (err) {
+    log('Camera error: ' + err.message, 'err');
+    setStatus('r-status-3', 'error', 'err');
+    r_scanner = null;
+  }
 });
-clearBtn.addEventListener('click', () => {
-  if (!pendingFile) { log('Choose a file first — the DB name comes from it.', 'err'); return; }
-  importDatabase(pendingFile, true).catch(e => log(e.message, 'err'));
+$('r-cam-stop').addEventListener('click', () => {
+  if (r_scanner) { r_scanner.stop(); r_scanner = null; }
+  $('r-cam-start').disabled = false;
+  $('r-cam-stop').disabled = true;
+});
+
+async function onReceiverScan(chunk) {
+  const res = r_reassembler.feed(chunk);
+  if (!res) return;
+  if (res.data && res.id === 'ANSWER') {
+    log('All answer chunks received. Applying…');
+    setStatus('r-status-3', 'received', 'ok');
+    if (r_scanner) { r_scanner.stop(); r_scanner = null; $('r-cam-start').disabled = false; $('r-cam-stop').disabled = true; }
+    try {
+      const answerJson = await decompressString(res.data);
+      const answer = JSON.parse(answerJson);
+      await r_pc.setRemoteDescription(answer);
+      log('Answer applied. Waiting for connection…');
+    } catch (err) {
+      log('Answer apply failed: ' + err.message, 'err');
+      setStatus('r-status-3', 'error', 'err');
+    }
+  } else if (res.progress !== undefined) {
+    setStatus('r-status-3', `${Math.round(res.progress * 100)}%`, 'active');
+  }
+}
+
+// =====================================================================
+// SEND FLOW (this is phone)
+// =====================================================================
+let s_pc = null;
+let s_scanner = null;
+let s_reassembler = new ChunkReassembler();
+
+async function refreshDbList() {
+  const select = $('s-dbselect');
+  select.innerHTML = '<option value="">— select a database —</option>';
+  if (!indexedDB.databases) {
+    log('Browser does not list databases. Type the name manually below.', 'err');
+    return;
+  }
+  try {
+    const list = await indexedDB.databases();
+    if (!list.length) { log('No databases on this device.'); return; }
+    for (const d of list) {
+      const opt = document.createElement('option');
+      opt.value = d.name; opt.textContent = `${d.name}  (v${d.version})`;
+      select.appendChild(opt);
+    }
+  } catch (err) {
+    log('Could not list databases: ' + err.message, 'err');
+  }
+}
+
+$('s-refresh').addEventListener('click', refreshDbList);
+$('s-seed').addEventListener('click', async () => {
+  try {
+    log('Seeding demoDB…');
+    const db = await openDb('demoDB', 1, (db) => {
+      if (!db.objectStoreNames.contains('notes')) {
+        const s = db.createObjectStore('notes', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('byTag', 'tag', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
+    });
+    const tx1 = db.transaction('notes', 'readwrite');
+    const notes = tx1.objectStore('notes');
+    await reqToPromise(notes.clear());
+    notes.put({ tag: 'idea', text: 'Animated QR codes for offline transfer.', createdAt: new Date() });
+    notes.put({ tag: 'todo', text: 'Try the WebRTC flow.', createdAt: new Date() });
+    notes.put({ tag: 'idea', text: 'Bluetooth handoff is underrated.', createdAt: new Date() });
+    await new Promise(r => tx1.oncomplete = r);
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#d4f542'; ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = '#0e0f0d'; ctx.font = 'bold 28px monospace'; ctx.fillText('IDB', 6, 42);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    const tx2 = db.transaction('files', 'readwrite');
+    tx2.objectStore('files').put({ name: 'badge.png', blob, size: blob.size });
+    await new Promise(r => tx2.oncomplete = r);
+    db.close();
+    log('demoDB ready (3 notes + 1 blob).', 'ok');
+    refreshDbList();
+  } catch (err) { log('Seed failed: ' + err.message, 'err'); }
+});
+
+$('s-dbselect').addEventListener('change', () => {
+  if ($('s-dbselect').value) {
+    enableStep('s-step-2');
+    setStatus('s-status-1', 'done', 'ok');
+  } else {
+    disableStep('s-step-2');
+  }
+});
+
+$('s-cam-start').addEventListener('click', async () => {
+  if (s_scanner) return;
+  try {
+    setStatus('s-status-2', 'scanning', 'active');
+    s_scanner = new QRScanner($('s-video'), onSenderScan);
+    await s_scanner.start();
+    $('s-cam-start').disabled = true;
+    $('s-cam-stop').disabled = false;
+    log('Camera active. Point at desktop QR.');
+  } catch (err) {
+    log('Camera error: ' + err.message + ' — make sure you allowed camera access.', 'err');
+    setStatus('s-status-2', 'error', 'err');
+    s_scanner = null;
+  }
+});
+$('s-cam-stop').addEventListener('click', () => {
+  if (s_scanner) { s_scanner.stop(); s_scanner = null; }
+  $('s-cam-start').disabled = false;
+  $('s-cam-stop').disabled = true;
+});
+
+async function onSenderScan(chunk) {
+  const res = s_reassembler.feed(chunk);
+  if (!res) return;
+  if (res.data && res.id === 'OFFER') {
+    log('All offer chunks received. Building answer…');
+    setStatus('s-status-2', 'received', 'ok');
+    if (s_scanner) { s_scanner.stop(); s_scanner = null; $('s-cam-start').disabled = false; $('s-cam-stop').disabled = true; }
+    try {
+      const offerJson = await decompressString(res.data);
+      const offer = JSON.parse(offerJson);
+
+      s_pc = new RTCPeerConnection(RTC_CONFIG);
+      s_pc.ondatachannel = (e) => setupSenderChannel(e.channel);
+      await s_pc.setRemoteDescription(offer);
+      const answer = await s_pc.createAnswer();
+      await s_pc.setLocalDescription(answer);
+      await gatherCompleteSDP(s_pc);
+
+      const fullAnswer = JSON.stringify(s_pc.localDescription);
+      const compressed = await compressString(fullAnswer);
+      const chunks = makeChunks('ANSWER', compressed);
+      enableStep('s-step-3');
+      setStatus('s-status-3', `${chunks.length} chunks`, 'active');
+      startQRCycle('s-qr', 's-qr-info', chunks);
+      log(`Answer ready · ${(compressed.length/1024).toFixed(2)} KB · ${chunks.length} QR chunks.`);
+    } catch (err) {
+      log('Offer apply failed: ' + err.message, 'err');
+      setStatus('s-status-2', 'error', 'err');
+    }
+  } else if (res.progress !== undefined) {
+    setStatus('s-status-2', `${Math.round(res.progress * 100)}%`, 'active');
+  }
+}
+
+function setupSenderChannel(channel) {
+  channel.binaryType = 'arraybuffer';
+  channel.onopen = async () => {
+    log('Data channel open. Sending DB…', 'ok');
+    setStatus('s-status-3', 'connected', 'ok');
+    stopQRCycle('s-qr');
+    enableStep('s-step-4');
+    setStatus('s-status-4', 'sending', 'active');
+    try {
+      const dbname = $('s-dbselect').value;
+      const payload = await readEntireDatabase(dbname);
+      const json = JSON.stringify(payload);
+      const bytes = new TextEncoder().encode(json);
+      const CHUNK = 16 * 1024;
+      channel.send(JSON.stringify({ type: 'header', size: bytes.byteLength }));
+      let sent = 0;
+      while (sent < bytes.byteLength) {
+        // Pause if buffer is filling up
+        while (channel.bufferedAmount > 1024 * 1024) {
+          await new Promise(r => setTimeout(r, 20));
+        }
+        const slice = bytes.slice(sent, sent + CHUNK);
+        channel.send(slice);
+        sent += slice.byteLength;
+        const pct = (sent / bytes.byteLength) * 100;
+        $('s-progress').style.width = pct + '%';
+        $('s-progress-text').textContent = `Sent ${(sent/1024).toFixed(1)} / ${(bytes.byteLength/1024).toFixed(1)} KB`;
+      }
+      channel.send(JSON.stringify({ type: 'done' }));
+      log(`Sent ${(bytes.byteLength/1024).toFixed(1)} KB.`, 'ok');
+      setStatus('s-status-4', 'sent', 'ok');
+    } catch (err) {
+      log('Send failed: ' + err.message, 'err');
+      setStatus('s-status-4', 'error', 'err');
+    }
+  };
+  channel.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'ack') {
+        log('Receiver confirmed import. Done.', 'ok');
+        $('s-progress-text').textContent = 'Receiver imported the data. All done.';
+      }
+    }
+  };
+  channel.onclose = () => log('Channel closed.');
+  channel.onerror = (e) => log('Channel error: ' + (e.error?.message || 'unknown'), 'err');
+}
+
+// =====================================================================
+// Init
+// =====================================================================
+window.addEventListener('load', () => {
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    log('Warning: WebRTC and camera require HTTPS. Some features will fail.', 'err');
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    log('Warning: this browser does not support camera access.', 'err');
+  }
+  if (typeof qrcode === 'undefined' || typeof jsQR === 'undefined') {
+    log('QR libraries failed to load. Check internet connection.', 'err');
+  }
 });
 </script>
 </body>
