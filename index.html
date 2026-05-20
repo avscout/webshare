@@ -317,8 +317,8 @@
       <p><strong>Flow.</strong> Desktop (receiver) creates a WebRTC offer and shows it as a QR. Phone (sender) scans it, builds the answer, shows that as a QR. Desktop's webcam scans the answer. The connection is now established and the IDB data streams directly between browsers — no server in the middle.</p>
       <p><strong>QR chunks.</strong> WebRTC handshake data is too big for one QR code (typically 3-5 KB), so it's split into multiple QR codes that cycle automatically. Cameras stay on until all chunks are received in any order.</p>
       <p><strong>Same origin required.</strong> Both devices must open this page from the same URL. IndexedDB is partitioned per origin.</p>
-      <p><strong>Needs internet.</strong> WebRTC uses public STUN servers (Google's free ones) to discover network paths. Tiny amount of traffic, but a working internet connection is required on both ends.</p>
-      <p><strong>If connection fails:</strong> typically a strict firewall blocking WebRTC. Reload both pages and start over. Some corporate networks block this entirely.</p>
+      <p><strong>Needs internet.</strong> WebRTC uses public STUN servers to discover network paths, plus a free TURN relay (Open Relay Project) when devices are on different networks. Tiny amount of traffic in normal cases, but a working internet connection is required on both ends.</p>
+      <p><strong>If connection stalls at "Waiting for connection…":</strong> watch the log for ICE state. <code>checking → connected</code> is the happy path. <code>checking → failed</code> means neither device can reach the other directly OR via TURN — usually a strict firewall or mobile carrier blocking WebRTC. Try putting both devices on the same Wi-Fi network as a workaround.</p>
     </div>
   </details>
 
@@ -643,9 +643,41 @@ class QRScanner {
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    // Open Relay Project — free public TURN for cross-NAT cases (e.g. cellular ↔ home Wi-Fi)
+    // https://www.metered.ca/tools/openrelay/
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 };
+
+// Hook a peer connection to surface state changes in the log.
+function instrumentPC(pc, label) {
+  pc.addEventListener('iceconnectionstatechange', () => {
+    const s = pc.iceConnectionState;
+    const kind = (s === 'connected' || s === 'completed') ? 'ok'
+               : (s === 'failed' || s === 'disconnected') ? 'err' : 'info';
+    log(`${label} ICE: ${s}`, kind);
+  });
+  pc.addEventListener('connectionstatechange', () => {
+    const s = pc.connectionState;
+    const kind = s === 'connected' ? 'ok' : (s === 'failed' ? 'err' : 'info');
+    log(`${label} connection: ${s}`, kind);
+  });
+}
 
 async function gatherCompleteSDP(pc) {
   if (pc.iceGatheringState === 'complete') return;
@@ -690,6 +722,7 @@ $('r-start-btn').addEventListener('click', async () => {
     log(`Creating WebRTC offer for "${dbname}"…`);
 
     r_pc = new RTCPeerConnection(RTC_CONFIG);
+    instrumentPC(r_pc, 'recv');
 
     // Pre-create the data channel before the offer (so it's in the SDP)
     const channel = r_pc.createDataChannel('idb', { ordered: true });
@@ -909,6 +942,7 @@ async function onSenderScan(chunk) {
       const offer = JSON.parse(offerJson);
 
       s_pc = new RTCPeerConnection(RTC_CONFIG);
+      instrumentPC(s_pc, 'send');
       s_pc.ondatachannel = (e) => setupSenderChannel(e.channel);
       await s_pc.setRemoteDescription(offer);
       const answer = await s_pc.createAnswer();
