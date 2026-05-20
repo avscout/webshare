@@ -169,7 +169,7 @@
       <span class="net-id-label">Your network ID:</span>
       <code class="net-id" id="net-id">detecting…</code>
     </div>
-    <div class="net-hint">Same prefix on both devices → likely compatible. Different prefix → switch to PeerJS or change networks.</div>
+    <div class="net-hint">Same prefix on both devices → likely compatible. Different prefix or detection failed → switch to PeerJS, which can use TURN relay to connect across networks.</div>
   </div>
 
   <div class="modes">
@@ -486,12 +486,32 @@ function maskIP(ip) {
 }
 
 function getPublicIP() {
+  // Use Google STUN, same as the rest of the app. Note: if STUN fails
+  // here, the Raw WebRTC backend definitely won't work — but PeerJS may
+  // still work via its TURN relay fallback (which doesn't need UDP/STUN).
+  // So "could not detect" should suggest PeerJS, not give up entirely.
+  const stunServers = [
+    'stun:stun.l.google.com:19302',
+    'stun:stun1.l.google.com:19302'
+  ];
+  return tryStunServers(stunServers, 0);
+}
+
+function tryStunServers(servers, index) {
+  if (index >= servers.length) {
+    return Promise.reject(new Error('All STUN servers failed — your network may block UDP/STUN traffic'));
+  }
+  return tryOneStun(servers[index]).catch((err) => {
+    log(`STUN ${servers[index]} failed: ${err.message}`, 'info');
+    return tryStunServers(servers, index + 1);
+  });
+}
+
+function tryOneStun(stunUrl) {
   return new Promise((resolve, reject) => {
     let pc;
     try {
-      pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
-      });
+      pc = new RTCPeerConnection({ iceServers: [{ urls: stunUrl }] });
     } catch (err) { return reject(err); }
 
     let settled = false;
@@ -502,21 +522,27 @@ function getPublicIP() {
       try { pc.close(); } catch {}
       fn(val);
     };
-    const timeout = setTimeout(() => finish(reject, new Error('STUN timeout')), 4000);
+    const timeout = setTimeout(() => finish(reject, new Error('timeout (4s)')), 4000);
 
+    let sawHost = false, sawSrflx = false;
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
-      // Candidate string format (RFC 5245):
-      // candidate:foundation component protocol priority address port typ <type> ...
       const parts = e.candidate.candidate.split(' ');
       const typIdx = parts.indexOf('typ');
       if (typIdx === -1) return;
       const type = parts[typIdx + 1];
-      if (type === 'srflx') finish(resolve, parts[4]);
+      if (type === 'host') sawHost = true;
+      if (type === 'srflx') {
+        sawSrflx = true;
+        finish(resolve, parts[4]);
+      }
     };
     pc.onicegatheringstatechange = () => {
       if (pc.iceGatheringState === 'complete' && !settled) {
-        finish(reject, new Error('No srflx candidate found (no public IP)'));
+        const diag = sawSrflx ? 'srflx but no IP extracted'
+                   : sawHost  ? 'only local candidates returned (STUN blocked or unreachable)'
+                   :            'no candidates at all (WebRTC broken or blocked)';
+        finish(reject, new Error(diag));
       }
     };
 
