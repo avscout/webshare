@@ -60,26 +60,32 @@
      reserved if we ever need to hide something specifically in dev mode. */
   html.dev-mode-off .dev-only { display: none !important; }
   html.dev-mode-on .user-only-paragraph { display: none !important; }
-  /* DEV badge — visible only in dev mode, sits to the left of the wordmark */
+  /* DEV badge — visible only in dev mode. Absolutely positioned so it
+     sits dead-centre regardless of wordmark or identity-badge widths.
+     When dev mode is off this entire element is display: none. */
   .dev-badge {
     display: none;
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
     background: var(--warn); color: #FFFFFF;
     font-family: var(--mono, monospace);
     font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
     padding: 2px 6px; border-radius: 2px;
-    margin-right: 8px;
   }
   html.dev-mode-on .dev-badge { display: inline-block; }
 
   /* ===== Header ===== */
+  /* Wordmark on the left, DEV badge centered (absolute), identity on the
+     right via margin-left: auto. Position: relative so the absolute DEV
+     badge anchors to the topbar, not the body. */
   .topbar {
     flex-shrink: 0; height: var(--header-h);
     background: var(--bg); border-bottom: 2px solid var(--accent);
     display: flex; align-items: center; padding: 0 14px;
     z-index: 10;
+    position: relative;
   }
   .topbar .title {
-    flex: 1; text-align: center;
     font-size: 12px; font-weight: 700; color: var(--ink-soft);
     letter-spacing: 0.06em; text-transform: uppercase;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -185,6 +191,29 @@
   .toggle-btn .arrow { display: block; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 3px; opacity: 0.75; font-weight: 700; }
   .toggle-btn small { display: block; font-size: 10px; opacity: 0.8; margin-top: 4px; font-weight: 400; }
   .toggle-btn.active small { opacity: 0.85; }
+
+  /* Direction buttons on the start screen. Both are the same cyan style —
+     no "active" state because tapping IS the action (commits and advances
+     in one motion). Big label, small subtitle, generous tap target. */
+  .direction-actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin-bottom: 18px;
+  }
+  .direction-btn {
+    background: var(--accent); color: #FFFFFF; border: none;
+    padding: 28px 16px; font-family: var(--sans);
+    cursor: pointer; transition: background 0.15s, transform 0.05s;
+    text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .direction-btn:hover { background: var(--tud-cyan-dark); }
+  .direction-btn:active { transform: scale(0.985); }
+  .direction-btn-label {
+    font-size: 22px; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .direction-btn-sub {
+    font-size: 12px; opacity: 0.85; font-weight: 400;
+  }
 
   /* QR area, big and centered for mobile */
   .qr-frame {
@@ -433,10 +462,17 @@
   /* The "Send another" button in the sent view fades in 0.4s AFTER the
      subline finishes — total delay 2.6s from screen entry, which is roughly
      when the plane animation ends. Hidden until then so the user isn't
-     tempted to dismiss the moment. */
+     tempted to dismiss the moment. Uses a dedicated keyframe (rather than
+     reusing sent-text-in) so pointer-events flips from none → auto at
+     animation end, otherwise the button stays visually-present but
+     un-clickable. */
   .sent-actions-hidden {
     opacity: 0; pointer-events: none;
-    animation: sent-text-in 0.5s ease-out 2.6s forwards;
+    animation: sent-actions-in 0.5s ease-out 2.6s forwards;
+  }
+  @keyframes sent-actions-in {
+    from { opacity: 0; transform: translateY(8px); pointer-events: none; }
+    to   { opacity: 1; transform: translateY(0); pointer-events: auto; }
   }
 
   /* ===== Onboarding overlay (home → disclaimer → setup) ===== */
@@ -984,9 +1020,14 @@
      sessions, storage status, install the app, etc. Before identity is set
      (an edge case since onboarding requires it), the badge shows just the
      empty device shape. -->
+<!-- TOPBAR -->
+<!-- Layout: wordmark on the left, DEV badge centered (when dev mode is on,
+     otherwise the slot is empty), identity badge on the right. The DEV
+     badge uses absolute positioning so its width doesn't shift the layout
+     when toggled — wordmark and identity stay in fixed positions. -->
 <header class="topbar">
-  <span class="dev-badge" aria-hidden="true">DEV</span>
   <div class="title" id="topbar-title">P2P <em>Transfer</em></div>
+  <span class="dev-badge" aria-hidden="true">DEV</span>
   <button class="identity-badge" id="topbar-identity" aria-label="My device">
     <span class="identity-badge-svg" id="topbar-identity-svg"></span>
     <span class="identity-badge-name" id="topbar-identity-name"></span>
@@ -1021,10 +1062,20 @@
         </div>
       </div>
 
-      <label class="field" style="margin-top: 18px;"><span>Direction</span></label>
-      <div class="toggle-group" id="mode-group">
-        <button class="toggle-btn active" data-mode="receive"><span class="arrow">← receive</span>On this device</button>
-        <button class="toggle-btn" data-mode="send"><span class="arrow">send →</span>From this device</button>
+      <!-- Two big action buttons. Tapping either commits the choice and
+           advances immediately to the next screen — no separate Continue
+           button needed (the act of tapping IS the continue). Both share
+           the same cyan style since neither is "selected"; both are
+           equal calls-to-action. -->
+      <div class="direction-actions" id="mode-group">
+        <button class="direction-btn" data-mode="send">
+          <span class="direction-btn-label">Send</span>
+          <span class="direction-btn-sub">from this device</span>
+        </button>
+        <button class="direction-btn" data-mode="receive">
+          <span class="direction-btn-label">Receive</span>
+          <span class="direction-btn-sub">on this device</span>
+        </button>
       </div>
     </div>
   </section>
@@ -1672,10 +1723,11 @@ function prevStep() { goToStep(currentStep - 1, 'back'); }
 function updateNavBar() {
   const flow = activeFlow();
   const screenId = flow[currentStep];
-  // Transfer screen has its own inline actions — hide the global bottom nav.
-  // For every other screen, show it and configure the buttons.
+  // Transfer screen has its own inline actions; start screen uses the big
+  // direction buttons themselves as the action — neither needs the bottom
+  // nav. For every other screen, show it and configure the buttons.
   const bottombar = $('bottombar');
-  if (screenId === 'transfer') {
+  if (screenId === 'transfer' || screenId === 'start') {
     bottombar.classList.add('hidden');
     return;
   }
@@ -1685,10 +1737,7 @@ function updateNavBar() {
   nextBtn.disabled = true;
   nextBtn.textContent = 'Continue →';
   // Screen-specific Continue button state
-  if (screenId === 'start') {
-    nextBtn.disabled = false;
-    nextBtn.textContent = currentMode === 'send' ? 'Continue →' : 'Start receiving →';
-  } else if (screenId === 'pick') {
+  if (screenId === 'pick') {
     nextBtn.disabled = !selectedSessionId;
   } else if (screenId === 'show-qr') {
     nextBtn.textContent = 'Waiting for peer…';
@@ -1746,11 +1795,17 @@ document.querySelectorAll('#backend-group .toggle-btn').forEach(b => {
     onBackendOrModeChanged();
   });
 });
-document.querySelectorAll('#mode-group .toggle-btn').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('#mode-group .toggle-btn').forEach(x => x.classList.toggle('active', x === b));
+// Direction buttons: tapping a button commits the mode and advances to
+// the next screen in one motion. No separate "Continue" needed. The
+// identity check runs here (defensive — onboarding usually has set it
+// already, but if not, the setup modal blocks until saved).
+document.querySelectorAll('#mode-group .direction-btn').forEach(b => {
+  b.addEventListener('click', async () => {
     currentMode = b.dataset.mode;
     onBackendOrModeChanged();
+    const id = await ensureIdentity();
+    if (!id) return;  // shouldn't happen (setup modal is non-cancellable) but defensive
+    nextStep();
   });
 });
 function onBackendOrModeChanged() {
@@ -1830,7 +1885,11 @@ async function setupShowQRScreen() {
   if (currentMode === 'receive' && currentBackend === 'peerjs') {
     // Show peer ID for sender to scan
     $('show-qr-title').textContent = 'Share with the sender';
-    $('show-qr-subtitle').textContent = 'On the sending device, scan this QR or type the ID below.';
+    // The "type the ID" affordance only exists in dev mode; in user mode
+    // there's no peer-ID display at all, so the subtitle adjusts.
+    $('show-qr-subtitle').textContent = DEV_MODE
+      ? 'On the sending device, scan this QR or type the ID below.'
+      : 'On the sending device, scan this QR.';
     // Start the transfer if not already
     await ensureReceiveTransfer();
     // The transfer's 'show-qr' event will fill in the QR
@@ -3332,17 +3391,20 @@ async function maybeShowOnboarding() {
   return true;
 }
 
+$('nav-back').addEventListener('click', () => {
+  // No-op on the start screen (currentStep === 0). The button is also
+  // disabled in updateNavBar() in that state, but defensive check here
+  // so a stray click doesn't try to navigate to a nonexistent step.
+  if (currentStep > 0) prevStep();
+});
 $('nav-next').addEventListener('click', async () => {
   const screenId = currentScreenId();
-  if (screenId === 'start') {
-    const id = await ensureIdentity();
-    if (!id) return;
-    nextStep();
-  } else if (screenId === 'pick') {
+  // Start screen no longer reaches here — its action buttons handle the
+  // advance directly. Pick is the only screen that still has a Continue
+  // button to wire (the QR/scan/transfer screens hide nav-next).
+  if (screenId === 'pick') {
     if (selectedSessionId) nextStep();
   }
-  // Transfer screen has no bottom nav (see updateNavBar); its actions live
-  // inline below the content via the buttons wired below.
 });
 // Inline restart buttons — same destination as the old bottom-nav Start over
 const restartToStart = () => goToStep(0, 'back');
