@@ -509,6 +509,7 @@ function tryStunServers(servers, index) {
 
 function tryOneStun(stunUrl) {
   return new Promise((resolve, reject) => {
+    log(`Probing ${stunUrl}…`, 'info');
     let pc;
     try {
       pc = new RTCPeerConnection({ iceServers: [{ urls: stunUrl }] });
@@ -527,17 +528,21 @@ function tryOneStun(stunUrl) {
     let sawHost = false, sawSrflx = false;
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
+      log(`  candidate: ${e.candidate.candidate.slice(0, 80)}…`, 'info');
       const parts = e.candidate.candidate.split(' ');
       const typIdx = parts.indexOf('typ');
-      if (typIdx === -1) return;
+      if (typIdx === -1) { log(`  (no "typ" field found)`, 'err'); return; }
       const type = parts[typIdx + 1];
       if (type === 'host') sawHost = true;
       if (type === 'srflx') {
         sawSrflx = true;
-        finish(resolve, parts[4]);
+        const ip = parts[4];
+        log(`  → srflx IP extracted: ${ip}`, 'ok');
+        finish(resolve, ip);
       }
     };
     pc.onicegatheringstatechange = () => {
+      log(`  gathering state: ${pc.iceGatheringState}`, 'info');
       if (pc.iceGatheringState === 'complete' && !settled) {
         const diag = sawSrflx ? 'srflx but no IP extracted'
                    : sawHost  ? 'only local candidates returned (STUN blocked or unreachable)'
