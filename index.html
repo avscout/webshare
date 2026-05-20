@@ -856,6 +856,11 @@ let selectedSessionId = null;
 // list. Cleared whenever we leave the transfer screen.
 let justTransferredId = null;
 let justTransferredDirection = null;  // 'sent' | 'received' | null
+// On the sender side, this captures what the receiver did with the payload —
+// 'created', 'replaced', 'merged', 'skipped', or an error string. Set by
+// onAck, read by showSentAnimation to choose an appropriate subtitle.
+let receiverAction = null;
+let receiverError = null;
 
 function activeFlow() { return FLOWS[`${currentMode}-${currentBackend}`]; }
 function currentScreenId() { return activeFlow()[currentStep]; }
@@ -947,6 +952,8 @@ function onLeaveScreen(screenId) {
     // Clear the highlight state so a future transfer doesn't show stale info
     justTransferredId = null;
     justTransferredDirection = null;
+    receiverAction = null;
+    receiverError = null;
   }
 }
 
@@ -1177,9 +1184,42 @@ function setupTransferScreen() {
 // Sender's success state: swap the progress view for the paper-plane animation,
 // hide the screen header (the title/subtitle don't add anything once landed),
 // and update the nav bar to remove the now-meaningless Back affordance.
+// The headline and subline are chosen based on what the receiver did, so the
+// sender gets explicit feedback on the outcome rather than a generic "sent".
 function showSentAnimation() {
   $('transfer-progress-view').classList.add('hidden');
   $('transfer-sent-view').classList.remove('hidden');
+  // Choose headline + subline based on the receiver's reported action.
+  // receiverAction comes from onAck — may not have arrived yet on slow networks,
+  // but in practice onAck fires immediately before status='done' (see library).
+  let headline = 'Sent!';
+  let subline  = 'Your session has been delivered.';
+  if (receiverError) {
+    headline = 'Sent — but…';
+    subline  = `Receiver reported an error: ${receiverError}`;
+  } else {
+    switch (receiverAction) {
+      case 'created':
+        headline = 'Sent!';
+        subline  = 'Stored as a new session on the other device.';
+        break;
+      case 'replaced':
+        headline = 'Sent!';
+        subline  = 'The receiver replaced their copy with yours.';
+        break;
+      case 'merged':
+        headline = 'Sent!';
+        subline  = 'The receiver merged your data into theirs.';
+        break;
+      case 'skipped':
+        headline = 'Delivered';
+        subline  = 'The receiver chose to skip this session.';
+        break;
+      // null / unknown — keep generic defaults
+    }
+  }
+  $('sent-headline').textContent = headline;
+  $('sent-subline').textContent = subline;
   // Clear the screen header so the page is just plane + headline + Start over
   $('transfer-title').textContent = '';
   $('transfer-subtitle').textContent = '';
@@ -1331,23 +1371,41 @@ function wireTransferToSendUI(t) {
   t.on('progress', ({ sent, total }) => {
     const pct = total ? (sent / total) * 100 : 0;
     $('transfer-progress').style.width = pct + '%';
-    if (total) setTransferStatus(`Sent ${(sent/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
+    if (total) {
+      // Once the bytes are fully out the door but the receiver hasn't yet
+      // acknowledged, surface that explicitly — otherwise the last visible
+      // status ("Sent 4.2 / 4.2 KB") gives no hint that we're waiting on the
+      // receiver to choose Merge/Replace/Skip. This is especially important
+      // when the receiver lingers on the conflict modal.
+      if (sent >= total) {
+        setTransferStatus('Awaiting action from receiver…');
+      } else {
+        setTransferStatus(`Sent ${(sent/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
+      }
+    }
   });
   t.on('status', (s) => {
     if (s === 'done') {
       // For the sender, the just-touched session is the one we picked.
       justTransferredId = selectedSessionId;
       justTransferredDirection = 'sent';
-      // Swap the entire view to the whimsical paper-plane animation. We do
-      // NOT show the session list here — at this point the user already
-      // chose what to send and doesn't need a list of what they have.
+      // Swap the entire view to the whimsical paper-plane animation. The
+      // receiver's action (created/replaced/merged/skipped) is read inside
+      // showSentAnimation from receiverAction, which onAck has already set
+      // (onAck fires immediately before status='done' in the library).
       showSentAnimation();
     }
     if (s === 'error') setTransferStatus('Error during send', 'err');
   });
   t.onAck = (response, error) => {
-    if (error) setTransferStatus('Receiver error: ' + error, 'err');
-    else setTransferStatus(`Receiver: ${response?.action || 'done'}.`, 'ok');
+    // Store the receiver's verdict for showSentAnimation to read. We don't
+    // touch the status line here — by the time status='done' fires (very
+    // soon after), showSentAnimation will swap the whole view anyway.
+    receiverError = error || null;
+    receiverAction = response?.action || null;
+    // Also write a one-line log entry so the activity log captures it.
+    if (error) log(`Receiver reported error: ${error}`, 'err');
+    else if (receiverAction) log(`Receiver: ${receiverAction}.`, 'ok');
   };
 }
 
