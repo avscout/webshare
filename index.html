@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IDB Transfer · WebRTC</title>
+<title>IDB Transfer · v3</title>
 <style>
   :root {
     --bg: #0e0f0d;
@@ -12,6 +12,7 @@
     --line: #2a2c28;
     --line-soft: #1c1e1a;
     --accent: #d4f542;
+    --accent-2: #8ad4f5;
     --warn: #ff7a59;
     --ok: #6fdc8c;
     --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
@@ -26,18 +27,35 @@
   }
   .wrap { max-width: 680px; margin: 0 auto; }
 
-  header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 24px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 18px; }
   .label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
   h1 { font-family: var(--serif); font-weight: 400; font-size: 38px; line-height: 1.05; margin-top: 6px; letter-spacing: -0.01em; }
   h1 em { font-style: italic; color: var(--accent); }
   .sub { color: var(--dim); margin-top: 8px; font-size: 13px; max-width: 56ch; }
 
-  /* Mode toggle — big and obvious */
-  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 32px; border: 1px solid var(--line); }
+  /* Backend selector (smaller, secondary) */
+  .backend-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--line); padding: 8px 10px; margin-bottom: 14px;
+    background: rgba(255,255,255,0.012);
+  }
+  .backend-row .lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+  .backend-row .opts { display: flex; gap: 4px; flex: 1; }
+  .backend-btn {
+    flex: 1; background: transparent; color: var(--dim); border: 1px solid var(--line);
+    padding: 7px 10px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+    text-transform: uppercase; cursor: pointer; transition: all 0.15s;
+  }
+  .backend-btn:hover:not(.active) { color: var(--ink); border-color: var(--ink); }
+  .backend-btn.active { background: var(--accent-2); color: #0e0f0d; border-color: var(--accent-2); font-weight: 600; }
+  .backend-btn small { display: block; font-size: 9px; opacity: 0.7; margin-top: 2px; font-weight: 400; }
+
+  /* Mode toggle (primary, large) */
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 28px; border: 1px solid var(--line); }
   .mode-btn {
-    background: transparent; color: var(--dim); border: none; padding: 22px 18px;
+    background: transparent; color: var(--dim); border: none; padding: 20px 18px;
     font-family: var(--serif); font-size: 22px; font-weight: 400; letter-spacing: -0.01em;
-    cursor: pointer; transition: all 0.2s; text-align: center; position: relative;
+    cursor: pointer; transition: all 0.2s; text-align: center;
   }
   .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
   .mode-btn:hover:not(.active) { color: var(--ink); background: rgba(255,255,255,0.02); }
@@ -88,6 +106,11 @@
   .qr-center { text-align: center; padding: 12px 0; }
   .qr-frame svg { display: block; width: 100%; max-width: 420px; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }
   .qr-chunk-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.1em; }
+  .peer-id {
+    font-family: var(--mono); font-size: 18px; color: var(--accent); text-align: center;
+    margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--line); display: inline-block;
+    user-select: all; cursor: pointer;
+  }
 
   /* Camera preview */
   .cam-frame {
@@ -108,6 +131,10 @@
   /* Progress */
   .progress { background: var(--line-soft); height: 4px; overflow: hidden; margin: 12px 0; }
   .progress-bar { background: var(--accent); height: 100%; width: 0; transition: width 0.2s; }
+
+  /* Or divider */
+  .or-div { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--dim); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; }
+  .or-div::before, .or-div::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
   /* Log */
   .log {
@@ -139,6 +166,7 @@
     h1 { font-size: 30px; }
     .mode-btn { font-size: 18px; padding: 18px 12px; }
     .row button { flex: 1; min-width: 0; }
+    .backend-row { flex-direction: column; align-items: stretch; gap: 6px; }
   }
 </style>
 </head>
@@ -146,10 +174,23 @@
 <div class="wrap">
 
   <header>
-    <div class="label">webrtc · qr signaling · v2</div>
+    <div class="label">idb transfer · v3 · dual backend</div>
     <h1>Push <em>IDB</em> data<br>device to device.</h1>
-    <p class="sub">Pick a side, follow the steps. Desktop shows a QR code, phone scans it, data flows directly between the two browsers. No files saved, no servers in the middle.</p>
+    <p class="sub">Pick a backend, pick a side, follow the steps. The data flows directly between the two browsers — nothing is stored in the cloud.</p>
   </header>
+
+  <!-- BACKEND SELECTOR -->
+  <div class="backend-row">
+    <span class="lbl">Backend</span>
+    <div class="opts">
+      <button class="backend-btn active" data-backend="peerjs">
+        PeerJS<small>cross-network · easy</small>
+      </button>
+      <button class="backend-btn" data-backend="raw">
+        Raw WebRTC<small>same Wi-Fi only · QR handshake</small>
+      </button>
+    </div>
+  </div>
 
   <!-- MODE TOGGLE -->
   <div class="modes">
@@ -163,195 +204,286 @@
     </button>
   </div>
 
-  <!-- ============================================================ -->
-  <!-- RECEIVE MODE (desktop) -->
-  <!-- ============================================================ -->
-  <section id="receiveMode">
+  <!-- ================================================================== -->
+  <!-- PEERJS BACKEND                                                     -->
+  <!-- ================================================================== -->
+  <div id="backend-peerjs">
 
-    <div class="step" id="r-step-1">
-      <div class="step-head">
-        <span class="num">1</span>
-        <h2>Choose target database</h2>
-        <span class="status" id="r-status-1">setup</span>
-      </div>
-      <div class="step-body">
-        <p class="sub" style="margin-bottom: 14px;">Name the IndexedDB that will receive the data. If it exists, you'll be asked whether to wipe or merge.</p>
-        <label class="field">
-          <span>Database name</span>
-          <input type="text" id="r-dbname" placeholder="e.g. demoDB" value="demoDB">
-        </label>
-        <div class="row">
-          <button class="primary" id="r-start-btn">Generate QR code</button>
+    <!-- PeerJS Receive -->
+    <section id="pjs-receive">
+      <div class="step" id="pjs-r-step-1">
+        <div class="step-head">
+          <span class="num">1</span><h2>Choose target database</h2>
+          <span class="status" id="pjs-r-status-1">setup</span>
+        </div>
+        <div class="step-body">
+          <p class="sub" style="margin-bottom: 14px;">Name the IndexedDB that will receive the data.</p>
+          <label class="field">
+            <span>Database name</span>
+            <input type="text" id="pjs-r-dbname" placeholder="e.g. demoDB" value="demoDB">
+          </label>
+          <div class="row">
+            <button class="primary" id="pjs-r-start">Start receiving</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="step disabled" id="r-step-2">
-      <div class="step-head">
-        <span class="num">2</span>
-        <h2>Scan this QR with your phone</h2>
-        <span class="status" id="r-status-2">waiting</span>
-      </div>
-      <div class="step-body">
-        <div class="qr-center">
-          <div class="qr-frame" id="r-qr"></div>
-          <div class="qr-chunk-info" id="r-qr-info"></div>
+      <div class="step disabled" id="pjs-r-step-2">
+        <div class="step-head">
+          <span class="num">2</span><h2>Your peer ID — share with the sender</h2>
+          <span class="status" id="pjs-r-status-2">waiting</span>
         </div>
-        <p class="sub" style="text-align: center; margin-top: 14px;">Open this page on your phone, tap <strong style="color:var(--ink)">Send</strong>, then scan the code above.</p>
-      </div>
-    </div>
-
-    <div class="step disabled" id="r-step-3">
-      <div class="step-head">
-        <span class="num">3</span>
-        <h2>Scan the response from your phone</h2>
-        <span class="status" id="r-status-3">waiting</span>
-      </div>
-      <div class="step-body">
-        <p class="sub" style="text-align: center; margin-bottom: 14px;">After your phone scans step 2, it will show its own QR code. Point your webcam at it.</p>
-        <div class="cam-frame" id="r-cam-frame">
-          <video id="r-video" playsinline muted></video>
-          <div class="reticle"></div>
-        </div>
-        <div class="row" style="margin-top: 14px; justify-content: center;">
-          <button id="r-cam-start">Start webcam</button>
-          <button id="r-cam-stop" disabled>Stop</button>
+        <div class="step-body">
+          <div class="qr-center">
+            <div class="qr-frame" id="pjs-r-qr"></div>
+            <div class="peer-id" id="pjs-r-peerid" title="Click to select all">…</div>
+          </div>
+          <p class="sub" style="text-align: center; margin-top: 14px;">On your phone, scan this QR <strong style="color:var(--ink)">or</strong> type the ID above.</p>
         </div>
       </div>
-    </div>
 
-    <div class="step disabled" id="r-step-4">
-      <div class="step-head">
-        <span class="num">4</span>
-        <h2>Receiving data</h2>
-        <span class="status" id="r-status-4">waiting</span>
-      </div>
-      <div class="step-body">
-        <div class="progress"><div class="progress-bar" id="r-progress"></div></div>
-        <p class="sub" id="r-progress-text" style="text-align: center;">Waiting for connection…</p>
-      </div>
-    </div>
-
-  </section>
-
-  <!-- ============================================================ -->
-  <!-- SEND MODE (phone) -->
-  <!-- ============================================================ -->
-  <section id="sendMode" class="hidden">
-
-    <div class="step" id="s-step-1">
-      <div class="step-head">
-        <span class="num">1</span>
-        <h2>Choose database to send</h2>
-        <span class="status" id="s-status-1">setup</span>
-      </div>
-      <div class="step-body">
-        <label class="field">
-          <span>Database on this device</span>
-          <select id="s-dbselect">
-            <option value="">— select a database —</option>
-          </select>
-        </label>
-        <div class="row">
-          <button id="s-refresh">Refresh list</button>
-          <button id="s-seed">Create demoDB</button>
+      <div class="step disabled" id="pjs-r-step-3">
+        <div class="step-head">
+          <span class="num">3</span><h2>Receiving data</h2>
+          <span class="status" id="pjs-r-status-3">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="progress"><div class="progress-bar" id="pjs-r-progress"></div></div>
+          <p class="sub" id="pjs-r-progress-text" style="text-align: center;">Waiting for sender to connect…</p>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="step disabled" id="s-step-2">
-      <div class="step-head">
-        <span class="num">2</span>
-        <h2>Scan QR from desktop</h2>
-        <span class="status" id="s-status-2">waiting</span>
-      </div>
-      <div class="step-body">
-        <p class="sub" style="text-align: center; margin-bottom: 14px;">Tap below and point your phone camera at the QR code on the desktop screen.</p>
-        <div class="cam-frame" id="s-cam-frame">
-          <video id="s-video" playsinline muted></video>
-          <div class="reticle"></div>
+    <!-- PeerJS Send -->
+    <section id="pjs-send" class="hidden">
+      <div class="step" id="pjs-s-step-1">
+        <div class="step-head">
+          <span class="num">1</span><h2>Choose database to send</h2>
+          <span class="status" id="pjs-s-status-1">setup</span>
         </div>
-        <div class="row" style="margin-top: 14px; justify-content: center;">
-          <button class="primary" id="s-cam-start">Start camera</button>
-          <button id="s-cam-stop" disabled>Stop</button>
+        <div class="step-body">
+          <label class="field">
+            <span>Database on this device</span>
+            <select id="pjs-s-dbselect"><option value="">— select a database —</option></select>
+          </label>
+          <div class="row">
+            <button id="pjs-s-refresh">Refresh list</button>
+            <button id="pjs-s-seed">Create demoDB</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="step disabled" id="s-step-3">
-      <div class="step-head">
-        <span class="num">3</span>
-        <h2>Show this QR to the desktop</h2>
-        <span class="status" id="s-status-3">waiting</span>
-      </div>
-      <div class="step-body">
-        <div class="qr-center">
-          <div class="qr-frame" id="s-qr"></div>
-          <div class="qr-chunk-info" id="s-qr-info"></div>
+      <div class="step disabled" id="pjs-s-step-2">
+        <div class="step-head">
+          <span class="num">2</span><h2>Connect to receiver</h2>
+          <span class="status" id="pjs-s-status-2">waiting</span>
         </div>
-        <p class="sub" style="text-align: center; margin-top: 14px;">Hold your phone screen toward the desktop webcam.</p>
-      </div>
-    </div>
+        <div class="step-body">
+          <p class="sub" style="margin-bottom: 12px;">Scan the desktop's QR code:</p>
+          <div class="cam-frame" id="pjs-s-cam-frame">
+            <video id="pjs-s-video" playsinline muted></video>
+            <div class="reticle"></div>
+          </div>
+          <div class="row" style="margin-top: 12px; justify-content: center;">
+            <button class="primary" id="pjs-s-cam-start">Start camera</button>
+            <button id="pjs-s-cam-stop" disabled>Stop</button>
+          </div>
 
-    <div class="step disabled" id="s-step-4">
-      <div class="step-head">
-        <span class="num">4</span>
-        <h2>Sending data</h2>
-        <span class="status" id="s-status-4">waiting</span>
-      </div>
-      <div class="step-body">
-        <div class="progress"><div class="progress-bar" id="s-progress"></div></div>
-        <p class="sub" id="s-progress-text" style="text-align: center;">Waiting for connection…</p>
-      </div>
-    </div>
+          <div class="or-div">or type it</div>
 
-  </section>
+          <label class="field">
+            <span>Receiver's peer ID</span>
+            <input type="text" id="pjs-s-peerid-input" placeholder="e.g. idb-tomato-rabbit-42">
+          </label>
+          <div class="row">
+            <button class="primary" id="pjs-s-connect-btn">Connect & send</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step disabled" id="pjs-s-step-3">
+        <div class="step-head">
+          <span class="num">3</span><h2>Sending data</h2>
+          <span class="status" id="pjs-s-status-3">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="progress"><div class="progress-bar" id="pjs-s-progress"></div></div>
+          <p class="sub" id="pjs-s-progress-text" style="text-align: center;">Connecting…</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- RAW WEBRTC BACKEND                                                 -->
+  <!-- ================================================================== -->
+  <div id="backend-raw" class="hidden">
+
+    <p class="sub" style="margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warn);">
+      <strong style="color:var(--ink)">Heads up:</strong> Raw WebRTC mode only reliably works when both devices are on the <strong style="color:var(--ink)">same Wi-Fi network</strong>. Cross-network transfers will fail.
+    </p>
+
+    <!-- Raw Receive -->
+    <section id="raw-receive">
+      <div class="step" id="raw-r-step-1">
+        <div class="step-head">
+          <span class="num">1</span><h2>Choose target database</h2>
+          <span class="status" id="raw-r-status-1">setup</span>
+        </div>
+        <div class="step-body">
+          <label class="field">
+            <span>Database name</span>
+            <input type="text" id="raw-r-dbname" placeholder="e.g. demoDB" value="demoDB">
+          </label>
+          <div class="row"><button class="primary" id="raw-r-start">Generate QR code</button></div>
+        </div>
+      </div>
+
+      <div class="step disabled" id="raw-r-step-2">
+        <div class="step-head">
+          <span class="num">2</span><h2>Scan this QR with your phone</h2>
+          <span class="status" id="raw-r-status-2">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="qr-center">
+            <div class="qr-frame" id="raw-r-qr"></div>
+            <div class="qr-chunk-info" id="raw-r-qr-info"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step disabled" id="raw-r-step-3">
+        <div class="step-head">
+          <span class="num">3</span><h2>Scan the response from your phone</h2>
+          <span class="status" id="raw-r-status-3">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="cam-frame" id="raw-r-cam-frame">
+            <video id="raw-r-video" playsinline muted></video>
+            <div class="reticle"></div>
+          </div>
+          <div class="row" style="margin-top: 14px; justify-content: center;">
+            <button id="raw-r-cam-start">Start webcam</button>
+            <button id="raw-r-cam-stop" disabled>Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step disabled" id="raw-r-step-4">
+        <div class="step-head">
+          <span class="num">4</span><h2>Receiving data</h2>
+          <span class="status" id="raw-r-status-4">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="progress"><div class="progress-bar" id="raw-r-progress"></div></div>
+          <p class="sub" id="raw-r-progress-text" style="text-align: center;">Waiting for connection…</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Raw Send -->
+    <section id="raw-send" class="hidden">
+      <div class="step" id="raw-s-step-1">
+        <div class="step-head">
+          <span class="num">1</span><h2>Choose database to send</h2>
+          <span class="status" id="raw-s-status-1">setup</span>
+        </div>
+        <div class="step-body">
+          <label class="field">
+            <span>Database on this device</span>
+            <select id="raw-s-dbselect"><option value="">— select a database —</option></select>
+          </label>
+          <div class="row">
+            <button id="raw-s-refresh">Refresh list</button>
+            <button id="raw-s-seed">Create demoDB</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step disabled" id="raw-s-step-2">
+        <div class="step-head">
+          <span class="num">2</span><h2>Scan QR from desktop</h2>
+          <span class="status" id="raw-s-status-2">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="cam-frame" id="raw-s-cam-frame">
+            <video id="raw-s-video" playsinline muted></video>
+            <div class="reticle"></div>
+          </div>
+          <div class="row" style="margin-top: 14px; justify-content: center;">
+            <button class="primary" id="raw-s-cam-start">Start camera</button>
+            <button id="raw-s-cam-stop" disabled>Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step disabled" id="raw-s-step-3">
+        <div class="step-head">
+          <span class="num">3</span><h2>Show this QR to the desktop</h2>
+          <span class="status" id="raw-s-status-3">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="qr-center">
+            <div class="qr-frame" id="raw-s-qr"></div>
+            <div class="qr-chunk-info" id="raw-s-qr-info"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step disabled" id="raw-s-step-4">
+        <div class="step-head">
+          <span class="num">4</span><h2>Sending data</h2>
+          <span class="status" id="raw-s-status-4">waiting</span>
+        </div>
+        <div class="step-body">
+          <div class="progress"><div class="progress-bar" id="raw-s-progress"></div></div>
+          <p class="sub" id="raw-s-progress-text" style="text-align: center;">Waiting for connection…</p>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <div class="log" id="log">
-    <div class="entry info"><span class="t">[ready]</span><span class="m">Pick a mode above and follow the numbered steps.</span></div>
+    <div class="entry info"><span class="t">[ready]</span><span class="m">Pick a backend and mode above.</span></div>
   </div>
 
   <details>
     <summary>How it works & troubleshooting</summary>
     <div class="panel">
-      <p><strong>Flow.</strong> Desktop (receiver) creates a WebRTC offer and shows it as a QR. Phone (sender) scans it, builds the answer, shows that as a QR. Desktop's webcam scans the answer. The connection is now established and the IDB data streams directly between browsers — no server in the middle.</p>
-      <p><strong>QR chunks.</strong> WebRTC handshake data is too big for one QR code (typically 3-5 KB), so it's split into multiple QR codes that cycle automatically. Cameras stay on until all chunks are received in any order.</p>
+      <p><strong>PeerJS backend (default).</strong> Each receiver gets a short peer ID brokered by PeerJS's free signaling cloud. The phone connects to that ID and data flows peer-to-peer via WebRTC. Works across networks (cellular ↔ Wi-Fi) because PeerJS bundles TURN relay in their free tier. The signaling cloud touches only the connection setup, not your data.</p>
+      <p><strong>Raw WebRTC backend.</strong> Pure peer-to-peer with no third-party servers (just Google STUN). Devices exchange a full WebRTC handshake via QR codes — desktop shows offer chunks, phone scans them, phone shows answer chunks, desktop's webcam scans those. <strong>Only works on same Wi-Fi.</strong> Useful for offline-ish situations or if you want zero infrastructure dependency.</p>
       <p><strong>Same origin required.</strong> Both devices must open this page from the same URL. IndexedDB is partitioned per origin.</p>
-      <p><strong>Needs internet.</strong> WebRTC uses public STUN servers to discover network paths, plus a free TURN relay (Open Relay Project) when devices are on different networks. Tiny amount of traffic in normal cases, but a working internet connection is required on both ends.</p>
-      <p><strong>If connection stalls at "Waiting for connection…":</strong> watch the log for ICE state. <code>checking → connected</code> is the happy path. <code>checking → failed</code> means neither device can reach the other directly OR via TURN — usually a strict firewall or mobile carrier blocking WebRTC. Try putting both devices on the same Wi-Fi network as a workaround.</p>
+      <p><strong>If PeerJS fails:</strong> their cloud may be down. Switch to Raw WebRTC and put both devices on the same Wi-Fi.</p>
     </div>
   </details>
 
-  <footer><span>●</span> single page · peer-to-peer · no file storage</footer>
+  <footer><span>●</span> dual backend · peer-to-peer · no persistent storage</footer>
 </div>
 
-<!-- External libs: QR generator + QR scanner.
-     Tries jsDelivr first (npm-mirrored), falls back to local files if you
-     drop qrcode.js and jsQR.js into the same folder as index.html. -->
+<!-- External libs: loaded with CDN-then-local fallback -->
 <script>
 (function loadLibs() {
   const libs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
-    { cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' }
+    { cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' },
+    { cdn: 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',        local: 'peerjs.min.js' }
   ];
   function loadOne(lib) {
     return new Promise((resolve) => {
       const tryLoad = (src, onFail) => {
         const s = document.createElement('script');
-        s.src = src;
-        s.onload = () => resolve(true);
-        s.onerror = onFail;
+        s.src = src; s.onload = () => resolve(true); s.onerror = onFail;
         document.head.appendChild(s);
       };
       tryLoad(lib.cdn, () => tryLoad(lib.local, () => resolve(false)));
     });
   }
-  window.__libsReady = Promise.all(libs.map(loadOne)).then(results => results.every(Boolean));
+  window.__libsReady = Promise.all(libs.map(loadOne)).then(r => r.every(Boolean));
 })();
 </script>
 
 <script>
-// IDB Transfer · WebRTC + QR signaling
+// IDB Transfer · dual backend (PeerJS + Raw WebRTC) ===================
 
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
@@ -368,24 +500,44 @@ function log(msg, kind = 'info') {
 
 function setStatus(id, text, kind = '') {
   const el = $(id);
+  if (!el) return;
   el.textContent = text;
   el.className = 'status' + (kind ? ' ' + kind : '');
 }
-
 function enableStep(id) { $(id).classList.remove('disabled'); }
+function disableStep(id) { $(id).classList.add('disabled'); }
 function setCamButtons(prefix, scanning) {
   $(`${prefix}-cam-start`).disabled = scanning;
   $(`${prefix}-cam-stop`).disabled = !scanning;
 }
 
-// Mode toggle
+// --- Backend + mode switching ---
+let currentBackend = 'peerjs';
+let currentMode = 'receive';
+
+function applyVisibility() {
+  $('backend-peerjs').classList.toggle('hidden', currentBackend !== 'peerjs');
+  $('backend-raw').classList.toggle('hidden', currentBackend !== 'raw');
+  $('pjs-receive').classList.toggle('hidden', !(currentBackend === 'peerjs' && currentMode === 'receive'));
+  $('pjs-send').classList.toggle('hidden',    !(currentBackend === 'peerjs' && currentMode === 'send'));
+  $('raw-receive').classList.toggle('hidden', !(currentBackend === 'raw' && currentMode === 'receive'));
+  $('raw-send').classList.toggle('hidden',    !(currentBackend === 'raw' && currentMode === 'send'));
+}
+
+document.querySelectorAll('.backend-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.backend-btn').forEach(b => b.classList.toggle('active', b === btn));
+    currentBackend = btn.dataset.backend;
+    applyVisibility();
+    if (currentMode === 'send') refreshDbList();
+  });
+});
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
-    const mode = btn.dataset.mode;
-    $('receiveMode').classList.toggle('hidden', mode !== 'receive');
-    $('sendMode').classList.toggle('hidden', mode !== 'send');
-    if (mode === 'send') refreshDbList();
+    currentMode = btn.dataset.mode;
+    applyVisibility();
+    if (currentMode === 'send') refreshDbList();
   });
 });
 
@@ -419,23 +571,15 @@ async function encodeValue(v) {
     for (const val of v.values()) values.push(await encodeValue(val));
     return { __t: 'Set', values };
   }
-  if (Array.isArray(v)) {
-    const out = []; for (const item of v) out.push(await encodeValue(item)); return out;
-  }
-  if (typeof v === 'object') {
-    const out = {}; for (const k of Object.keys(v)) out[k] = await encodeValue(v[k]); return out;
-  }
+  if (Array.isArray(v)) { const out = []; for (const item of v) out.push(await encodeValue(item)); return out; }
+  if (typeof v === 'object') { const out = {}; for (const k of Object.keys(v)) out[k] = await encodeValue(v[k]); return out; }
   return v;
 }
 function decodeValue(v) {
   if (v === null || v === undefined) return v;
   if (typeof v !== 'object') return v;
   if (Array.isArray(v)) return v.map(decodeValue);
-  if (v.__t === 'Blob') {
-    const bytes = base64ToBytes(v.data);
-    if (v.name) return new File([bytes], v.name, { type: v.type });
-    return new Blob([bytes], { type: v.type });
-  }
+  if (v.__t === 'Blob') { const bytes = base64ToBytes(v.data); if (v.name) return new File([bytes], v.name, { type: v.type }); return new Blob([bytes], { type: v.type }); }
   if (v.__t === 'ArrayBuffer') return base64ToBytes(v.data).buffer;
   if (v.__t === 'TypedArray') { const ctor = window[v.name]; return new ctor(base64ToBytes(v.data).buffer); }
   if (v.__t === 'Date') return new Date(v.iso);
@@ -456,16 +600,13 @@ function openDb(name, version, onUpgrade) {
 function reqToPromise(req) {
   return new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
 }
-
 async function readEntireDatabase(dbName) {
   const db = await openDb(dbName);
   const payload = { dbName: db.name, version: db.version, stores: [], records: {} };
   for (const storeName of db.objectStoreNames) {
     const tx = db.transaction(storeName, 'readonly');
     const store = tx.objectStore(storeName);
-    const storeSchema = {
-      name: storeName, keyPath: store.keyPath, autoIncrement: store.autoIncrement, indexes: []
-    };
+    const storeSchema = { name: storeName, keyPath: store.keyPath, autoIncrement: store.autoIncrement, indexes: [] };
     for (const idxName of store.indexNames) {
       const idx = store.index(idxName);
       storeSchema.indexes.push({ name: idxName, keyPath: idx.keyPath, unique: idx.unique, multiEntry: idx.multiEntry });
@@ -485,7 +626,6 @@ async function readEntireDatabase(dbName) {
   db.close();
   return payload;
 }
-
 async function writeEntireDatabase(payload, targetDbName) {
   const dbName = targetDbName || payload.dbName;
   const db = await openDb(dbName, payload.version, (db, tx) => {
@@ -523,99 +663,98 @@ async function writeEntireDatabase(payload, targetDbName) {
   return total;
 }
 
-// --- QR chunking (handshake data is bigger than 1 QR fits) ---
-const QR_CHUNK_SIZE = 350;  // smaller = less dense QR = easier for webcam to read
-const QR_TYPE_NUMBER = 0;   // auto
-const QR_CYCLE_MS = 900;    // slow enough for webcam analysis to keep up
-
-function makeChunks(id, str) {
-  const chunks = [];
-  const total = Math.ceil(str.length / QR_CHUNK_SIZE);
-  for (let i = 0; i < total; i++) {
-    const part = str.slice(i * QR_CHUNK_SIZE, (i + 1) * QR_CHUNK_SIZE);
-    chunks.push(`${id}:${i + 1}/${total}:${part}`);
-  }
-  return chunks;
-}
-
-class ChunkReassembler {
-  constructor() { this.id = null; this.total = 0; this.parts = new Map(); }
-  feed(chunk) {
-    const m = chunk.match(/^([A-Z]+):(\d+)\/(\d+):(.*)$/s);
-    if (!m) return null;
-    const [, id, idxStr, totalStr, data] = m;
-    const idx = +idxStr, total = +totalStr;
-    if (this.id !== id) { this.id = id; this.total = total; this.parts.clear(); }
-    const isNew = !this.parts.has(idx);
-    this.parts.set(idx, data);
-    if (this.parts.size === this.total) {
-      let out = '';
-      for (let i = 1; i <= this.total; i++) out += this.parts.get(i);
-      return { id, data: out, complete: true };
+// --- Shared DB list refresh ---
+async function refreshDbList() {
+  const selectId = currentBackend === 'peerjs' ? 'pjs-s-dbselect' : 'raw-s-dbselect';
+  const select = $(selectId);
+  if (!select) return;
+  select.innerHTML = '<option value="">— select a database —</option>';
+  if (!indexedDB.databases) return;
+  try {
+    const list = await indexedDB.databases();
+    for (const d of list) {
+      const opt = document.createElement('option');
+      opt.value = d.name; opt.textContent = `${d.name}  (v${d.version})`;
+      select.appendChild(opt);
     }
-    const missing = [];
-    for (let i = 1; i <= this.total; i++) if (!this.parts.has(i)) missing.push(i);
-    return { id, progress: this.parts.size / this.total, isNew, idx, missing };
+  } catch (err) {
+    log('Could not list databases: ' + err.message, 'err');
   }
 }
 
-// --- QR rendering (cycles through chunks) ---
+async function seedDemo() {
+  log('Seeding demoDB…');
+  const db = await openDb('demoDB', 1, (db) => {
+    if (!db.objectStoreNames.contains('notes')) {
+      const s = db.createObjectStore('notes', { keyPath: 'id', autoIncrement: true });
+      s.createIndex('byTag', 'tag', { unique: false });
+    }
+    if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
+  });
+  const tx1 = db.transaction('notes', 'readwrite');
+  const notes = tx1.objectStore('notes');
+  await reqToPromise(notes.clear());
+  notes.put({ tag: 'idea', text: 'Animated QR codes for offline transfer.', createdAt: new Date() });
+  notes.put({ tag: 'todo', text: 'Try the PeerJS backend.', createdAt: new Date() });
+  notes.put({ tag: 'idea', text: 'Bluetooth handoff is underrated.', createdAt: new Date() });
+  await new Promise(r => tx1.oncomplete = r);
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#d4f542'; ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = '#0e0f0d'; ctx.font = 'bold 28px monospace'; ctx.fillText('IDB', 6, 42);
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+  const tx2 = db.transaction('files', 'readwrite');
+  tx2.objectStore('files').put({ name: 'badge.png', blob, size: blob.size });
+  await new Promise(r => tx2.oncomplete = r);
+  db.close();
+  log('demoDB ready.', 'ok');
+  refreshDbList();
+}
+
+// --- QR rendering helpers (shared) ---
 function renderQR(container, text) {
-  const qr = qrcode(QR_TYPE_NUMBER, 'M');  // 'M' = ~15% error correction, more robust than 'L'
+  const qr = qrcode(0, 'M');
   qr.addData(text);
   qr.make();
   container.innerHTML = qr.createSvgTag({ scalable: true, margin: 1 });
 }
-
-let qrCycleTimers = new Map();
+const qrCycleTimers = new Map();
 function startQRCycle(containerId, infoId, chunks) {
   stopQRCycle(containerId);
-  const container = $(containerId);
-  const info = $(infoId);
+  const container = $(containerId); const info = $(infoId);
   let i = 0;
   const render = () => {
     renderQR(container, chunks[i]);
-    info.textContent = `chunk ${i + 1} / ${chunks.length}`;
+    if (info) info.textContent = `chunk ${i + 1} / ${chunks.length}`;
     i = (i + 1) % chunks.length;
   };
   render();
-  if (chunks.length > 1) {
-    const timer = setInterval(render, QR_CYCLE_MS);
-    qrCycleTimers.set(containerId, timer);
-  }
+  if (chunks.length > 1) qrCycleTimers.set(containerId, setInterval(render, 900));
 }
 function stopQRCycle(containerId) {
-  if (qrCycleTimers.has(containerId)) {
-    clearInterval(qrCycleTimers.get(containerId));
-    qrCycleTimers.delete(containerId);
-  }
+  if (qrCycleTimers.has(containerId)) { clearInterval(qrCycleTimers.get(containerId)); qrCycleTimers.delete(containerId); }
 }
 
-// --- QR scanning (webcam + jsQR) ---
+// --- QR scanner (shared) ---
 class QRScanner {
   constructor(videoEl, onChunk) {
-    this.video = videoEl;
-    this.onChunk = onChunk;
-    this.stream = null;
-    this.canvas = document.createElement('canvas');
+    this.video = videoEl; this.onChunk = onChunk;
+    this.stream = null; this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
-    this.running = false;
-    this.lastDecoded = null;
+    this.running = false; this.lastDecoded = null;
   }
   async start() {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
       });
     } catch (err) {
-      // fall back to any camera
       this.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     }
     this.video.srcObject = this.stream;
     await this.video.play();
-    this.running = true;
-    this.loop();
+    this.running = true; this.loop();
   }
   stop() {
     this.running = false;
@@ -639,38 +778,216 @@ class QRScanner {
   }
 }
 
-// --- WebRTC helpers ---
-const RTC_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    // Open Relay Project — free public TURN for cross-NAT cases (e.g. cellular ↔ home Wi-Fi)
-    // https://www.metered.ca/tools/openrelay/
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
-  ]
-};
+// ============================================================
+// PEERJS BACKEND
+// ============================================================
+let pjs_peer = null;       // receiver-side Peer instance
+let pjs_conn = null;       // receiver-side DataConnection (when sender connects)
+let pjs_send_peer = null;  // sender-side Peer
+let pjs_send_conn = null;  // sender-side DataConnection
+let pjs_s_scanner = null;
 
-// Hook a peer connection to surface state changes in the log.
+function generateFriendlyId() {
+  const adj = ['tomato','rabbit','cactus','river','copper','silent','mango','swift','velvet','lemon','crimson','golden'];
+  const noun = ['fox','sparrow','oak','meadow','harbor','comet','reef','prairie','glacier','willow','flint','arrow'];
+  const n = Math.floor(Math.random() * 90) + 10;
+  return `idb-${adj[Math.floor(Math.random()*adj.length)]}-${noun[Math.floor(Math.random()*noun.length)]}-${n}`;
+}
+
+// --- PeerJS Receive ---
+$('pjs-r-start').addEventListener('click', async () => {
+  const dbname = $('pjs-r-dbname').value.trim();
+  if (!dbname) { log('Enter a database name first.', 'err'); return; }
+  if (typeof Peer === 'undefined') { log('PeerJS library not loaded.', 'err'); return; }
+
+  setStatus('pjs-r-status-1', 'starting', 'active');
+  const peerId = generateFriendlyId();
+  log(`Registering peer ID "${peerId}" with PeerJS cloud…`);
+
+  pjs_peer = new Peer(peerId, { debug: 1 });
+
+  pjs_peer.on('open', (id) => {
+    setStatus('pjs-r-status-1', 'done', 'ok');
+    enableStep('pjs-r-step-2');
+    setStatus('pjs-r-status-2', 'ready', 'active');
+    $('pjs-r-peerid').textContent = id;
+    renderQR($('pjs-r-qr'), id);
+    log(`Peer ID assigned: ${id}. Waiting for sender…`, 'ok');
+  });
+
+  pjs_peer.on('connection', (conn) => {
+    pjs_conn = conn;
+    log(`Incoming connection from ${conn.peer}`);
+    enableStep('pjs-r-step-3');
+    setStatus('pjs-r-status-2', 'connected', 'ok');
+    setStatus('pjs-r-status-3', 'connected', 'active');
+    $('pjs-r-progress-text').textContent = 'Connected. Waiting for data…';
+
+    conn.on('data', async (msg) => {
+      try {
+        if (msg && msg.type === 'payload') {
+          $('pjs-r-progress-text').textContent = 'Writing to IndexedDB…';
+          const total = await writeEntireDatabase(msg.payload, dbname);
+          $('pjs-r-progress').style.width = '100%';
+          $('pjs-r-progress-text').textContent = `Done. ${total} records written to "${dbname}".`;
+          setStatus('pjs-r-status-3', 'complete', 'ok');
+          log(`Done. ${total} records imported.`, 'ok');
+          conn.send({ type: 'ack' });
+        }
+      } catch (err) {
+        log('Write failed: ' + err.message, 'err');
+        setStatus('pjs-r-status-3', 'error', 'err');
+      }
+    });
+    conn.on('close', () => log('Sender disconnected.'));
+    conn.on('error', (e) => log('Connection error: ' + e.message, 'err'));
+  });
+
+  pjs_peer.on('error', (err) => {
+    log('PeerJS error: ' + err.type + ' — ' + err.message, 'err');
+    setStatus('pjs-r-status-1', 'error', 'err');
+  });
+  pjs_peer.on('disconnected', () => log('Disconnected from PeerJS signaling.', 'err'));
+});
+
+// --- PeerJS Send ---
+$('pjs-s-refresh').addEventListener('click', refreshDbList);
+$('pjs-s-seed').addEventListener('click', () => seedDemo().catch(e => log(e.message, 'err')));
+
+$('pjs-s-dbselect').addEventListener('change', () => {
+  if ($('pjs-s-dbselect').value) {
+    enableStep('pjs-s-step-2');
+    setStatus('pjs-s-status-1', 'done', 'ok');
+  } else {
+    disableStep('pjs-s-step-2');
+  }
+});
+
+async function pjsConnectAndSend(targetPeerId) {
+  const dbname = $('pjs-s-dbselect').value;
+  if (!dbname) { log('Pick a database first.', 'err'); return; }
+  if (typeof Peer === 'undefined') { log('PeerJS library not loaded.', 'err'); return; }
+
+  log(`Connecting to "${targetPeerId}"…`);
+  setStatus('pjs-s-status-2', 'connecting', 'active');
+  pjs_send_peer = new Peer({ debug: 1 });
+
+  pjs_send_peer.on('open', () => {
+    pjs_send_conn = pjs_send_peer.connect(targetPeerId, { reliable: true });
+    pjs_send_conn.on('open', async () => {
+      log('Connected. Reading database…', 'ok');
+      setStatus('pjs-s-status-2', 'connected', 'ok');
+      enableStep('pjs-s-step-3');
+      setStatus('pjs-s-status-3', 'sending', 'active');
+      $('pjs-s-progress-text').textContent = 'Reading database…';
+      try {
+        const payload = await readEntireDatabase(dbname);
+        const sizeKb = JSON.stringify(payload).length / 1024;
+        $('pjs-s-progress-text').textContent = `Sending ${sizeKb.toFixed(1)} KB…`;
+        pjs_send_conn.send({ type: 'payload', payload });
+        $('pjs-s-progress').style.width = '100%';
+        $('pjs-s-progress-text').textContent = `Sent ${sizeKb.toFixed(1)} KB. Waiting for receiver ack…`;
+        log(`Sent ${sizeKb.toFixed(1)} KB.`, 'ok');
+      } catch (err) {
+        log('Send failed: ' + err.message, 'err');
+        setStatus('pjs-s-status-3', 'error', 'err');
+      }
+    });
+    pjs_send_conn.on('data', (msg) => {
+      if (msg && msg.type === 'ack') {
+        log('Receiver confirmed import.', 'ok');
+        $('pjs-s-progress-text').textContent = 'Receiver imported the data. All done.';
+        setStatus('pjs-s-status-3', 'complete', 'ok');
+      }
+    });
+    pjs_send_conn.on('error', (e) => log('Send connection error: ' + e.message, 'err'));
+  });
+
+  pjs_send_peer.on('error', (err) => {
+    log('PeerJS error: ' + err.type + ' — ' + err.message, 'err');
+    setStatus('pjs-s-status-2', 'error', 'err');
+  });
+}
+
+$('pjs-s-connect-btn').addEventListener('click', () => {
+  const id = $('pjs-s-peerid-input').value.trim();
+  if (!id) { log('Type or scan a peer ID first.', 'err'); return; }
+  pjsConnectAndSend(id);
+});
+
+$('pjs-s-cam-start').addEventListener('click', async () => {
+  if (pjs_s_scanner) return;
+  try {
+    setStatus('pjs-s-status-2', 'scanning', 'active');
+    pjs_s_scanner = new QRScanner($('pjs-s-video'), (data) => {
+      // PeerJS QR contains just the peer ID
+      pjs_s_scanner.stop(); pjs_s_scanner = null;
+      setCamButtons('pjs-s', false);
+      $('pjs-s-peerid-input').value = data;
+      log(`Scanned peer ID: ${data}`);
+      pjsConnectAndSend(data);
+    });
+    await pjs_s_scanner.start();
+    setCamButtons('pjs-s', true);
+    log('Camera active. Point at desktop QR.');
+  } catch (err) {
+    log('Camera error: ' + err.message, 'err');
+    setStatus('pjs-s-status-2', 'error', 'err');
+    pjs_s_scanner = null;
+  }
+});
+$('pjs-s-cam-stop').addEventListener('click', () => {
+  if (pjs_s_scanner) { pjs_s_scanner.stop(); pjs_s_scanner = null; }
+  setCamButtons('pjs-s', false);
+});
+
+// ============================================================
+// RAW WEBRTC BACKEND (the previous working version, kept verbatim)
+// ============================================================
+
+// --- chunking helpers ---
+const QR_CHUNK_SIZE = 350;
+const QR_CYCLE_MS = 900;
+function makeChunks(id, str) {
+  const chunks = [];
+  const total = Math.ceil(str.length / QR_CHUNK_SIZE);
+  for (let i = 0; i < total; i++) {
+    const part = str.slice(i * QR_CHUNK_SIZE, (i + 1) * QR_CHUNK_SIZE);
+    chunks.push(`${id}:${i + 1}/${total}:${part}`);
+  }
+  return chunks;
+}
+class ChunkReassembler {
+  constructor() { this.id = null; this.total = 0; this.parts = new Map(); }
+  feed(chunk) {
+    const m = chunk.match(/^([A-Z]+):(\d+)\/(\d+):(.*)$/s);
+    if (!m) return null;
+    const [, id, idxStr, totalStr, data] = m;
+    const idx = +idxStr, total = +totalStr;
+    if (this.id !== id) { this.id = id; this.total = total; this.parts.clear(); }
+    const isNew = !this.parts.has(idx);
+    this.parts.set(idx, data);
+    if (this.parts.size === this.total) {
+      let out = '';
+      for (let i = 1; i <= this.total; i++) out += this.parts.get(i);
+      return { id, data: out, complete: true };
+    }
+    const missing = [];
+    for (let i = 1; i <= this.total; i++) if (!this.parts.has(i)) missing.push(i);
+    return { id, progress: this.parts.size / this.total, isNew, idx, missing };
+  }
+}
+
+const RTC_CONFIG = { iceServers: [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' }
+]};
 function instrumentPC(pc, label) {
   pc.addEventListener('iceconnectionstatechange', () => {
     const s = pc.iceConnectionState;
-    const kind = (s === 'connected' || s === 'completed') ? 'ok'
-               : (s === 'failed' || s === 'disconnected') ? 'err' : 'info';
+    const kind = (s === 'connected' || s === 'completed') ? 'ok' : (s === 'failed' || s === 'disconnected') ? 'err' : 'info';
     log(`${label} ICE: ${s}`, kind);
+    if (s === 'failed' || s === 'disconnected') log('Tip: Raw mode needs same Wi-Fi. Try PeerJS for cross-network.', 'err');
   });
   pc.addEventListener('connectionstatechange', () => {
     const s = pc.connectionState;
@@ -678,24 +995,18 @@ function instrumentPC(pc, label) {
     log(`${label} connection: ${s}`, kind);
   });
 }
-
 async function gatherCompleteSDP(pc) {
   if (pc.iceGatheringState === 'complete') return;
   await new Promise((resolve) => {
-    const check = () => { if (pc.iceGatheringState === 'complete') resolve(); };
-    pc.addEventListener('icegatheringstatechange', check);
-    // Safety timeout — STUN should be quick
+    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') resolve(); });
     setTimeout(resolve, 4000);
   });
 }
-
-// Compress SDP to save QR bytes (it's mostly repetitive text)
 async function compressString(str) {
   if (!window.CompressionStream) return btoa(unescape(encodeURIComponent(str)));
   const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
   const buf = await new Response(stream).arrayBuffer();
-  let bin = '';
-  const bytes = new Uint8Array(buf);
+  let bin = ''; const bytes = new Uint8Array(buf);
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return 'G:' + btoa(bin);
 }
@@ -708,329 +1019,213 @@ async function decompressString(s) {
   return await new Response(stream).text();
 }
 
-// --- RECEIVE FLOW (desktop) ---
-let r_pc = null;
-let r_scanner = null;
-let r_reassembler = new ChunkReassembler();
+// --- Raw Receive ---
+let raw_r_pc = null, raw_r_scanner = null;
+const raw_r_reassembler = new ChunkReassembler();
 
-$('r-start-btn').addEventListener('click', async () => {
+$('raw-r-start').addEventListener('click', async () => {
   try {
-    const dbname = $('r-dbname').value.trim();
+    const dbname = $('raw-r-dbname').value.trim();
     if (!dbname) { log('Enter a database name first.', 'err'); return; }
-
-    setStatus('r-status-1', 'generating', 'active');
+    setStatus('raw-r-status-1', 'generating', 'active');
     log(`Creating WebRTC offer for "${dbname}"…`);
 
-    r_pc = new RTCPeerConnection(RTC_CONFIG);
-    instrumentPC(r_pc, 'recv');
+    raw_r_pc = new RTCPeerConnection(RTC_CONFIG);
+    instrumentPC(raw_r_pc, 'recv');
+    const channel = raw_r_pc.createDataChannel('idb', { ordered: true });
+    setupRawReceiverChannel(channel, dbname);
 
-    // Pre-create the data channel before the offer (so it's in the SDP)
-    const channel = r_pc.createDataChannel('idb', { ordered: true });
-    setupReceiverChannel(channel, dbname);
+    const offer = await raw_r_pc.createOffer();
+    await raw_r_pc.setLocalDescription(offer);
+    await gatherCompleteSDP(raw_r_pc);
 
-    const offer = await r_pc.createOffer();
-    await r_pc.setLocalDescription(offer);
-    await gatherCompleteSDP(r_pc);
-
-    const fullOffer = JSON.stringify(r_pc.localDescription);
+    const fullOffer = JSON.stringify(raw_r_pc.localDescription);
     const compressed = await compressString(fullOffer);
     log(`Offer ready · ${(compressed.length/1024).toFixed(2)} KB compressed`);
-
     const chunks = makeChunks('OFFER', compressed);
-    enableStep('r-step-2');
-    enableStep('r-step-3');
-    setStatus('r-status-1', 'done', 'ok');
-    setStatus('r-status-2', `${chunks.length} chunks`, 'active');
-    startQRCycle('r-qr', 'r-qr-info', chunks);
-    log(`Showing ${chunks.length} QR chunks. Scan with your phone.`);
+    enableStep('raw-r-step-2');
+    enableStep('raw-r-step-3');
+    setStatus('raw-r-status-1', 'done', 'ok');
+    setStatus('raw-r-status-2', `${chunks.length} chunks`, 'active');
+    startQRCycle('raw-r-qr', 'raw-r-qr-info', chunks);
   } catch (err) {
     log('Error creating offer: ' + err.message, 'err');
-    setStatus('r-status-1', 'error', 'err');
+    setStatus('raw-r-status-1', 'error', 'err');
   }
 });
 
-function setupReceiverChannel(channel, targetDbName) {
+function setupRawReceiverChannel(channel, targetDbName) {
   channel.binaryType = 'arraybuffer';
-  let receivedChunks = [];
-  let expectedSize = null;
-  let receivedSize = 0;
-
+  let receivedChunks = []; let expectedSize = null; let receivedSize = 0;
   channel.onopen = () => {
     log('Data channel open.', 'ok');
-    enableStep('r-step-4');
-    setStatus('r-status-4', 'connected', 'active');
-    $('r-progress-text').textContent = 'Connected. Waiting for data…';
+    enableStep('raw-r-step-4');
+    setStatus('raw-r-status-4', 'connected', 'active');
+    $('raw-r-progress-text').textContent = 'Connected. Waiting for data…';
   };
-  channel.onclose = () => log('Data channel closed.');
-  channel.onerror = (e) => log('Channel error: ' + (e.error?.message || 'unknown'), 'err');
-
   channel.onmessage = async (e) => {
     if (typeof e.data === 'string') {
       const msg = JSON.parse(e.data);
       if (msg.type === 'header') {
-        expectedSize = msg.size;
-        receivedChunks = [];
-        receivedSize = 0;
-        $('r-progress-text').textContent = `Receiving 0 / ${(expectedSize/1024).toFixed(1)} KB…`;
-        log(`Header: ${(expectedSize/1024).toFixed(1)} KB incoming`);
+        expectedSize = msg.size; receivedChunks = []; receivedSize = 0;
+        $('raw-r-progress-text').textContent = `Receiving 0 / ${(expectedSize/1024).toFixed(1)} KB…`;
       } else if (msg.type === 'done') {
         try {
-          const blob = new Blob(receivedChunks);
-          const text = await blob.text();
+          const blob = new Blob(receivedChunks); const text = await blob.text();
           const payload = JSON.parse(text);
-          log(`Payload received. Writing to "${targetDbName}"…`);
-          $('r-progress-text').textContent = 'Writing to IndexedDB…';
+          $('raw-r-progress-text').textContent = 'Writing to IndexedDB…';
           const total = await writeEntireDatabase(payload, targetDbName);
-          $('r-progress').style.width = '100%';
-          $('r-progress-text').textContent = `Done. ${total} records written to "${targetDbName}".`;
-          setStatus('r-status-4', 'complete', 'ok');
+          $('raw-r-progress').style.width = '100%';
+          $('raw-r-progress-text').textContent = `Done. ${total} records written.`;
+          setStatus('raw-r-status-4', 'complete', 'ok');
           log(`Done. ${total} records imported.`, 'ok');
           channel.send(JSON.stringify({ type: 'ack' }));
-        } catch (err) {
-          log('Write failed: ' + err.message, 'err');
-          setStatus('r-status-4', 'error', 'err');
-        }
+        } catch (err) { log('Write failed: ' + err.message, 'err'); setStatus('raw-r-status-4', 'error', 'err'); }
       }
     } else {
-      receivedChunks.push(e.data);
-      receivedSize += e.data.byteLength;
+      receivedChunks.push(e.data); receivedSize += e.data.byteLength;
       const pct = expectedSize ? (receivedSize / expectedSize) * 100 : 0;
-      $('r-progress').style.width = pct + '%';
-      $('r-progress-text').textContent = `Receiving ${(receivedSize/1024).toFixed(1)} / ${(expectedSize/1024).toFixed(1)} KB`;
+      $('raw-r-progress').style.width = pct + '%';
+      $('raw-r-progress-text').textContent = `Receiving ${(receivedSize/1024).toFixed(1)} / ${(expectedSize/1024).toFixed(1)} KB`;
     }
   };
 }
 
-$('r-cam-start').addEventListener('click', async () => {
-  if (r_scanner) return;
+$('raw-r-cam-start').addEventListener('click', async () => {
+  if (raw_r_scanner) return;
   try {
-    setStatus('r-status-3', 'scanning', 'active');
-    r_scanner = new QRScanner($('r-video'), onReceiverScan);
-    await r_scanner.start();
-    setCamButtons('r', true);
-    log('Webcam active. Point at phone screen.');
+    setStatus('raw-r-status-3', 'scanning', 'active');
+    raw_r_scanner = new QRScanner($('raw-r-video'), onRawReceiverScan);
+    await raw_r_scanner.start();
+    setCamButtons('raw-r', true);
   } catch (err) {
     log('Camera error: ' + err.message, 'err');
-    setStatus('r-status-3', 'error', 'err');
-    r_scanner = null;
+    setStatus('raw-r-status-3', 'error', 'err'); raw_r_scanner = null;
   }
 });
-$('r-cam-stop').addEventListener('click', () => {
-  if (r_scanner) { r_scanner.stop(); r_scanner = null; }
-  setCamButtons('r', false);
+$('raw-r-cam-stop').addEventListener('click', () => {
+  if (raw_r_scanner) { raw_r_scanner.stop(); raw_r_scanner = null; }
+  setCamButtons('raw-r', false);
 });
 
-async function onReceiverScan(chunk) {
-  const res = r_reassembler.feed(chunk);
+async function onRawReceiverScan(chunk) {
+  const res = raw_r_reassembler.feed(chunk);
   if (!res) return;
   if (res.complete && res.id === 'ANSWER') {
     log('All answer chunks received. Applying…');
-    setStatus('r-status-3', 'received', 'ok');
-    if (r_scanner) { r_scanner.stop(); r_scanner = null; setCamButtons('r', false); }
+    setStatus('raw-r-status-3', 'received', 'ok');
+    if (raw_r_scanner) { raw_r_scanner.stop(); raw_r_scanner = null; setCamButtons('raw-r', false); }
     try {
       const answerJson = await decompressString(res.data);
-      const answer = JSON.parse(answerJson);
-      await r_pc.setRemoteDescription(answer);
+      await raw_r_pc.setRemoteDescription(JSON.parse(answerJson));
       log('Answer applied. Waiting for connection…');
-    } catch (err) {
-      log('Answer apply failed: ' + err.message, 'err');
-      setStatus('r-status-3', 'error', 'err');
-    }
+    } catch (err) { log('Answer apply failed: ' + err.message, 'err'); setStatus('raw-r-status-3', 'error', 'err'); }
   } else if (res.progress !== undefined) {
-    setStatus('r-status-3', `${Math.round(res.progress * 100)}%`, 'active');
-    if (res.isNew) {
-      log(`Got chunk ${res.idx} · ${res.missing.length} still missing: [${res.missing.join(', ')}]`);
-    }
+    setStatus('raw-r-status-3', `${Math.round(res.progress * 100)}%`, 'active');
+    if (res.isNew) log(`Got chunk ${res.idx} · ${res.missing.length} missing: [${res.missing.join(', ')}]`);
   }
 }
 
-// --- SEND FLOW (phone) ---
-let s_pc = null;
-let s_scanner = null;
-let s_reassembler = new ChunkReassembler();
+// --- Raw Send ---
+let raw_s_pc = null, raw_s_scanner = null;
+const raw_s_reassembler = new ChunkReassembler();
 
-async function refreshDbList() {
-  const select = $('s-dbselect');
-  select.innerHTML = '<option value="">— select a database —</option>';
-  if (!indexedDB.databases) {
-    log('Browser does not list databases. Type the name manually below.', 'err');
-    return;
-  }
+$('raw-s-refresh').addEventListener('click', refreshDbList);
+$('raw-s-seed').addEventListener('click', () => seedDemo().catch(e => log(e.message, 'err')));
+$('raw-s-dbselect').addEventListener('change', () => {
+  if ($('raw-s-dbselect').value) { enableStep('raw-s-step-2'); setStatus('raw-s-status-1', 'done', 'ok'); }
+  else { disableStep('raw-s-step-2'); }
+});
+$('raw-s-cam-start').addEventListener('click', async () => {
+  if (raw_s_scanner) return;
   try {
-    const list = await indexedDB.databases();
-    if (!list.length) { log('No databases on this device.'); return; }
-    for (const d of list) {
-      const opt = document.createElement('option');
-      opt.value = d.name; opt.textContent = `${d.name}  (v${d.version})`;
-      select.appendChild(opt);
-    }
-  } catch (err) {
-    log('Could not list databases: ' + err.message, 'err');
-  }
-}
-
-$('s-refresh').addEventListener('click', refreshDbList);
-$('s-seed').addEventListener('click', async () => {
-  try {
-    log('Seeding demoDB…');
-    const db = await openDb('demoDB', 1, (db) => {
-      if (!db.objectStoreNames.contains('notes')) {
-        const s = db.createObjectStore('notes', { keyPath: 'id', autoIncrement: true });
-        s.createIndex('byTag', 'tag', { unique: false });
-      }
-      if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
-    });
-    const tx1 = db.transaction('notes', 'readwrite');
-    const notes = tx1.objectStore('notes');
-    await reqToPromise(notes.clear());
-    notes.put({ tag: 'idea', text: 'Animated QR codes for offline transfer.', createdAt: new Date() });
-    notes.put({ tag: 'todo', text: 'Try the WebRTC flow.', createdAt: new Date() });
-    notes.put({ tag: 'idea', text: 'Bluetooth handoff is underrated.', createdAt: new Date() });
-    await new Promise(r => tx1.oncomplete = r);
-    const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#d4f542'; ctx.fillRect(0, 0, 64, 64);
-    ctx.fillStyle = '#0e0f0d'; ctx.font = 'bold 28px monospace'; ctx.fillText('IDB', 6, 42);
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-    const tx2 = db.transaction('files', 'readwrite');
-    tx2.objectStore('files').put({ name: 'badge.png', blob, size: blob.size });
-    await new Promise(r => tx2.oncomplete = r);
-    db.close();
-    log('demoDB ready (3 notes + 1 blob).', 'ok');
-    refreshDbList();
-  } catch (err) { log('Seed failed: ' + err.message, 'err'); }
+    setStatus('raw-s-status-2', 'scanning', 'active');
+    raw_s_scanner = new QRScanner($('raw-s-video'), onRawSenderScan);
+    await raw_s_scanner.start();
+    setCamButtons('raw-s', true);
+  } catch (err) { log('Camera error: ' + err.message, 'err'); setStatus('raw-s-status-2', 'error', 'err'); raw_s_scanner = null; }
+});
+$('raw-s-cam-stop').addEventListener('click', () => {
+  if (raw_s_scanner) { raw_s_scanner.stop(); raw_s_scanner = null; }
+  setCamButtons('raw-s', false);
 });
 
-$('s-dbselect').addEventListener('change', () => {
-  if ($('s-dbselect').value) {
-    enableStep('s-step-2');
-    setStatus('s-status-1', 'done', 'ok');
-  } else {
-    $('s-step-2').classList.add('disabled');
-  }
-});
-
-$('s-cam-start').addEventListener('click', async () => {
-  if (s_scanner) return;
-  try {
-    setStatus('s-status-2', 'scanning', 'active');
-    s_scanner = new QRScanner($('s-video'), onSenderScan);
-    await s_scanner.start();
-    setCamButtons('s', true);
-    log('Camera active. Point at desktop QR.');
-  } catch (err) {
-    log('Camera error: ' + err.message + ' — make sure you allowed camera access.', 'err');
-    setStatus('s-status-2', 'error', 'err');
-    s_scanner = null;
-  }
-});
-$('s-cam-stop').addEventListener('click', () => {
-  if (s_scanner) { s_scanner.stop(); s_scanner = null; }
-  setCamButtons('s', false);
-});
-
-async function onSenderScan(chunk) {
-  const res = s_reassembler.feed(chunk);
+async function onRawSenderScan(chunk) {
+  const res = raw_s_reassembler.feed(chunk);
   if (!res) return;
   if (res.complete && res.id === 'OFFER') {
     log('All offer chunks received. Building answer…');
-    setStatus('s-status-2', 'received', 'ok');
-    if (s_scanner) { s_scanner.stop(); s_scanner = null; setCamButtons('s', false); }
+    setStatus('raw-s-status-2', 'received', 'ok');
+    if (raw_s_scanner) { raw_s_scanner.stop(); raw_s_scanner = null; setCamButtons('raw-s', false); }
     try {
       const offerJson = await decompressString(res.data);
       const offer = JSON.parse(offerJson);
-
-      s_pc = new RTCPeerConnection(RTC_CONFIG);
-      instrumentPC(s_pc, 'send');
-      s_pc.ondatachannel = (e) => setupSenderChannel(e.channel);
-      await s_pc.setRemoteDescription(offer);
-      const answer = await s_pc.createAnswer();
-      await s_pc.setLocalDescription(answer);
-      await gatherCompleteSDP(s_pc);
-
-      const fullAnswer = JSON.stringify(s_pc.localDescription);
-      const compressed = await compressString(fullAnswer);
+      raw_s_pc = new RTCPeerConnection(RTC_CONFIG);
+      instrumentPC(raw_s_pc, 'send');
+      raw_s_pc.ondatachannel = (e) => setupRawSenderChannel(e.channel);
+      await raw_s_pc.setRemoteDescription(offer);
+      const answer = await raw_s_pc.createAnswer();
+      await raw_s_pc.setLocalDescription(answer);
+      await gatherCompleteSDP(raw_s_pc);
+      const compressed = await compressString(JSON.stringify(raw_s_pc.localDescription));
       const chunks = makeChunks('ANSWER', compressed);
-      enableStep('s-step-3');
-      setStatus('s-status-3', `${chunks.length} chunks`, 'active');
-      startQRCycle('s-qr', 's-qr-info', chunks);
-      log(`Answer ready · ${(compressed.length/1024).toFixed(2)} KB · ${chunks.length} QR chunks.`);
-    } catch (err) {
-      log('Offer apply failed: ' + err.message, 'err');
-      setStatus('s-status-2', 'error', 'err');
-    }
+      enableStep('raw-s-step-3');
+      setStatus('raw-s-status-3', `${chunks.length} chunks`, 'active');
+      startQRCycle('raw-s-qr', 'raw-s-qr-info', chunks);
+      log(`Answer ready · ${chunks.length} QR chunks.`);
+    } catch (err) { log('Offer apply failed: ' + err.message, 'err'); setStatus('raw-s-status-2', 'error', 'err'); }
   } else if (res.progress !== undefined) {
-    setStatus('s-status-2', `${Math.round(res.progress * 100)}%`, 'active');
-    if (res.isNew) {
-      log(`Got chunk ${res.idx} · ${res.missing.length} still missing: [${res.missing.join(', ')}]`);
-    }
+    setStatus('raw-s-status-2', `${Math.round(res.progress * 100)}%`, 'active');
+    if (res.isNew) log(`Got chunk ${res.idx} · ${res.missing.length} missing: [${res.missing.join(', ')}]`);
   }
 }
 
-function setupSenderChannel(channel) {
+function setupRawSenderChannel(channel) {
   channel.binaryType = 'arraybuffer';
   channel.onopen = async () => {
     log('Data channel open. Sending DB…', 'ok');
-    setStatus('s-status-3', 'connected', 'ok');
-    stopQRCycle('s-qr');
-    enableStep('s-step-4');
-    setStatus('s-status-4', 'sending', 'active');
+    setStatus('raw-s-status-3', 'connected', 'ok');
+    stopQRCycle('raw-s-qr');
+    enableStep('raw-s-step-4');
+    setStatus('raw-s-status-4', 'sending', 'active');
     try {
-      const dbname = $('s-dbselect').value;
+      const dbname = $('raw-s-dbselect').value;
       const payload = await readEntireDatabase(dbname);
-      const json = JSON.stringify(payload);
-      const bytes = new TextEncoder().encode(json);
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
       const CHUNK = 16 * 1024;
       channel.send(JSON.stringify({ type: 'header', size: bytes.byteLength }));
       let sent = 0;
       while (sent < bytes.byteLength) {
-        // Pause if buffer is filling up
-        while (channel.bufferedAmount > 1024 * 1024) {
-          await new Promise(r => setTimeout(r, 20));
-        }
+        while (channel.bufferedAmount > 1024 * 1024) await new Promise(r => setTimeout(r, 20));
         const slice = bytes.slice(sent, sent + CHUNK);
-        channel.send(slice);
-        sent += slice.byteLength;
+        channel.send(slice); sent += slice.byteLength;
         const pct = (sent / bytes.byteLength) * 100;
-        $('s-progress').style.width = pct + '%';
-        $('s-progress-text').textContent = `Sent ${(sent/1024).toFixed(1)} / ${(bytes.byteLength/1024).toFixed(1)} KB`;
+        $('raw-s-progress').style.width = pct + '%';
+        $('raw-s-progress-text').textContent = `Sent ${(sent/1024).toFixed(1)} / ${(bytes.byteLength/1024).toFixed(1)} KB`;
       }
       channel.send(JSON.stringify({ type: 'done' }));
       log(`Sent ${(bytes.byteLength/1024).toFixed(1)} KB.`, 'ok');
-      setStatus('s-status-4', 'sent', 'ok');
-    } catch (err) {
-      log('Send failed: ' + err.message, 'err');
-      setStatus('s-status-4', 'error', 'err');
-    }
+      setStatus('raw-s-status-4', 'sent', 'ok');
+    } catch (err) { log('Send failed: ' + err.message, 'err'); setStatus('raw-s-status-4', 'error', 'err'); }
   };
   channel.onmessage = (e) => {
     if (typeof e.data === 'string') {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'ack') {
-        log('Receiver confirmed import. Done.', 'ok');
-        $('s-progress-text').textContent = 'Receiver imported the data. All done.';
-      }
+      if (msg.type === 'ack') { log('Receiver confirmed import.', 'ok'); $('raw-s-progress-text').textContent = 'Receiver imported the data. All done.'; }
     }
   };
-  channel.onclose = () => log('Channel closed.');
-  channel.onerror = (e) => log('Channel error: ' + (e.error?.message || 'unknown'), 'err');
 }
 
 // --- Init ---
 window.addEventListener('load', async () => {
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-    log('Warning: WebRTC and camera require HTTPS. Some features will fail.', 'err');
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    log('Warning: this browser does not support camera access.', 'err');
+    log('Warning: WebRTC and camera require HTTPS.', 'err');
   }
   const ok = await (window.__libsReady || Promise.resolve(false));
-  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined') {
-    log('QR libraries failed to load from both CDN and local files. ' +
-        'Either restore internet access, or download qrcode.js and jsQR.js into the same folder as this page.', 'err');
+  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof Peer === 'undefined') {
+    log('Some libraries failed to load. Check internet, or place qrcode.js, jsQR.js, peerjs.min.js next to index.html.', 'err');
   } else {
-    log('Ready. Pick a mode above.', 'ok');
+    log('Ready. PeerJS is the default backend — switch to Raw WebRTC if you prefer.', 'ok');
   }
 });
 </script>
