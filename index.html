@@ -217,7 +217,7 @@
           <span class="status" id="pjs-r-status-1">setup</span>
         </div>
         <div class="step-body">
-          <p class="sub" style="margin-bottom: 14px;">Name the IndexedDB that will receive the data.</p>
+          <p class="sub" style="margin-bottom: 14px;">Name the IndexedDB that will receive the data. <strong style="color:var(--ink)">Heads up:</strong> if a database with this name already exists on this device, it will be deleted and replaced with the incoming data.</p>
           <label class="field">
             <span>Database name</span>
             <input type="text" id="pjs-r-dbname" placeholder="e.g. demoDB" value="demoDB">
@@ -628,26 +628,33 @@ async function readEntireDatabase(dbName) {
 }
 async function writeEntireDatabase(payload, targetDbName) {
   const dbName = targetDbName || payload.dbName;
+
+  // Delete any existing database with this name first. This guarantees a clean
+  // slate: onupgradeneeded will fire reliably (the DB starts at version 0), and
+  // we won't have leftover stores from a previous transfer.
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(dbName);
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error(`Cannot delete existing "${dbName}" — close other tabs that have it open.`));
+  });
+
   const db = await openDb(dbName, payload.version, (db, tx) => {
     for (const s of payload.stores) {
-      let store;
-      if (db.objectStoreNames.contains(s.name)) {
-        store = tx.objectStore(s.name);
-      } else {
-        const opts = {};
-        if (s.keyPath !== null) opts.keyPath = s.keyPath;
-        if (s.autoIncrement) opts.autoIncrement = true;
-        store = db.createObjectStore(s.name, opts);
-      }
+      const opts = {};
+      if (s.keyPath !== null) opts.keyPath = s.keyPath;
+      if (s.autoIncrement) opts.autoIncrement = true;
+      const store = db.createObjectStore(s.name, opts);
       for (const idx of s.indexes) {
-        if (!store.indexNames.contains(idx.name)) {
-          store.createIndex(idx.name, idx.keyPath, { unique: idx.unique, multiEntry: idx.multiEntry });
-        }
+        store.createIndex(idx.name, idx.keyPath, { unique: idx.unique, multiEntry: idx.multiEntry });
       }
     }
   });
   let total = 0;
   for (const s of payload.stores) {
+    if (!db.objectStoreNames.contains(s.name)) {
+      throw new Error(`Object store "${s.name}" was not created — onupgradeneeded may not have fired.`);
+    }
     const tx = db.transaction(s.name, 'readwrite');
     const store = tx.objectStore(s.name);
     const recs = payload.records[s.name] || [];
