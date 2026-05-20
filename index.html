@@ -2129,22 +2129,27 @@ async function revealPostTransferSessions() {
   // give them a way to start over without the bottom nav.
   showProgressRestartButton('Start over');
 
-  // Populate the "received from" banner if we have remote peer info.
-  // remotePeerInfo arrives via the library's peer-info exchange before
-  // (or alongside) the payload, so it's almost always set by now.
+  // Populate the "received from" banner — but only if a session was
+  // actually received. If justTransferredDirection is null we're in the
+  // skip case: the receiver chose Skip on a conflict, so nothing was
+  // stored or modified. Showing a "received from X" banner would lie.
   const banner = $('transfer-from-banner');
-  const deviceEl = $('transfer-from-device');
-  const nameEl = $('transfer-from-name');
-  const fromBlock = banner.querySelector('.received-from');
-  banner.classList.remove('hidden');
-  if (remotePeerInfo && remotePeerInfo.emoji && remotePeerInfo.nickname) {
-    fromBlock.classList.remove('unknown');
-    deviceEl.innerHTML = renderDeviceSVG(remotePeerInfo.emoji, { size: 48, type: remotePeerInfo.device || 'laptop' });
-    nameEl.textContent = remotePeerInfo.nickname;
+  if (justTransferredDirection === 'received') {
+    const deviceEl = $('transfer-from-device');
+    const nameEl = $('transfer-from-name');
+    const fromBlock = banner.querySelector('.received-from');
+    banner.classList.remove('hidden');
+    if (remotePeerInfo && remotePeerInfo.emoji && remotePeerInfo.nickname) {
+      fromBlock.classList.remove('unknown');
+      deviceEl.innerHTML = renderDeviceSVG(remotePeerInfo.emoji, { size: 48, type: remotePeerInfo.device || 'laptop' });
+      nameEl.textContent = remotePeerInfo.nickname;
+    } else {
+      fromBlock.classList.add('unknown');
+      deviceEl.innerHTML = renderDeviceSVG('?', { size: 48, type: 'laptop' });
+      nameEl.textContent = 'an unknown device';
+    }
   } else {
-    fromBlock.classList.add('unknown');
-    deviceEl.innerHTML = renderDeviceSVG('?', { size: 48, type: 'laptop' });
-    nameEl.textContent = 'an unknown device';
+    banner.classList.add('hidden');
   }
 
   const sessions = await listSessions();
@@ -2290,11 +2295,17 @@ function wireTransferToReceiveUI(t) {
   });
   t.on('status', (s) => {
     if (s === 'done') {
-      // Title reflects the terminal state. Status line carries the detail.
-      $('transfer-title').textContent = 'Received';
-      setTransferStatus('Done.', 'ok');
-      // justTransferredId was set by handleIncomingSession above; reveal the
-      // session list with that row highlighted and the Start Over button.
+      // Title and status reflect the terminal state. justTransferredDirection
+      // is set by handleIncomingSession only when a session was actually
+      // stored (created / replaced / merged). If it's null the receiver
+      // chose Skip, so we shouldn't pretend they "Received" anything.
+      if (justTransferredDirection === 'received') {
+        $('transfer-title').textContent = 'Received';
+        setTransferStatus('Done.', 'ok');
+      } else {
+        $('transfer-title').textContent = 'Skipped';
+        setTransferStatus('Nothing was changed.', '');
+      }
       revealPostTransferSessions();
     }
     if (s === 'error') {
@@ -3409,7 +3420,28 @@ $('nav-next').addEventListener('click', async () => {
 // Inline restart buttons — same destination as the old bottom-nav Start over
 const restartToStart = () => goToStep(0, 'back');
 $('progress-restart-btn').addEventListener('click', restartToStart);
-$('sent-restart-btn').addEventListener('click', restartToStart);
+
+// "Send another" goes to step 1 (the pick screen) rather than all the way
+// back to step 0. The cleanup that normally happens on entering 'start'
+// (closing the active transfer, clearing selected session, resetting
+// receiver-action state) has to happen explicitly here, since we're
+// skipping that screen.
+$('sent-restart-btn').addEventListener('click', () => {
+  if (activeTransfer) {
+    try { activeTransfer.close(); } catch {}
+    activeTransfer = null;
+  }
+  selectedSessionId = null;
+  receiverAction = null;
+  receiverError = null;
+  remotePeerInfo = null;
+  justTransferredId = null;
+  justTransferredDirection = null;
+  // currentMode stays 'send' since the user is sending another; backend
+  // also stays put. goToStep with 'back' direction gives the right
+  // slide animation (returning to a familiar screen).
+  goToStep(1, 'back');
+});
 
 // =====================================================================
 // Init
