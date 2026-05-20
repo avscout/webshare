@@ -144,14 +144,19 @@
   // ============================================================
   // PeerJS — register with retry on ID collision
   // ============================================================
-  function createPeerWithRetry(emitter, maxAttempts = 5) {
+  function createPeerWithRetry(emitter, peerServerConfig, maxAttempts = 5) {
     return new Promise((resolve, reject) => {
       let attempt = 0;
       const tryOnce = () => {
         attempt++;
         const peerId = generateFriendlyId();
         emitter.emit('log', { level: 'info', message: `Registering "${peerId}" (attempt ${attempt}/${maxAttempts})…` });
-        const peer = new Peer(peerId, { debug: 1 });
+        // Merge peerServerConfig (if any) with the debug option. PeerJS uses
+        // {host, port, path, secure, key} to point at a custom server. When
+        // peerServerConfig is null/undefined, no host is passed and PeerJS
+        // defaults to its public cloud (0.peerjs.com).
+        const peerOptions = Object.assign({ debug: 1 }, peerServerConfig || {});
+        const peer = new Peer(peerId, peerOptions);
         const cleanup = () => { peer.off('open', onOpen); peer.off('error', onError); };
         const onOpen = () => { cleanup(); resolve(peer); };
         const onError = (err) => {
@@ -162,7 +167,7 @@
             cleanup(); peer.destroy();
             const friendly =
               err.type === 'unavailable-id' ? 'all retries hit ID collisions' :
-              err.type === 'server-error'   ? "PeerJS cloud isn't responding" :
+              err.type === 'server-error'   ? "signaling server isn't responding" :
               err.type === 'network'        ? 'no internet' :
               err.type === 'browser-incompatible' ? 'browser does not support WebRTC' :
               err.message || err.type;
@@ -187,19 +192,43 @@
   };
 
   class SessionTransfer extends Emitter {
-    constructor({ backend = 'peerjs', iceServers } = {}) {
+    /**
+     * @param {Object} opts
+     * @param {'peerjs'|'raw'} [opts.backend='peerjs']
+     * @param {Array} [opts.iceServers] - Custom ICE servers for raw WebRTC
+     * @param {Object} [opts.peerServer] - PeerJS signaling server config. When
+     *   omitted, PeerJS defaults to its public cloud (0.peerjs.com).
+     *   Shape: { host, port, path, secure, key } — only `host` is typically
+     *   required. Example for a self-hosted server at TU Delft:
+     *     peerServer: {
+     *       host: 'webshare-signal.tudelft.nl',
+     *       port: 443,
+     *       path: '/peerjs',
+     *       secure: true
+     *     }
+     */
+    constructor({ backend = 'peerjs', iceServers, peerServer, peerInfo } = {}) {
       super();
       if (backend !== 'peerjs' && backend !== 'raw') {
         throw new Error(`Unknown backend "${backend}". Use 'peerjs' or 'raw'.`);
       }
       this.backend = backend;
       this.rtcConfig = iceServers ? { iceServers } : DEFAULT_RTC_CONFIG;
+      this.peerServerConfig = peerServer || null;
 
       // role gets set by startReceiving() or connect()
       this.role = null;       // 'receiver' or 'sender'
       this.peerId = null;     // PeerJS: assigned peer ID; Raw: not used
       this.onPayload = null;  // receiver handler
       this.onAck = null;      // sender ack handler
+
+      // Identity exchange. The library doesn't decide what the local info
+      // looks like — that's the consumer's job (DEVICE_TYPE detection,
+      // user-set emoji/nickname, etc). The library just guarantees both
+      // sides receive each other's info before the payload completes.
+      this.peerInfo = peerInfo || null;       // OUR info, sent to remote
+      this._remotePeerInfo = null;            // their info, received from remote
+      this._peerInfoSent = false;             // flag: have we sent ours yet?
 
       // Backend-specific state
       this._peer = null;          // PeerJS Peer
@@ -214,6 +243,43 @@
     _log(level, message) { this.emit('log', { level, message }); }
     _status(s) { this.emit('status', s); }
 
+    // ----- Peer identity exchange -----
+    // Called from each backend's channel-open path. Sends our peerInfo over
+    // the just-opened data channel. The message format intentionally mirrors
+    // the payload/ack envelope (`{type, ...}`) so both backends route it
+    // through their existing message handling.
+    _sendPeerInfo() {
+      if (this._peerInfoSent) return;
+      if (!this.peerInfo) return;  // nothing to send
+      const msg = { type: 'peer-info', info: this.peerInfo };
+      try {
+        if (this.backend === 'peerjs') {
+          this._conn.send(msg);
+        } else if (this._channel && this._channel.readyState === 'open') {
+          this._channel.send(JSON.stringify(msg));
+        } else {
+          return;  // channel not ready; will retry on next open event
+        }
+        this._peerInfoSent = true;
+        this._log('info', 'Sent peer-info to remote.');
+      } catch (e) {
+        this._log('err', 'Failed to send peer-info: ' + e.message);
+      }
+    }
+
+    // Called from each backend's message handler when a peer-info message
+    // arrives. Stores the remote info, emits the 'peer-info' event so the
+    // consumer can react (e.g. render the device icons).
+    _handlePeerInfo(info) {
+      this._remotePeerInfo = info || null;
+      this._log('info', 'Received peer-info from remote.');
+      this.emit('peer-info', this._remotePeerInfo);
+    }
+
+    // Public getter for consumers who want to query state directly
+    // instead of listening for the event.
+    getRemotePeerInfo() { return this._remotePeerInfo; }
+
     // ----- RECEIVER -----
     async startReceiving() {
       if (this.role) throw new Error('Already started.');
@@ -224,7 +290,7 @@
     }
 
     async _startPeerJSReceive() {
-      this._peer = await createPeerWithRetry(this);
+      this._peer = await createPeerWithRetry(this, this.peerServerConfig);
       this.peerId = this._peer.id;
       this._log('ok', `Peer ID assigned: ${this.peerId}`);
       this._status('waiting');
@@ -238,8 +304,15 @@
           this._log('ok', 'Data channel open.');
           this._status('connected');
           this.emit('connected');
+          // Send our peerInfo immediately on channel open. Don't block —
+          // the payload can still flow before peer-info round-trips.
+          this._sendPeerInfo();
         });
         conn.on('data', async (msg) => {
+          if (msg && msg.type === 'peer-info') {
+            this._handlePeerInfo(msg.info);
+            return;
+          }
           if (msg && msg.type === 'payload') {
             this._status('transferring');
             this.emit('progress', { received: 100, total: 100 });
@@ -291,10 +364,15 @@
         this._log('ok', 'Data channel open.');
         this._status('connected');
         this.emit('connected');
+        this._sendPeerInfo();
       };
       ch.onmessage = async (e) => {
         if (typeof e.data === 'string') {
           const msg = JSON.parse(e.data);
+          if (msg.type === 'peer-info') {
+            this._handlePeerInfo(msg.info);
+            return;
+          }
           if (msg.type === 'header') {
             expectedSize = msg.size; receivedChunks = []; receivedSize = 0;
             this._status('transferring');
@@ -332,12 +410,29 @@
       if (this.backend !== 'peerjs') throw new Error('connect() is only for PeerJS. For raw, feedScannedChunk() the offer.');
       this._status('connecting');
       this._log('info', `Connecting to "${targetPeerId}"…`);
-      this._peer = new Peer({ debug: 1 });
+      const peerOptions = Object.assign({ debug: 1 }, this.peerServerConfig || {});
+      this._peer = new Peer(peerOptions);
       await new Promise((resolve, reject) => {
         this._peer.on('open', resolve);
         this._peer.on('error', (err) => reject(new Error(err.type + ': ' + (err.message || ''))));
       });
       this._conn = this._peer.connect(targetPeerId, { reliable: true });
+      // CRITICAL: Register the data handler BEFORE awaiting the channel
+      // open. PeerJS does not buffer messages received between channel-open
+      // and handler registration — so if the receiver's peer-info arrives
+      // during that gap (the receiver fires its own peer-info immediately
+      // on its open event), the message is dropped and we end up showing
+      // the receiver as "unknown" in the UI.
+      this._conn.on('data', (msg) => {
+        if (msg && msg.type === 'peer-info') {
+          this._handlePeerInfo(msg.info);
+          return;
+        }
+        if (msg && msg.type === 'ack') {
+          if (this.onAck) try { this.onAck(msg.response, msg.error); } catch (e) { console.error(e); }
+          this._status('done');
+        }
+      });
       await new Promise((resolve, reject) => {
         this._conn.on('open', resolve);
         this._conn.on('error', reject);
@@ -346,13 +441,8 @@
       this._log('ok', 'Connected.');
       this._status('connected');
       this.emit('connected');
-
-      this._conn.on('data', (msg) => {
-        if (msg && msg.type === 'ack') {
-          if (this.onAck) try { this.onAck(msg.response, msg.error); } catch (e) { console.error(e); }
-          this._status('done');
-        }
-      });
+      // Send our peerInfo right after the channel opens.
+      this._sendPeerInfo();
     }
 
     /**
@@ -464,6 +554,7 @@
         this._log('ok', 'Data channel open.');
         this._status('connected');
         this.emit('connected');
+        this._sendPeerInfo();
         if (this._pendingSend) {
           const p = this._pendingSend; this._pendingSend = null;
           await this._rawSendNow(p);
@@ -472,6 +563,10 @@
       ch.onmessage = (e) => {
         if (typeof e.data === 'string') {
           const msg = JSON.parse(e.data);
+          if (msg.type === 'peer-info') {
+            this._handlePeerInfo(msg.info);
+            return;
+          }
           if (msg.type === 'ack') {
             if (this.onAck) try { this.onAck(msg.response, msg.error); } catch (err) { console.error(err); }
             this._status('done');
