@@ -1,18 +1,16 @@
 <!DOCTYPE html>
-<html lang="en"> 
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Session Transfer · Demo</title>
 <style>
   :root {
-    /* TU Delft brand colors (Corporate Identity Manual 2025/2026) */
+    /* TU Delft brand colors */
     --tud-cyan: #00A6D6;
     --tud-cyan-dark: #008CB3;
     --tud-darkblue: #0C2340;
-    --tud-royalblue: #0076C2;
 
-    /* Application palette derived from brand */
     --bg: #FFFFFF;
     --bg-subtle: #F5F7F9;
     --ink: #000000;
@@ -27,371 +25,412 @@
 
     --sans: Arial, 'Helvetica Neue', Helvetica, sans-serif;
     --mono: 'JetBrains Mono','SF Mono','Menlo','Consolas',monospace;
+
+    --header-h: 52px;
+    --footer-h: 64px;
+    --log-collapsed-h: 36px;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.55; min-height: 100vh; }
-  body { padding: 32px 18px 60px; }
-  .wrap { max-width: 720px; margin: 0 auto; }
-
-  header { border-bottom: 4px solid var(--accent); padding-bottom: 22px; margin-bottom: 24px; }
-  .label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
-  h1 { font-family: var(--sans); font-weight: 700; font-size: 32px; line-height: 1.15; margin-top: 8px; letter-spacing: -0.01em; color: var(--ink); }
-  h1 em { font-style: normal; color: var(--accent); }
-  .sub { color: var(--dim); margin-top: 10px; font-size: 14px; max-width: 60ch; }
-
-  .backend-row { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 16px; background: var(--bg-subtle); }
-  .backend-row .lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
-  .backend-row .opts { display: flex; gap: 6px; flex: 1; }
-  .backend-btn { flex: 1; background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); padding: 8px 12px; font-family: var(--sans); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-  .backend-btn:hover:not(.active) { color: var(--accent); border-color: var(--accent); }
-  .backend-btn small { display: block; font-size: 9px; opacity: 0.85; margin-top: 3px; font-weight: 400; text-transform: none; letter-spacing: 0; }
-
-  .net-banner {
-    border: 1px solid var(--line); border-left: 4px solid var(--warn);
-    padding: 14px 16px; margin-bottom: 16px;
-    background: #FFF6F4;
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.5; min-height: 100vh; min-height: 100dvh; overflow: hidden; }
+  body {
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
   }
-  .net-text { color: var(--ink); font-size: 13px; line-height: 1.55; }
-  .net-text strong { color: var(--warn); font-weight: 700; }
-  .net-id-row { display: flex; align-items: baseline; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-  .net-id-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
-  .net-id {
-    font-family: var(--mono); font-size: 15px; color: var(--accent-deep);
-    padding: 3px 10px; background: var(--bg-subtle); border: 1px solid var(--line);
-    user-select: all; font-weight: 600;
+
+  /* ===== Header ===== */
+  .topbar {
+    flex-shrink: 0; height: var(--header-h);
+    background: var(--bg); border-bottom: 2px solid var(--accent);
+    display: flex; align-items: center; padding: 0 14px;
+    z-index: 10;
   }
-  .net-hint { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.5; }
+  .topbar .back-btn {
+    background: transparent; border: none; padding: 6px 10px;
+    font-size: 22px; color: var(--accent-deep); cursor: pointer;
+    line-height: 1; transition: opacity 0.15s;
+  }
+  .topbar .back-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+  .topbar .title {
+    flex: 1; text-align: center;
+    font-size: 12px; font-weight: 700; color: var(--ink-soft);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .topbar .title em { font-style: normal; color: var(--accent); }
+  .topbar .sessions-btn {
+    background: var(--bg); border: 1px solid var(--line); padding: 6px 10px;
+    font-family: var(--sans); font-size: 11px; font-weight: 600; color: var(--ink-soft);
+    cursor: pointer; letter-spacing: 0.04em;
+  }
+  .topbar .sessions-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .topbar .sessions-btn .count { color: var(--accent); font-weight: 700; }
 
-  .modes { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 28px; border: 1px solid var(--line); }
-  .mode-btn { background: var(--bg); color: var(--ink-soft); border: none; padding: 18px 16px; font-family: var(--sans); font-size: 18px; font-weight: 700; cursor: pointer; transition: all 0.15s; text-align: center; }
-  .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
-  .mode-btn:hover:not(.active) { background: var(--bg-subtle); color: var(--accent); }
-  .mode-btn .arrow { display: block; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; font-family: var(--sans); margin-bottom: 4px; opacity: 0.75; font-weight: 700; }
-  .mode-btn em { font-style: normal; }
+  /* ===== Screen container ===== */
+  .stage {
+    flex: 1; position: relative; overflow: hidden;
+    background: var(--bg);
+  }
+  .screen {
+    position: absolute; inset: 0;
+    padding: 24px 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background: var(--bg);
+    transition: transform 0.28s ease, opacity 0.18s ease;
+    display: flex; flex-direction: column;
+  }
+  .screen.hidden { display: none; }
+  /* Slide directions for entering/leaving */
+  .screen.slide-out-left  { transform: translateX(-100%); opacity: 0; }
+  .screen.slide-out-right { transform: translateX( 100%); opacity: 0; }
+  .screen.slide-in-from-left  { transform: translateX(-100%); opacity: 0; }
+  .screen.slide-in-from-right { transform: translateX( 100%); opacity: 0; }
+  .screen.active { transform: translateX(0); opacity: 1; }
 
-  .step { border: 1px solid var(--line); margin-bottom: 16px; background: var(--bg); }
-  .step-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--bg-subtle); }
-  .step-head .num { font-family: var(--sans); font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums; margin-right: 6px; }
-  .step-head h2 { font-family: var(--sans); font-weight: 700; font-size: 16px; color: var(--ink); }
-  .step-head .status { margin-left: auto; font-size: 10px; letter-spacing: 0.16em; color: var(--dim); text-transform: uppercase; font-weight: 700; }
-  .step-head .status.ok { color: var(--ok); }
-  .step-head .status.active { color: var(--accent); }
-  .step-head .status.err { color: var(--warn); }
-  .step-body { padding: 20px 18px; }
-  .step.disabled { opacity: 0.4; pointer-events: none; }
+  .screen-header {
+    margin-bottom: 18px; padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .screen-eyebrow {
+    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--dim); font-weight: 700;
+  }
+  .screen-eyebrow .num { color: var(--accent); }
+  .screen-title {
+    font-size: 22px; font-weight: 700; color: var(--ink); margin-top: 6px;
+    line-height: 1.2; letter-spacing: -0.01em;
+  }
+  .screen-subtitle {
+    color: var(--dim); font-size: 13px; margin-top: 8px; line-height: 1.55;
+  }
+  .screen-content { flex: 1; }
 
-  label.field { display: block; margin-bottom: 16px; }
-  label.field > span { display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; font-weight: 700; }
-  input[type="text"], select, textarea {
+  /* ===== Bottom nav ===== */
+  .bottombar {
+    flex-shrink: 0; height: var(--footer-h);
+    background: var(--bg); border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px; padding: 0 14px;
+  }
+  .bottombar button {
+    flex: 1; height: 44px;
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.15s;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft);
+  }
+  .bottombar button:hover:not(:disabled):not(.primary) { border-color: var(--accent); color: var(--accent); }
+  .bottombar button.primary {
+    background: var(--accent); color: #FFFFFF; border-color: var(--accent);
+  }
+  .bottombar button.primary:hover:not(:disabled) {
+    background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark);
+  }
+  .bottombar button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .bottombar button.ghost { background: transparent; border: none; color: var(--dim); }
+  .bottombar button.ghost:hover:not(:disabled) { color: var(--accent); }
+
+  /* ===== Components inside screens ===== */
+  .toggle-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); margin-bottom: 18px; }
+  .toggle-btn {
+    background: var(--bg); border: none; padding: 14px 12px;
+    font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--ink-soft);
+    cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+  .toggle-btn + .toggle-btn { border-left: 1px solid var(--line); }
+  .toggle-btn:hover:not(.active) { background: var(--bg-subtle); color: var(--accent); }
+  .toggle-btn.active, .toggle-btn.active:hover {
+    background: var(--accent-deep); color: #FFFFFF; cursor: default;
+  }
+  .toggle-btn .arrow { display: block; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 3px; opacity: 0.75; font-weight: 700; }
+  .toggle-btn small { display: block; font-size: 10px; opacity: 0.8; margin-top: 4px; font-weight: 400; }
+  .toggle-btn.active small { opacity: 0.85; }
+
+  /* QR area, big and centered for mobile */
+  .qr-frame {
+    background: #fff; padding: 14px; border: 1px solid var(--line);
+    margin: 0 auto; display: flex; justify-content: center; align-items: center;
+    width: 100%; max-width: 360px; aspect-ratio: 1;
+  }
+  .qr-frame svg { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }
+  .qr-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 10px; letter-spacing: 0.08em; font-weight: 600; }
+  .peer-id {
+    font-family: var(--mono); font-size: 18px; color: var(--accent-deep);
+    text-align: center; margin: 14px auto 0; padding: 10px 16px;
+    border: 1px dashed var(--accent); background: var(--bg-subtle);
+    display: block; max-width: fit-content;
+    user-select: all; cursor: pointer; font-weight: 600;
+  }
+
+  /* Camera */
+  .cam-frame {
+    position: relative; background: #000; border: 1px solid var(--line);
+    aspect-ratio: 1; max-width: 360px; margin: 0 auto; overflow: hidden;
+    width: 100%;
+  }
+  .cam-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-frame .reticle { position: absolute; inset: 12%; border: 2px solid var(--accent); pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); }
+  .cam-frame .reticle::before, .cam-frame .reticle::after { content: ''; position: absolute; width: 22px; height: 22px; border: 4px solid var(--accent); }
+  .cam-frame .reticle::before { top: -4px; left: -4px; border-right: none; border-bottom: none; }
+  .cam-frame .reticle::after { bottom: -4px; right: -4px; border-left: none; border-top: none; }
+  .cam-helper { text-align: center; font-size: 12px; color: var(--dim); margin-top: 12px; }
+
+  /* Progress + status */
+  .progress { background: var(--line-soft); height: 6px; overflow: hidden; margin: 14px 0; }
+  .progress-bar { background: var(--accent); height: 100%; width: 0; transition: width 0.2s; }
+  .status-line { text-align: center; font-size: 13px; color: var(--ink-soft); margin-top: 8px; }
+  .status-line.ok { color: var(--ok); font-weight: 700; }
+  .status-line.err { color: var(--warn); font-weight: 700; }
+
+  /* Form inputs */
+  input[type="text"], textarea {
     width: 100%; background: var(--bg); border: 1px solid var(--line);
-    color: var(--ink); font-family: var(--sans); font-size: 15px;
-    padding: 10px 12px; outline: none; transition: border-color 0.15s; resize: vertical;
+    color: var(--ink); font-family: var(--sans); font-size: 16px;  /* 16px to prevent iOS zoom */
+    padding: 12px 14px; outline: none; transition: border-color 0.15s;
   }
-  input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0, 166, 214, 0.15); }
-  textarea { font-family: var(--mono); }
+  input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 166, 214, 0.15); }
+  textarea { font-family: var(--mono); font-size: 13px; resize: vertical; min-height: 200px; }
+  label.field { display: block; margin-bottom: 14px; }
+  label.field > span { display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; font-weight: 700; }
 
-  button { background: var(--bg); color: var(--ink); border: 1px solid var(--line); padding: 10px 18px; font-family: var(--sans); font-size: 13px; letter-spacing: 0.02em; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-  button:hover:not(:disabled):not(.primary):not(.active) { border-color: var(--accent); color: var(--accent); }
-  button.primary { background: var(--accent); color: #FFFFFF; border-color: var(--accent); }
-  button.primary:hover:not(:disabled) { background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark); color: #FFFFFF; }
-  button.danger:hover:not(:disabled):not(.active) { border-color: var(--warn); color: var(--warn); }
-  button:disabled { opacity: 0.35; cursor: not-allowed; }
-  /* Selected toggle buttons (backend + mode tabs) should not react to hover —
-     they're already at their destination state. Restate the active styling
-     so any other :hover rule that would otherwise apply gets overridden. */
-  .backend-btn.active, .backend-btn.active:hover { background: var(--accent); color: #FFFFFF; border-color: var(--accent); cursor: default; }
-  .mode-btn.active, .mode-btn.active:hover { color: #FFFFFF; background: var(--accent-deep); cursor: default; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .or-div { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--dim); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; }
+  .or-div::before, .or-div::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
-  .session-list { border: 1px solid var(--line); margin-bottom: 14px; max-height: 280px; overflow-y: auto; background: var(--bg); }
-  .session-list:empty::before { content: 'No sessions yet — create one below.'; display: block; padding: 16px; color: var(--dim); font-style: italic; }
-  .session-row { display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; }
+  /* Session list */
+  .session-list {
+    border: 1px solid var(--line); margin-bottom: 14px;
+    max-height: 50vh; overflow-y: auto; background: var(--bg);
+  }
+  .session-list:empty::before { content: 'No sessions yet.'; display: block; padding: 16px; color: var(--dim); font-style: italic; }
+  .session-row { display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; }
   .session-row:last-child { border-bottom: none; }
   .session-row:hover { background: var(--bg-subtle); }
-  .session-row.selected { background: rgba(0, 166, 214, 0.08); border-left: 4px solid var(--accent); padding-left: 12px; }
+  .session-row.selected { background: rgba(0, 166, 214, 0.08); border-left: 4px solid var(--accent); padding-left: 10px; }
   .session-row .info { flex: 1; min-width: 0; }
   .session-row .name { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-row .meta { color: var(--dim); font-size: 11px; margin-top: 3px; }
   .session-row .id { color: var(--accent-deep); font-size: 10px; font-family: var(--mono); }
 
-  .qr-frame { background: #fff; padding: 16px; border: 1px solid var(--line); margin: 0 auto; display: flex; justify-content: center; align-items: center; min-width: 280px; min-height: 280px; }
-  .qr-center { text-align: center; padding: 12px 0; }
-  .qr-frame svg { display: block; width: 100%; max-width: 420px; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }
-  .qr-chunk-info { text-align: center; font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.08em; font-weight: 600; }
-  .peer-id { font-family: var(--mono); font-size: 18px; color: var(--accent-deep); text-align: center; margin-top: 12px; padding: 10px 16px; border: 1px dashed var(--accent); background: var(--bg-subtle); display: inline-block; user-select: all; cursor: pointer; font-weight: 600; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-row button {
+    background: var(--bg); border: 1px solid var(--line); padding: 10px 14px;
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer;
+    transition: all 0.15s; color: var(--ink-soft); flex: 1;
+  }
+  .btn-row button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-row button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-row button.primary:hover:not(:disabled) { background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark); }
+  .btn-row button.danger:hover:not(:disabled) { border-color: var(--warn); color: var(--warn); }
+  .btn-row button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .cam-frame { position: relative; background: #000; border: 1px solid var(--line); aspect-ratio: 1; max-width: 360px; margin: 0 auto; overflow: hidden; }
-  .cam-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cam-frame .reticle { position: absolute; inset: 12%; border: 2px solid var(--accent); pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); }
-  .cam-frame .reticle::before, .cam-frame .reticle::after { content: ''; position: absolute; width: 18px; height: 18px; border: 3px solid var(--accent); }
-  .cam-frame .reticle::before { top: -3px; left: -3px; border-right: none; border-bottom: none; }
-  .cam-frame .reticle::after { bottom: -3px; right: -3px; border-left: none; border-top: none; }
+  /* Network banner */
+  .net-banner {
+    border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    padding: 12px 14px; margin-bottom: 14px;
+    background: #FFF6F4; font-size: 12px;
+  }
+  .net-banner strong { color: var(--warn); font-weight: 700; }
+  .net-id-row { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+  .net-id-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+  .net-id { font-family: var(--mono); font-size: 14px; color: var(--accent-deep); padding: 2px 8px; background: var(--bg-subtle); border: 1px solid var(--line); user-select: all; font-weight: 600; }
 
-  .progress { background: var(--line-soft); height: 6px; overflow: hidden; margin: 14px 0; }
-  .progress-bar { background: var(--accent); height: 100%; width: 0; transition: width 0.2s; }
-  .or-div { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--dim); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; }
-  .or-div::before, .or-div::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(12, 35, 64, 0.6); z-index: 100;
+    display: flex; align-items: stretch; justify-content: stretch;
+  }
+  .modal {
+    background: var(--bg); width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    box-shadow: none;
+  }
+  .modal-head {
+    padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--bg);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .modal-head h3 { font-size: 16px; font-weight: 700; flex: 1; }
+  .modal-head .close { background: transparent; border: none; font-size: 22px; padding: 4px 8px; cursor: pointer; color: var(--dim); }
+  .modal-body { flex: 1; padding: 18px; overflow-y: auto; }
+  .modal-footer { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; }
+  .modal-footer button { flex: 1; }
 
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(12, 35, 64, 0.55); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .modal { background: var(--bg); border: 1px solid var(--line); border-top: 4px solid var(--accent); max-width: 480px; width: 100%; padding: 24px; box-shadow: 0 16px 40px rgba(12, 35, 64, 0.18); }
-  .modal h3 { font-family: var(--sans); font-weight: 700; font-size: 20px; margin-bottom: 6px; color: var(--ink); }
-  .modal .sub { margin-bottom: 18px; }
+  /* Conflict modal special: shown inline-blocking, has narrower content */
+  .modal.conflict { max-width: 480px; max-height: 90vh; margin: auto; }
+  .modal.conflict-backdrop { align-items: center; justify-content: center; padding: 20px; }
+  .conflict-side { border: 1px solid var(--line-soft); padding: 10px 12px; margin-bottom: 10px; }
+  .conflict-side .label { font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; }
+  .conflict-side .name { margin-top: 4px; font-weight: 600; }
+  .conflict-side .meta { font-size: 11px; color: var(--dim); margin-top: 2px; }
 
-  .log { background: var(--bg-subtle); border: 1px solid var(--line); padding: 12px 14px; font-size: 12px; line-height: 1.65; max-height: 180px; overflow-y: auto; margin-top: 20px; min-height: 64px; font-family: var(--mono); }
-  .log .entry { display: flex; gap: 10px; padding: 1px 0; }
+  /* Log dock pinned to bottom of viewport ABOVE bottombar */
+  .log-dock {
+    flex-shrink: 0;
+    border-top: 1px solid var(--line); background: var(--bg-subtle);
+    display: flex; flex-direction: column;
+    transition: max-height 0.2s ease;
+    max-height: var(--log-collapsed-h);
+    overflow: hidden;
+  }
+  .log-dock.expanded { max-height: 200px; }
+  .log-dock-head {
+    height: var(--log-collapsed-h); flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; padding: 0 14px;
+    cursor: pointer; user-select: none;
+    background: var(--bg-subtle);
+  }
+  .log-dock-head .label { font-weight: 700; font-size: 10px; color: var(--accent); letter-spacing: 0.14em; }
+  .log-dock-head .latest {
+    flex: 1; font-family: var(--mono); font-size: 11px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .log-dock-head .toggle { color: var(--accent); font-size: 11px; transition: transform 0.2s; }
+  .log-dock.expanded .log-dock-head .toggle { transform: rotate(180deg); }
+  .log {
+    flex: 1; overflow-y: auto; padding: 6px 14px 10px;
+    font-size: 11px; line-height: 1.55; font-family: var(--mono);
+  }
+  .log .entry { display: flex; gap: 8px; padding: 1px 0; }
   .log .entry .t { color: var(--dim); flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .log .entry.ok .m { color: var(--ok); }
   .log .entry.err .m { color: var(--warn); }
   .log .entry.info .m { color: var(--ink); }
 
-  details { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 18px; }
-  details summary { cursor: pointer; font-family: var(--sans); font-weight: 600; font-size: 14px; color: var(--accent-deep); }
-  details summary:hover { color: var(--accent); }
-  details .panel { padding-top: 14px; font-size: 13.5px; color: var(--ink-soft); line-height: 1.7; }
-  details .panel p { margin-bottom: 12px; }
-  details .panel code { font-family: var(--mono); background: var(--bg-subtle); padding: 1px 6px; font-size: 12px; color: var(--accent-deep); }
-  details .panel strong { color: var(--ink); font-weight: 700; }
-
-  /* Sessions panel (receive mode) — same details element but styled as a box */
-  details.sessions-panel { border: 1px solid var(--line); margin: 0 0 16px; padding: 0; background: var(--bg); }
-  details.sessions-panel > summary {
-    list-style: none; padding: 12px 16px; background: var(--bg-subtle);
-    color: var(--ink); font-weight: 700; font-size: 13px;
-    display: flex; align-items: center; gap: 10px;
-    border-bottom: 1px solid transparent;
-  }
-  details.sessions-panel > summary::-webkit-details-marker { display: none; }
-  details.sessions-panel > summary::before {
-    content: '▸'; color: var(--accent); font-size: 11px;
-    transition: transform 0.15s; display: inline-block;
-  }
-  details.sessions-panel[open] > summary { border-bottom-color: var(--line); }
-  details.sessions-panel[open] > summary::before { transform: rotate(90deg); }
-  details.sessions-panel .count-badge {
-    margin-left: auto;
-    font-size: 11px; font-weight: 600; color: var(--dim);
-    background: var(--bg); padding: 2px 8px; border: 1px solid var(--line);
-  }
-  details.sessions-panel .panel-body { padding: 16px; }
-
-  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 11px; color: var(--dim); text-align: center; letter-spacing: 0.04em; }
-  footer span { color: var(--accent); font-weight: 700; }
-
-  /* Persistent log dock — pinned to viewport bottom so it is always visible */
-  .log-dock {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    background: var(--bg); border-top: 2px solid var(--accent);
-    box-shadow: 0 -4px 16px rgba(12, 35, 64, 0.08);
-    max-height: 240px;
-    display: flex; flex-direction: column;
-    transition: transform 0.2s ease;
-  }
-  .log-dock.collapsed { transform: translateY(calc(100% - 38px)); }
-  .log-dock-head {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 14px; cursor: pointer;
-    background: var(--bg-subtle); border-bottom: 1px solid var(--line);
-    user-select: none; flex-shrink: 0;
-  }
-  .log-dock-head .label { font-weight: 700; font-size: 11px; }
-  .log-dock-head .latest {
-    flex: 1; font-family: var(--mono); font-size: 11px; color: var(--dim);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .log-dock-head .toggle { color: var(--accent); font-size: 12px; transition: transform 0.2s; }
-  .log-dock.collapsed .log-dock-head .toggle { transform: rotate(180deg); }
-  .log-dock .log {
-    margin: 0; border: none; background: var(--bg); min-height: 0; max-height: none;
-    flex: 1; overflow-y: auto;
-  }
-  /* Add bottom padding to body so the fixed log dock doesn't cover content
-     when expanded (240px max-height + small buffer). */
-  body { padding-bottom: 260px !important; }
-
   .hidden { display: none !important; }
+  .inline-code { font-family: var(--mono); background: var(--bg-subtle); padding: 1px 6px; color: var(--accent-deep); font-size: 12px; }
 
-  @media (max-width: 480px) {
-    body { padding: 22px 14px 40px; }
-    h1 { font-size: 26px; }
-    .mode-btn { font-size: 16px; padding: 16px 12px; }
-    .row button { flex: 1; min-width: 0; }
-    .backend-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  /* Desktop adjustments — center the app, give it max-width but keep the full-screen feel */
+  @media (min-width: 700px) {
+    body { max-width: 480px; margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+    .modal { max-width: 480px; margin: 0 auto; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <header>
-    <div class="label">webshare · session transfer demo</div>
-    <h1>Session <em>transfer</em> between devices.</h1>
-    <p class="sub">A thin example consumer of the <code style="font-family: var(--mono); background: var(--bg-subtle); padding: 1px 6px; color: var(--accent-deep);">webshare-transfer.js</code> library. The library moves opaque payloads peer-to-peer over WebRTC. This demo decides what a session is, what to do when one arrives, and how to handle conflicts.</p>
-  </header>
+<!-- TOPBAR -->
+<header class="topbar">
+  <button class="back-btn" id="topbar-back" aria-label="Back">←</button>
+  <div class="title" id="topbar-title">Session <em>transfer</em></div>
+  <button class="sessions-btn" id="topbar-sessions" aria-label="Sessions">Sessions <span class="count" id="topbar-sessions-count">0</span></button>
+</header>
 
-  <div class="backend-row">
-    <span class="lbl">Backend</span>
-    <div class="opts">
-      <button class="backend-btn active" data-backend="peerjs">PeerJS<small>cross-network · easy</small></button>
-      <button class="backend-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
+<!-- STAGE -->
+<main class="stage" id="stage">
+
+  <!-- ============ START SCREEN ============ -->
+  <section class="screen active" data-screen="start">
+    <div class="screen-header">
+      <div class="screen-eyebrow"><span class="num">1</span> · OF 3</div>
+      <h1 class="screen-title">What do you want to do?</h1>
+      <p class="screen-subtitle">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
     </div>
-  </div>
+    <div class="screen-content">
+      <label class="field"><span>Backend</span></label>
+      <div class="toggle-group" id="backend-group">
+        <button class="toggle-btn active" data-backend="peerjs">PeerJS<small>cross-network</small></button>
+        <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
+      </div>
 
-  <!-- Same-network warning shown when Raw backend is selected.
-       The "network ID" row is only added by JS if ipify.org responds. -->
-  <div class="net-banner hidden" id="net-banner">
-    <div class="net-text">
-      Raw WebRTC requires both devices on the <strong>same network</strong>.
-    </div>
-    <div class="net-id-row hidden" id="net-id-row">
-      <span class="net-id-label">Your network ID:</span>
-      <code class="net-id" id="net-id">…</code>
-    </div>
-    <div class="net-hint hidden" id="net-hint">Compare with the other device — same prefix → likely compatible. Different prefix → switch to PeerJS.</div>
-  </div>
-
-  <div class="modes">
-    <button class="mode-btn active" data-mode="receive"><span class="arrow">← receive</span><em>On this device</em></button>
-    <button class="mode-btn" data-mode="send"><span class="arrow">send →</span><em>From this device</em></button>
-  </div>
-
-  <!-- RECEIVE -->
-  <section id="receive-mode">
-
-    <!-- Collapsible: sessions currently on this device (manage existing data) -->
-    <details class="sessions-panel" id="r-sessions-panel">
-      <summary>Sessions on this device <span class="count-badge" id="r-sessions-count"></span></summary>
-      <div class="panel-body">
-        <p class="sub" style="margin-bottom: 12px;">Review what is already on this device. Incoming sessions with a matching ID will trigger a conflict dialog.</p>
-        <div class="session-list" id="r-session-list"></div>
-        <div class="row">
-          <button id="r-new-btn">New session</button>
-          <button id="r-edit-btn" disabled>Edit</button>
-          <button class="danger" id="r-delete-btn" disabled>Delete</button>
+      <div class="net-banner hidden" id="net-banner">
+        <div>Raw WebRTC requires both devices on the <strong>same network</strong>.</div>
+        <div class="net-id-row hidden" id="net-id-row">
+          <span class="net-id-label">Your network:</span>
+          <code class="net-id" id="net-id">…</code>
         </div>
       </div>
-    </details>
 
-    <!-- PeerJS handshake step -->
-    <div class="step" id="r-step-pjs">
-      <div class="step-head"><span class="num">1</span><h2>Share with the sender</h2><span class="status" id="r-status-pjs">waiting</span></div>
-      <div class="step-body">
-        <div class="qr-center">
-          <div class="qr-frame" id="r-pjs-qr"></div>
-          <div class="peer-id" id="r-pjs-peerid">…</div>
-        </div>
-        <p class="sub" style="text-align: center; margin-top: 14px;">Scan the QR or type the ID into the sender.</p>
-      </div>
-    </div>
-
-    <!-- Raw handshake steps -->
-    <div class="step hidden" id="r-step-raw-show">
-      <div class="step-head"><span class="num">1</span><h2>Scan this QR with phone</h2><span class="status" id="r-status-raw-show">waiting</span></div>
-      <div class="step-body">
-        <div class="qr-center">
-          <div class="qr-frame" id="r-raw-qr"></div>
-          <div class="qr-chunk-info" id="r-raw-qr-info"></div>
-        </div>
-      </div>
-    </div>
-    <div class="step disabled hidden" id="r-step-raw-scan">
-      <div class="step-head"><span class="num">2</span><h2>Scan response from phone</h2><span class="status" id="r-status-raw-scan">waiting</span></div>
-      <div class="step-body">
-        <div class="cam-frame"><video id="r-raw-video" playsinline muted></video><div class="reticle"></div></div>
-        <div class="row" style="margin-top: 14px; justify-content: center;">
-          <button id="r-raw-cam-start">Start webcam</button>
-          <button id="r-raw-cam-stop" disabled>Stop</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="step disabled" id="r-step-recv">
-      <div class="step-head"><span class="num" id="r-step-recv-num">2</span><h2>Receiving</h2><span class="status" id="r-status-recv">waiting</span></div>
-      <div class="step-body">
-        <div class="progress"><div class="progress-bar" id="r-progress"></div></div>
-        <p class="sub" id="r-progress-text" style="text-align: center;">Waiting…</p>
+      <label class="field" style="margin-top: 18px;"><span>Direction</span></label>
+      <div class="toggle-group" id="mode-group">
+        <button class="toggle-btn active" data-mode="receive"><span class="arrow">← receive</span>On this device</button>
+        <button class="toggle-btn" data-mode="send"><span class="arrow">send →</span>From this device</button>
       </div>
     </div>
   </section>
 
-  <!-- SEND -->
-  <section id="send-mode" class="hidden">
-    <div class="step" id="s-step-1">
-      <div class="step-head"><span class="num">1</span><h2>Pick a session to send</h2><span class="status" id="s-status-1">choose</span></div>
-      <div class="step-body">
-        <div class="session-list" id="s-session-list"></div>
-        <div class="row">
-          <button class="primary" id="s-new-btn">New session</button>
-          <button id="s-edit-btn" disabled>Edit</button>
-          <button class="danger" id="s-delete-btn" disabled>Delete</button>
-        </div>
-      </div>
+  <!-- ============ PICK SESSION (SEND ONLY) ============ -->
+  <section class="screen hidden" data-screen="pick">
+    <div class="screen-header">
+      <div class="screen-eyebrow"><span class="num">2</span> · OF 3</div>
+      <h1 class="screen-title">Pick a session to send</h1>
+      <p class="screen-subtitle">Select an existing session, or create a new one.</p>
     </div>
-
-    <div class="step disabled" id="s-step-pjs">
-      <div class="step-head"><span class="num">2</span><h2>Connect to receiver</h2><span class="status" id="s-status-pjs">waiting</span></div>
-      <div class="step-body">
-        <p class="sub" style="margin-bottom: 12px;">Scan the receiver's QR:</p>
-        <div class="cam-frame"><video id="s-pjs-video" playsinline muted></video><div class="reticle"></div></div>
-        <div class="row" style="margin-top: 12px; justify-content: center;">
-          <button class="primary" id="s-pjs-cam-start">Start camera</button>
-          <button id="s-pjs-cam-stop" disabled>Stop</button>
-        </div>
-        <div class="or-div">or type it</div>
-        <label class="field"><span>Receiver's peer ID</span><input type="text" id="s-pjs-peerid-input" placeholder="e.g. idb-tomato-rabbit-42"></label>
-        <div class="row"><button class="primary" id="s-pjs-connect-btn">Connect & send</button></div>
-      </div>
-    </div>
-
-    <div class="step disabled hidden" id="s-step-raw-scan">
-      <div class="step-head"><span class="num">2</span><h2>Scan QR from receiver</h2><span class="status" id="s-status-raw-scan">waiting</span></div>
-      <div class="step-body">
-        <div class="cam-frame"><video id="s-raw-video" playsinline muted></video><div class="reticle"></div></div>
-        <div class="row" style="margin-top: 14px; justify-content: center;">
-          <button class="primary" id="s-raw-cam-start">Start camera</button>
-          <button id="s-raw-cam-stop" disabled>Stop</button>
-        </div>
-      </div>
-    </div>
-    <div class="step disabled hidden" id="s-step-raw-show">
-      <div class="step-head"><span class="num">3</span><h2>Show this to receiver</h2><span class="status" id="s-status-raw-show">waiting</span></div>
-      <div class="step-body">
-        <div class="qr-center">
-          <div class="qr-frame" id="s-raw-qr"></div>
-          <div class="qr-chunk-info" id="s-raw-qr-info"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step disabled" id="s-step-send">
-      <div class="step-head"><span class="num" id="s-step-send-num">3</span><h2>Sending</h2><span class="status" id="s-status-send">waiting</span></div>
-      <div class="step-body">
-        <div class="progress"><div class="progress-bar" id="s-progress"></div></div>
-        <p class="sub" id="s-progress-text" style="text-align: center;">Waiting…</p>
+    <div class="screen-content">
+      <div class="session-list" id="pick-session-list"></div>
+      <div class="btn-row">
+        <button class="primary" id="pick-new-btn">New</button>
+        <button id="pick-edit-btn" disabled>Edit</button>
+        <button class="danger" id="pick-delete-btn" disabled>Delete</button>
       </div>
     </div>
   </section>
 
-  <div class="log-dock" id="log-dock">
-    <div class="log-dock-head" id="log-dock-head">
-      <span class="label">LOG</span>
-      <span class="latest" id="log-latest">Ready.</span>
-      <span class="toggle">▾</span>
+  <!-- ============ SHOW QR (RECEIVE / RAW SEND) ============ -->
+  <section class="screen hidden" data-screen="show-qr">
+    <div class="screen-header">
+      <div class="screen-eyebrow"><span class="num" id="show-qr-num">2</span> · <span id="show-qr-of">OF 3</span></div>
+      <h1 class="screen-title" id="show-qr-title">Show this to the other device</h1>
+      <p class="screen-subtitle" id="show-qr-subtitle">The other device should scan this QR.</p>
     </div>
-    <div class="log" id="log"><div class="entry info"><span class="t">[ready]</span><span class="m">Pick a backend and mode.</span></div></div>
+    <div class="screen-content">
+      <div class="qr-frame" id="show-qr-frame"></div>
+      <div class="qr-info" id="show-qr-info"></div>
+      <div class="peer-id hidden" id="show-qr-peerid">…</div>
+    </div>
+  </section>
+
+  <!-- ============ SCAN QR (SEND PEERJS / RAW BOTH) ============ -->
+  <section class="screen hidden" data-screen="scan-qr">
+    <div class="screen-header">
+      <div class="screen-eyebrow"><span class="num" id="scan-qr-num">2</span> · <span id="scan-qr-of">OF 3</span></div>
+      <h1 class="screen-title" id="scan-qr-title">Scan the QR</h1>
+      <p class="screen-subtitle" id="scan-qr-subtitle">Point your camera at the other device's QR code.</p>
+    </div>
+    <div class="screen-content">
+      <div class="cam-frame">
+        <video id="scan-video" playsinline muted></video>
+        <div class="reticle"></div>
+      </div>
+      <div class="cam-helper" id="scan-helper">Camera will start automatically.</div>
+      <div class="or-div hidden" id="scan-or">or</div>
+      <label class="field hidden" id="scan-manual-label">
+        <span>Enter peer ID manually</span>
+        <input type="text" id="scan-manual-input" placeholder="e.g. idb-tomato-rabbit-42" autocomplete="off" autocapitalize="off" autocorrect="off">
+      </label>
+    </div>
+  </section>
+
+  <!-- ============ TRANSFERRING / DONE ============ -->
+  <section class="screen hidden" data-screen="transfer">
+    <div class="screen-header">
+      <div class="screen-eyebrow"><span class="num" id="transfer-num">3</span> · <span id="transfer-of">OF 3</span></div>
+      <h1 class="screen-title" id="transfer-title">Transferring…</h1>
+      <p class="screen-subtitle" id="transfer-subtitle">Please wait while the data is moved.</p>
+    </div>
+    <div class="screen-content">
+      <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
+      <div class="status-line" id="transfer-status">Waiting for connection…</div>
+    </div>
+  </section>
+
+</main>
+
+<!-- LOG DOCK -->
+<div class="log-dock" id="log-dock">
+  <div class="log-dock-head" id="log-dock-head">
+    <span class="label">LOG</span>
+    <span class="latest" id="log-latest">Ready.</span>
+    <span class="toggle">▾</span>
   </div>
-
-  <details>
-    <summary>How the layers work</summary>
-    <div class="panel">
-      <p><strong>Library: <code>webshare-transfer.js</code></strong>. Moves arbitrary JSON-serializable payloads peer-to-peer via PeerJS or Raw WebRTC + QR. No UI, no DOM, no opinion on payload contents. Exposes a small event-driven API.</p>
-      <p><strong>App: this demo page</strong>. Owns the session data model, IndexedDB schema, conflict resolution UI, session list. Calls the library to move payloads. When a payload arrives, the demo shows a dialog asking what to do.</p>
-      <p><strong>For your real app (e.g. AVScout)</strong>: import <code>webshare-transfer.js</code>, plug in your own data model and UI. The library doesn't care whether you're transferring assets, photos, audits, or anything else.</p>
-    </div>
-  </details>
-
-  <footer><span>●</span> library + demo · v5</footer>
+  <div class="log" id="log"></div>
 </div>
 
+<!-- BOTTOM NAV -->
+<nav class="bottombar">
+  <button id="nav-back">← Back</button>
+  <button id="nav-next" class="primary" disabled>Continue →</button>
+</nav>
+
+<!-- Library loading -->
 <script>
 (function loadLibs() {
   const libs = [
@@ -417,13 +456,13 @@
 
 <script>
 // =====================================================================
-// DEMO — owns the data model (sessions, IDB, merge/replace decisions)
-// Library handles transfer mechanics. We just consume its events.
+// DEMO — mobile-first screen-based flow
 // =====================================================================
 
 const $ = (id) => document.getElementById(id);
-const logEl = $('log');
 
+// ---------- Log ----------
+const logEl = $('log');
 function log(msg, kind = 'info') {
   const t = new Date().toTimeString().slice(0, 8);
   const entry = document.createElement('div');
@@ -432,38 +471,11 @@ function log(msg, kind = 'info') {
   entry.querySelector('.m').textContent = msg;
   logEl.appendChild(entry);
   logEl.scrollTop = logEl.scrollHeight;
-  // Mirror the latest message in the collapsed-state header so the user can
-  // see activity even with the log collapsed.
-  const latest = $('log-latest');
-  if (latest) latest.textContent = msg;
+  $('log-latest').textContent = msg;
 }
+$('log-dock-head').addEventListener('click', () => $('log-dock').classList.toggle('expanded'));
 
-// Toggle the log dock. Default state: expanded so users can see activity.
-$('log-dock-head').addEventListener('click', () => {
-  $('log-dock').classList.toggle('collapsed');
-});
-function setStatus(id, text, kind = '') {
-  const el = $(id); if (!el) return;
-  el.textContent = text; el.className = 'status' + (kind ? ' ' + kind : '');
-}
-function enableStep(id) { $(id).classList.remove('disabled'); }
-function setCamButtons(prefix, scanning) {
-  $(`${prefix}-cam-start`).disabled = scanning;
-  $(`${prefix}-cam-stop`).disabled = !scanning;
-}
-function formatRelative(date) {
-  if (!date) return '—';
-  const d = new Date(date), ms = Date.now() - d.getTime();
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return d.toLocaleDateString();
-}
-
-// --- Demo's session store (IDB) ---
-// Demo-owned, app-specific. The library doesn't know this exists.
+// ---------- IndexedDB (sessions) ----------
 const SESSION_DB = 'webshare-demo-sessions';
 function openSessionDb() {
   return new Promise((res, rej) => {
@@ -527,105 +539,85 @@ function exampleData() {
   return out;
 }
 
-// --- Mode/backend toggle ---
-let currentBackend = 'peerjs';
-let currentMode = 'receive';
-let activeTransfer = null;
-
-function applyVisibility() {
-  $('receive-mode').classList.toggle('hidden', currentMode !== 'receive');
-  $('send-mode').classList.toggle('hidden', currentMode !== 'send');
-  $('r-step-pjs').classList.toggle('hidden', currentBackend !== 'peerjs');
-  $('r-step-raw-show').classList.toggle('hidden', currentBackend !== 'raw');
-  $('r-step-raw-scan').classList.toggle('hidden', currentBackend !== 'raw');
-  $('s-step-pjs').classList.toggle('hidden', currentBackend !== 'peerjs');
-  $('s-step-raw-scan').classList.toggle('hidden', currentBackend !== 'raw');
-  $('s-step-raw-show').classList.toggle('hidden', currentBackend !== 'raw');
-  // Receive: PeerJS = step 1 + recv (2); Raw = show (1) + scan (2) + recv (3)
-  $('r-step-recv-num').textContent = currentBackend === 'raw' ? '3' : '2';
-  // Send: PeerJS = step 1 (sessions) + connect (2) + send (3); Raw = 1 + scan (2) + show (3) + send (4)
-  $('s-step-send-num').textContent = currentBackend === 'raw' ? '4' : '3';
-  $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
-  if (currentBackend === 'raw') updateNetworkIdUI();
-  // Refresh whichever session list is currently visible.
-  if (currentMode === 'send') refreshSessionList('send');
-  if (currentMode === 'receive') refreshSessionList('receive');
-  // Auto-manage the receive transfer: start when entering Receive mode,
-  // tear down when leaving. Backend changes also trigger restart.
-  syncReceiveTransfer();
+// ---------- Data-shape helpers ----------
+// The session payload's "data" field may be either:
+//   - an object keyed by record ID:  { id1: {...}, id2: {...} }
+//   - an array of records:           [ {...}, {...} ]
+// These helpers abstract the difference so the rest of the code can stay
+// agnostic to shape.
+function dataRecordCount(data) {
+  if (!data) return 0;
+  return Array.isArray(data) ? data.length : Object.keys(data).length;
 }
+function dataIsArray(data) { return Array.isArray(data); }
 
-// Manages the lifecycle of the receive-mode SessionTransfer. Called on every
-// mode/backend change. Idempotent — calling it repeatedly with the same state
-// won't restart anything.
-let receiveTransferState = null;  // 'peerjs' | 'raw' | null — what's currently running
-async function syncReceiveTransfer() {
-  const desired = currentMode === 'receive' ? currentBackend : null;
-  if (desired === receiveTransferState) return;  // nothing to do
-  // Tear down previous transfer if any
-  if (activeTransfer && receiveTransferState !== null) {
-    try { activeTransfer.close(); } catch {}
-    activeTransfer = null;
-    // Reset UI from previous backend
-    resetReceiveUI();
+// Merge two data values. Returns { merged, added, overwritten } where
+// added/overwritten describe what changed relative to `local`.
+// Behavior:
+//   - both objects → key-merge (incoming wins on overlap)
+//   - both arrays with id fields → merge by id (incoming wins on overlap)
+//   - both arrays without ids → concat (no dedup possible)
+//   - mismatched shapes → null (caller should use Replace instead)
+function mergeData(local, incoming) {
+  const localIsArr = Array.isArray(local);
+  const incomingIsArr = Array.isArray(incoming);
+  if (localIsArr !== incomingIsArr) return null;  // shape mismatch
+
+  if (!localIsArr) {
+    // Both objects: shallow merge, incoming wins on overlap
+    const merged = { ...local, ...incoming };
+    const overwritten = Object.keys(incoming).filter(k => k in local).length;
+    const added = Object.keys(merged).length - Object.keys(local).length;
+    return { merged, added, overwritten };
   }
-  receiveTransferState = desired;
-  if (desired === null) return;  // user left Receive mode
-  // Start fresh transfer with current backend
-  activeTransfer = new SessionTransfer({ backend: desired });
-  wireTransferToReceiveUI(activeTransfer);
-  try {
-    await activeTransfer.startReceiving();
-  } catch (err) {
-    log('Failed to start receiving: ' + err.message, 'err');
+
+  // Both arrays
+  const localHasIds    = local.every(r => r && typeof r === 'object' && 'id' in r);
+  const incomingHasIds = incoming.every(r => r && typeof r === 'object' && 'id' in r);
+  if (localHasIds && incomingHasIds) {
+    // Merge by id: incoming wins on overlap
+    const byId = new Map();
+    for (const r of local) byId.set(r.id, r);
+    let overwritten = 0;
+    for (const r of incoming) {
+      if (byId.has(r.id)) overwritten++;
+      byId.set(r.id, r);
+    }
+    const merged = Array.from(byId.values());
+    const added = merged.length - local.length;
+    return { merged, added, overwritten };
   }
+  // No identifiers — append, with no dedup. Note this can grow indefinitely
+  // on repeated transfers; the user should consider using Replace instead.
+  const merged = [...local, ...incoming];
+  return { merged, added: incoming.length, overwritten: 0 };
 }
 
-function resetReceiveUI() {
-  // Clear QR areas and reset status indicators so a fresh start looks clean.
-  ['r-pjs-qr', 'r-raw-qr', 'r-raw-qr-info'].forEach(id => { const el = $(id); if (el) el.innerHTML = ''; });
-  const peer = $('r-pjs-peerid'); if (peer) peer.textContent = '…';
-  ['r-status-pjs', 'r-status-raw-show', 'r-status-raw-scan', 'r-status-recv'].forEach(id => setStatus(id, 'waiting'));
-  $('r-progress').style.width = '0';
-  $('r-progress-text').textContent = 'Waiting…';
-  // Re-disable the receive step (will be re-enabled when connection happens)
-  $('r-step-recv').classList.add('disabled');
-  // Stop any active webcam scanner on the receive side
-  if (r_raw_scanner) { try { r_raw_scanner.stop(); } catch {} r_raw_scanner = null; setCamButtons('r-raw', false); }
-  stopQRCycle('r-raw-qr');
+function formatRelative(date) {
+  if (!date) return '—';
+  const d = new Date(date), ms = Date.now() - d.getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return d.toLocaleDateString();
 }
 
-// --- Public IP / "network ID" detection ---
-// Pre-flight indicator for the Raw backend, which needs both devices on the
-// same network. Calls https://api.ipify.org which returns the device's
-// public IP as seen from outside the NAT.
-//
-// If ipify is unreachable, we silently hide the entire network-ID section —
-// no error message shown to the user. The "same network required" warning
-// stays visible because it's useful regardless of detection.
-//
-// This is a HINT not a guarantee: matching prefixes increase the chance
-// peers are on the same network, but campus topologies (VLANs, eduroam,
-// client isolation) can route differently. The ground truth is whether
-// the actual WebRTC connection succeeds.
-
-let networkIdCache = null;  // detected once per page load (or never)
-
+// ---------- Network ID (ipify, raw mode only) ----------
+let networkIdCache = null;
 function maskIP(ip) {
   if (ip.includes(':')) {
-    // IPv6: show up to first 4 hex groups (≈ /64 prefix)
     const parts = ip.split(':').filter(Boolean);
     const prefix = parts.slice(0, Math.min(4, parts.length)).join(':');
     return parts.length > 4 ? prefix + ':…' : prefix;
   }
-  // IPv4: first two octets
   const parts = ip.split('.');
   if (parts.length !== 4) return ip;
   return parts.slice(0, 2).join('.') + '.x.x';
 }
-
 async function detectNetworkId() {
-  if (networkIdCache) return networkIdCache;  // already done
+  if (networkIdCache) return networkIdCache;
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 5000);
@@ -636,259 +628,19 @@ async function detectNetworkId() {
     if (!data?.ip) throw new Error('no ip in response');
     networkIdCache = { raw: data.ip, masked: maskIP(data.ip) };
     return networkIdCache;
-  } catch (err) {
-    // Silent failure — caller will hide the UI rows
-    return null;
-  }
+  } catch { return null; }
 }
-
 async function updateNetworkIdUI() {
-  const row = $('net-id-row');
-  const hint = $('net-hint');
   const result = await detectNetworkId();
   if (result) {
     $('net-id').textContent = result.masked;
-    $('net-id').title = `Public IP (masked): ${result.masked}. Compare with the other device.`;
-    row.classList.remove('hidden');
-    hint.classList.remove('hidden');
+    $('net-id-row').classList.remove('hidden');
   } else {
-    row.classList.add('hidden');
-    hint.classList.add('hidden');
-  }
-}
-document.querySelectorAll('.backend-btn').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.backend-btn').forEach(x => x.classList.toggle('active', x === b));
-  currentBackend = b.dataset.backend; applyVisibility();
-}));
-document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('active', x === b));
-  currentMode = b.dataset.mode; applyVisibility();
-}));
-
-// --- Session lists (used by both send and receive modes) ---
-// Selection is tracked separately per panel because their meanings differ:
-//   send: selection picks which session to transfer
-//   receive: selection enables Edit/Delete buttons for that panel
-let sendSelectedId = null;
-let receiveSelectedId = null;
-
-// Backwards-compat alias used by sender flow code below.
-function getSelectedSendSessionId() { return sendSelectedId; }
-
-async function refreshSessionList(panel) {
-  // panel is 'send' or 'receive' — render only one panel per call (cheaper)
-  // but if no arg given, refresh both.
-  if (!panel) {
-    await refreshSessionList('send');
-    await refreshSessionList('receive');
-    return;
-  }
-  const prefix = panel === 'send' ? 's' : 'r';
-  const list = $(`${prefix}-session-list`);
-  if (!list) return;
-  list.innerHTML = '';
-  const sessions = await listSessions();
-  const selectedId = panel === 'send' ? sendSelectedId : receiveSelectedId;
-  for (const s of sessions) {
-    const row = document.createElement('div');
-    row.className = 'session-row' + (s.id === selectedId ? ' selected' : '');
-    row.innerHTML = `<div class="info"><div class="name"></div><div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div></div>`;
-    row.querySelector('.name').textContent = s.name;
-    row.querySelector('.id').textContent = s.id;
-    const cnt = Object.keys(s.data || {}).length;
-    row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
-    row.querySelector('.mod').textContent = `modified ${formatRelative(s.modifiedAt)}`;
-    row.addEventListener('click', () => {
-      if (panel === 'send') {
-        sendSelectedId = s.id;
-        refreshSessionList('send');
-        $('s-edit-btn').disabled = false;
-        $('s-delete-btn').disabled = false;
-        enableStep('s-step-pjs'); enableStep('s-step-raw-scan');
-        setStatus('s-status-1', `selected: ${s.name}`, 'ok');
-      } else {
-        receiveSelectedId = s.id;
-        refreshSessionList('receive');
-        $('r-edit-btn').disabled = false;
-        $('r-delete-btn').disabled = false;
-      }
-    });
-    list.appendChild(row);
-  }
-  // Update the count badge in the receive panel header
-  if (panel === 'receive') {
-    const badge = $('r-sessions-count');
-    if (badge) badge.textContent = sessions.length === 0 ? '(none)' : `(${sessions.length})`;
-  }
-  if (sessions.length === 0) {
-    if (panel === 'send') {
-      sendSelectedId = null;
-      $('s-edit-btn').disabled = true;
-      $('s-delete-btn').disabled = true;
-    } else {
-      receiveSelectedId = null;
-      $('r-edit-btn').disabled = true;
-      $('r-delete-btn').disabled = true;
-    }
+    $('net-id-row').classList.add('hidden');
   }
 }
 
-// --- Send-side session buttons ---
-$('s-new-btn').addEventListener('click', () => showSessionModal(null, 'send'));
-$('s-edit-btn').addEventListener('click', async () => {
-  if (!sendSelectedId) return;
-  const s = await getSession(sendSelectedId);
-  if (s) showSessionModal(s, 'send');
-});
-$('s-delete-btn').addEventListener('click', async () => {
-  if (!sendSelectedId) return;
-  const s = await getSession(sendSelectedId);
-  if (!s) return;
-  if (!confirm(`Delete "${s.name}"?`)) return;
-  await deleteSession(sendSelectedId);
-  sendSelectedId = null;
-  log('Deleted.', 'ok');
-  refreshSessionList();
-});
-
-// --- Receive-side session buttons (identical UX, separate selection) ---
-$('r-new-btn').addEventListener('click', () => showSessionModal(null, 'receive'));
-$('r-edit-btn').addEventListener('click', async () => {
-  if (!receiveSelectedId) return;
-  const s = await getSession(receiveSelectedId);
-  if (s) showSessionModal(s, 'receive');
-});
-$('r-delete-btn').addEventListener('click', async () => {
-  if (!receiveSelectedId) return;
-  const s = await getSession(receiveSelectedId);
-  if (!s) return;
-  if (!confirm(`Delete "${s.name}"?`)) return;
-  await deleteSession(receiveSelectedId);
-  receiveSelectedId = null;
-  log('Deleted.', 'ok');
-  refreshSessionList();
-});
-
-function showSessionModal(existing, panel) {
-  const isNew = !existing;
-  const session = existing || { name: suggestSessionName(), data: exampleData() };
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `
-    <div class="modal">
-      <h3>${isNew ? 'New session' : 'Edit session'}</h3>
-      <p class="sub">${isNew ? 'Session ID is auto-generated when you create.' : `ID: <code style="color:var(--accent)">${session.id}</code>`}</p>
-      <label class="field"><span>Name</span><input type="text" id="m-name"></label>
-      <label class="field"><span>Data (JSON object — keys are record IDs)</span><textarea id="m-data" rows="14" style="font-size: 12px;"></textarea></label>
-      <div class="row" style="justify-content: flex-end; margin-top: 12px;">
-        <button id="m-cancel">Cancel</button>
-        <button class="primary" id="m-save">${isNew ? 'Create' : 'Save'}</button>
-      </div>
-    </div>`;
-  document.body.appendChild(backdrop);
-  backdrop.querySelector('#m-name').value = session.name;
-  backdrop.querySelector('#m-data').value = JSON.stringify(session.data, null, 2);
-  backdrop.querySelector('#m-cancel').addEventListener('click', () => backdrop.remove());
-  backdrop.querySelector('#m-save').addEventListener('click', async () => {
-    const name = backdrop.querySelector('#m-name').value.trim();
-    const text = backdrop.querySelector('#m-data').value.trim();
-    if (!name) { alert('Name required.'); return; }
-    let data; try { data = text ? JSON.parse(text) : {}; } catch (e) { alert('Invalid JSON: ' + e.message); return; }
-    if (typeof data !== 'object' || Array.isArray(data) || data === null) { alert('Data must be a JSON object.'); return; }
-    const now = new Date();
-    if (isNew) {
-      const fresh = { id: generateFriendlyId(), name, createdAt: now, modifiedAt: now, data };
-      await putSession(fresh);
-      log(`Created "${fresh.name}" (${fresh.id}).`, 'ok');
-      if (panel === 'send') sendSelectedId = fresh.id;
-      else if (panel === 'receive') receiveSelectedId = fresh.id;
-    } else {
-      await putSession({ ...session, name, data, modifiedAt: now });
-      log(`Updated "${name}".`, 'ok');
-    }
-    backdrop.remove(); refreshSessionList();
-  });
-}
-
-// --- DEMO conflict-resolution UI ---
-// This is the part the library deliberately doesn't do. The demo decides
-// what to do when a session with a matching ID arrives.
-function showConflictModal(existing, incoming) {
-  return new Promise((resolve) => {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop';
-    const incomingCount = Object.keys(incoming.data || {}).length;
-    const existingCount = Object.keys(existing.data || {}).length;
-    backdrop.innerHTML = `
-      <div class="modal">
-        <h3>Session already exists</h3>
-        <p class="sub">Both copies share ID <code style="color:var(--accent)">${existing.id}</code>. How do you want to handle this?</p>
-        <div style="border: 1px solid var(--line-soft); padding: 10px 12px; margin-bottom: 8px;">
-          <div style="font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase;">Existing (local)</div>
-          <div style="margin-top: 4px;">${existing.name}</div>
-          <div style="font-size: 11px; color: var(--dim); margin-top: 2px;">${existingCount} records · modified ${formatRelative(existing.modifiedAt)}</div>
-        </div>
-        <div style="border: 1px solid var(--line-soft); padding: 10px 12px; margin-bottom: 14px;">
-          <div style="font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase;">Incoming</div>
-          <div style="margin-top: 4px;">${incoming.name}</div>
-          <div style="font-size: 11px; color: var(--dim); margin-top: 2px;">${incomingCount} records · modified ${formatRelative(incoming.modifiedAt)}</div>
-        </div>
-        <div class="row" style="justify-content: flex-end;">
-          <button id="c-skip">Skip</button>
-          <button id="c-merge">Merge (phone wins)</button>
-          <button class="primary" id="c-replace">Replace</button>
-        </div>
-      </div>`;
-    document.body.appendChild(backdrop);
-    const finish = (choice) => { backdrop.remove(); resolve(choice); };
-    backdrop.querySelector('#c-skip').addEventListener('click', () => finish('skip'));
-    backdrop.querySelector('#c-merge').addEventListener('click', () => finish('merge'));
-    backdrop.querySelector('#c-replace').addEventListener('click', () => finish('replace'));
-  });
-}
-
-// What the demo does when a payload arrives. THIS is app-level logic.
-async function handleIncomingSession(payload) {
-  // payload is whatever the sender sent; for this demo it's a session object
-  if (!payload || !payload.id) {
-    log('Received payload has no session ID, ignoring.', 'err');
-    return { ok: false, reason: 'no-id' };
-  }
-  const incoming = payload;
-  const existing = await getSession(incoming.id);
-  if (!existing) {
-    await putSession(incoming);
-    log(`New session "${incoming.name}" stored (${Object.keys(incoming.data).length} records).`, 'ok');
-    refreshSessionList();
-    return { ok: true, action: 'created' };
-  }
-  const choice = await showConflictModal(existing, incoming);
-  if (choice === 'skip') {
-    log('Skipped.', 'err');
-    return { ok: true, action: 'skipped' };
-  }
-  if (choice === 'replace') {
-    await putSession(incoming);
-    log(`Replaced "${existing.name}".`, 'ok');
-    refreshSessionList();
-    return { ok: true, action: 'replaced' };
-  }
-  // merge
-  const merged = {
-    id: existing.id, name: incoming.name,
-    createdAt: new Date(existing.createdAt) < new Date(incoming.createdAt) ? existing.createdAt : incoming.createdAt,
-    modifiedAt: new Date(),
-    data: { ...existing.data, ...incoming.data }
-  };
-  await putSession(merged);
-  const added = Object.keys(merged.data).length - Object.keys(existing.data).length;
-  const overlap = Object.keys(incoming.data).filter(k => k in existing.data).length;
-  log(`Merged: +${added} new, ${overlap} overwritten.`, 'ok');
-  refreshSessionList();
-  return { ok: true, action: 'merged' };
-}
-
-// --- QR rendering / cycling (kept in demo since it touches DOM) ---
+// ---------- QR rendering + cycling ----------
 function renderQR(container, text) {
   const qr = qrcode(0, 'M');
   qr.addData(text); qr.make();
@@ -911,7 +663,7 @@ function stopQRCycle(containerId) {
   if (qrCycleTimers.has(containerId)) { clearInterval(qrCycleTimers.get(containerId)); qrCycleTimers.delete(containerId); }
 }
 
-// --- QR scanner ---
+// ---------- QR scanner ----------
 class QRScanner {
   constructor(videoEl, onChunk) {
     this.video = videoEl; this.onChunk = onChunk;
@@ -947,163 +699,665 @@ class QRScanner {
 }
 
 // =====================================================================
-// Wiring the LIBRARY to this demo's UI
+// FLOW MACHINE
 // =====================================================================
+// Each flow is an ordered array of screen IDs. Auto-advance triggers walk
+// through them. Back/forward buttons navigate the same array. Going back
+// to screen 0 resets the transfer.
+
+const FLOWS = {
+  // [mode][backend] -> array of screen IDs (excluding 'start' which is always 0)
+  'receive-peerjs': ['start', 'show-qr', 'transfer'],
+  'receive-raw':    ['start', 'show-qr', 'scan-qr', 'transfer'],
+  'send-peerjs':    ['start', 'pick', 'scan-qr', 'transfer'],
+  'send-raw':       ['start', 'pick', 'scan-qr', 'show-qr', 'transfer']
+};
+
+let currentBackend = 'peerjs';
+let currentMode = 'receive';
+let currentStep = 0;       // index into the active flow
+let activeTransfer = null;
+let activeScanner = null;
+let selectedSessionId = null;
+
+function activeFlow() { return FLOWS[`${currentMode}-${currentBackend}`]; }
+function currentScreenId() { return activeFlow()[currentStep]; }
+function totalSteps() { return activeFlow().length; }
+
+function showScreen(screenId, direction = 'forward') {
+  const screens = document.querySelectorAll('.screen');
+  const current = document.querySelector('.screen.active');
+  const next = document.querySelector(`.screen[data-screen="${screenId}"]`);
+  if (!next) { console.error('No screen', screenId); return; }
+  if (current === next) return;
+  // Hide all non-current screens
+  screens.forEach(s => { if (s !== current && s !== next) s.classList.add('hidden'); });
+  next.classList.remove('hidden');
+  // Animate
+  if (current) {
+    current.classList.remove('active');
+    current.classList.add(direction === 'forward' ? 'slide-out-left' : 'slide-out-right');
+    setTimeout(() => {
+      current.classList.add('hidden');
+      current.classList.remove('slide-out-left', 'slide-out-right');
+    }, 280);
+  }
+  next.classList.add(direction === 'forward' ? 'slide-in-from-right' : 'slide-in-from-left');
+  // Force layout, then transition in
+  next.offsetHeight;
+  requestAnimationFrame(() => {
+    next.classList.remove('slide-in-from-right', 'slide-in-from-left');
+    next.classList.add('active');
+  });
+}
+
+function goToStep(index, direction) {
+  const flow = activeFlow();
+  if (index < 0 || index >= flow.length) return;
+  const dir = direction || (index > currentStep ? 'forward' : 'back');
+  // Cleanup actions when LEAVING a screen
+  onLeaveScreen(currentScreenId());
+  currentStep = index;
+  showScreen(currentScreenId(), dir);
+  updateNavBar();
+  // Setup actions when ENTERING a screen
+  onEnterScreen(currentScreenId());
+}
+function nextStep() { goToStep(currentStep + 1, 'forward'); }
+function prevStep() { goToStep(currentStep - 1, 'back'); }
+
+function updateNavBar() {
+  const flow = activeFlow();
+  const screenId = flow[currentStep];
+  $('topbar-back').disabled = currentStep === 0;
+  $('nav-back').disabled = currentStep === 0;
+  // Hide bottom nav back/next on certain screens; show on others
+  // Default: back enabled (except step 0), next disabled until per-screen logic enables it
+  const nextBtn = $('nav-next');
+  nextBtn.disabled = true;
+  nextBtn.textContent = 'Continue →';
+  // Screen-specific Continue button state
+  if (screenId === 'start') {
+    nextBtn.disabled = false;
+    nextBtn.textContent = currentMode === 'send' ? 'Continue →' : 'Start receiving →';
+  } else if (screenId === 'pick') {
+    nextBtn.disabled = !selectedSessionId;
+  } else if (screenId === 'show-qr') {
+    nextBtn.textContent = 'Waiting for peer…';
+    nextBtn.disabled = true;
+  } else if (screenId === 'scan-qr') {
+    nextBtn.textContent = 'Scanning…';
+    nextBtn.disabled = true;
+  } else if (screenId === 'transfer') {
+    nextBtn.textContent = 'Start over';
+    nextBtn.disabled = false;
+  }
+}
+
+// =====================================================================
+// Per-screen lifecycle (cleanup + setup)
+// =====================================================================
+function onLeaveScreen(screenId) {
+  if (screenId === 'scan-qr') {
+    if (activeScanner) { try { activeScanner.stop(); } catch {} activeScanner = null; }
+  }
+  if (screenId === 'show-qr') {
+    stopQRCycle('show-qr-frame');
+  }
+}
+
+async function onEnterScreen(screenId) {
+  log(`→ ${screenId}`, 'info');
+  if (screenId === 'start') {
+    // Returning to start resets the transfer
+    if (activeTransfer) { try { activeTransfer.close(); } catch {} activeTransfer = null; }
+    selectedSessionId = null;
+    refreshSessionsCount();
+  } else if (screenId === 'pick') {
+    await refreshPickList();
+  } else if (screenId === 'show-qr') {
+    await setupShowQRScreen();
+  } else if (screenId === 'scan-qr') {
+    await setupScanQRScreen();
+  } else if (screenId === 'transfer') {
+    setupTransferScreen();
+  }
+}
+
+// =====================================================================
+// Screen 1: START — backend + mode toggles
+// =====================================================================
+document.querySelectorAll('#backend-group .toggle-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#backend-group .toggle-btn').forEach(x => x.classList.toggle('active', x === b));
+    currentBackend = b.dataset.backend;
+    onBackendOrModeChanged();
+  });
+});
+document.querySelectorAll('#mode-group .toggle-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#mode-group .toggle-btn').forEach(x => x.classList.toggle('active', x === b));
+    currentMode = b.dataset.mode;
+    onBackendOrModeChanged();
+  });
+});
+function onBackendOrModeChanged() {
+  $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
+  if (currentBackend === 'raw') updateNetworkIdUI();
+  updateNavBar();
+}
+
+// =====================================================================
+// Screen: PICK SESSION
+// =====================================================================
+async function refreshPickList() {
+  const list = $('pick-session-list');
+  list.innerHTML = '';
+  const sessions = await listSessions();
+  for (const s of sessions) {
+    const row = document.createElement('div');
+    row.className = 'session-row' + (s.id === selectedSessionId ? ' selected' : '');
+    row.innerHTML = `<div class="info"><div class="name"></div><div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div></div>`;
+    row.querySelector('.name').textContent = s.name;
+    row.querySelector('.id').textContent = s.id;
+    const cnt = dataRecordCount(s.data);
+    row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
+    row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
+    row.addEventListener('click', () => {
+      selectedSessionId = s.id;
+      refreshPickList();
+      $('pick-edit-btn').disabled = false;
+      $('pick-delete-btn').disabled = false;
+      updateNavBar();
+    });
+    list.appendChild(row);
+  }
+  if (sessions.length === 0) {
+    selectedSessionId = null;
+    $('pick-edit-btn').disabled = true;
+    $('pick-delete-btn').disabled = true;
+  }
+  updateNavBar();
+}
+$('pick-new-btn').addEventListener('click', () => showSessionModal(null, 'pick'));
+$('pick-edit-btn').addEventListener('click', async () => {
+  if (!selectedSessionId) return;
+  const s = await getSession(selectedSessionId);
+  if (s) showSessionModal(s, 'pick');
+});
+$('pick-delete-btn').addEventListener('click', async () => {
+  if (!selectedSessionId) return;
+  const s = await getSession(selectedSessionId);
+  if (!s) return;
+  if (!confirm(`Delete "${s.name}"?`)) return;
+  await deleteSession(selectedSessionId);
+  selectedSessionId = null; log('Deleted.', 'ok');
+  refreshPickList();
+});
+
+// =====================================================================
+// Screen: SHOW QR
+// =====================================================================
+async function setupShowQRScreen() {
+  // Configure title + step number based on flow position
+  const flow = activeFlow();
+  $('show-qr-num').textContent = currentStep + 1;
+  $('show-qr-of').textContent = `OF ${totalSteps()}`;
+  $('show-qr-peerid').classList.add('hidden');
+
+  // What we're showing depends on (mode, backend, position)
+  if (currentMode === 'receive' && currentBackend === 'peerjs') {
+    // Show peer ID for sender to scan
+    $('show-qr-title').textContent = 'Share with the sender';
+    $('show-qr-subtitle').textContent = 'On the sending device, scan this QR or type the ID below.';
+    // Start the transfer if not already
+    await ensureReceiveTransfer();
+    // The transfer's 'show-qr' event will fill in the QR
+  } else if (currentMode === 'receive' && currentBackend === 'raw') {
+    $('show-qr-title').textContent = 'Scan this with the sender';
+    $('show-qr-subtitle').textContent = 'On the sending device, point its camera at this animated QR.';
+    await ensureReceiveTransfer();
+  } else if (currentMode === 'send' && currentBackend === 'raw') {
+    // This is the 'answer QR' step
+    $('show-qr-title').textContent = 'Show this to the receiver';
+    $('show-qr-subtitle').textContent = 'The receiver should scan this QR with its webcam.';
+    // QR was already prepared by the transfer when offer was scanned
+  }
+}
+
+// =====================================================================
+// Screen: SCAN QR
+// =====================================================================
+async function setupScanQRScreen() {
+  $('scan-qr-num').textContent = currentStep + 1;
+  $('scan-qr-of').textContent = `OF ${totalSteps()}`;
+
+  const isPeerJSSender = currentMode === 'send' && currentBackend === 'peerjs';
+  const isRawSender    = currentMode === 'send' && currentBackend === 'raw';
+  const isRawReceiver  = currentMode === 'receive' && currentBackend === 'raw';
+
+  if (isPeerJSSender) {
+    $('scan-qr-title').textContent = 'Scan the receiver';
+    $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s QR, or type the peer ID below.';
+    $('scan-or').classList.remove('hidden');
+    $('scan-manual-label').classList.remove('hidden');
+  } else if (isRawSender) {
+    $('scan-qr-title').textContent = 'Scan the offer QR';
+    $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s animated QR.';
+    $('scan-or').classList.add('hidden');
+    $('scan-manual-label').classList.add('hidden');
+  } else if (isRawReceiver) {
+    $('scan-qr-title').textContent = 'Scan the answer QR';
+    $('scan-qr-subtitle').textContent = 'Point your camera at the sender\'s animated QR.';
+    $('scan-or').classList.add('hidden');
+    $('scan-manual-label').classList.add('hidden');
+  }
+
+  // Set up the transfer if needed (sender side starts here)
+  if (currentMode === 'send' && !activeTransfer) {
+    await ensureSendTransfer();
+  }
+
+  // Start camera
+  try {
+    if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+    activeScanner = new QRScanner($('scan-video'), onScanResult);
+    await activeScanner.start();
+    $('scan-helper').textContent = 'Scanning…';
+  } catch (err) {
+    log('Camera error: ' + err.message, 'err');
+    $('scan-helper').textContent = 'Camera unavailable. ' + (isPeerJSSender ? 'Use manual entry below.' : '');
+  }
+}
+
+async function onScanResult(data) {
+  log(`Scanned: ${data.slice(0, 40)}${data.length > 40 ? '…' : ''}`, 'info');
+  const isPeerJSSender = currentMode === 'send' && currentBackend === 'peerjs';
+  const isRawSender    = currentMode === 'send' && currentBackend === 'raw';
+  const isRawReceiver  = currentMode === 'receive' && currentBackend === 'raw';
+
+  if (isPeerJSSender) {
+    // 'data' is the peer ID
+    if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+    nextStep();  // → transfer screen, where connect() runs
+    try {
+      await activeTransfer.connect(data);
+      const session = await getSession(selectedSessionId);
+      await activeTransfer.send(session);
+    } catch (err) {
+      log('Connect failed: ' + err.message, 'err');
+      setTransferStatus('Connection failed: ' + err.message, 'err');
+    }
+  } else if (isRawSender || isRawReceiver) {
+    // 'data' is a QR chunk — feed back to library; library will advance via events
+    try {
+      activeTransfer.feedScannedChunk(data);
+    } catch (err) {
+      log('Scan chunk failed: ' + err.message, 'err');
+    }
+  }
+}
+
+$('scan-manual-input').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  const id = $('scan-manual-input').value.trim();
+  if (!id) return;
+  if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+  onScanResult(id);
+});
+
+// =====================================================================
+// Screen: TRANSFER (progress + status)
+// =====================================================================
+function setupTransferScreen() {
+  $('transfer-num').textContent = currentStep + 1;
+  $('transfer-of').textContent = `OF ${totalSteps()}`;
+  $('transfer-progress').style.width = '0';
+  if (currentMode === 'send') {
+    $('transfer-title').textContent = 'Sending session';
+    setTransferStatus('Connecting…');
+  } else {
+    $('transfer-title').textContent = 'Receiving';
+    setTransferStatus('Waiting for data…');
+  }
+}
+function setTransferStatus(text, kind = '') {
+  const el = $('transfer-status');
+  el.textContent = text;
+  el.className = 'status-line' + (kind ? ' ' + kind : '');
+}
+
+// =====================================================================
+// Transfer library wiring
+// =====================================================================
+async function ensureReceiveTransfer() {
+  if (activeTransfer) return;
+  activeTransfer = new SessionTransfer({ backend: currentBackend });
+  wireTransferToReceiveUI(activeTransfer);
+  try { await activeTransfer.startReceiving(); }
+  catch (err) { log('Failed to start receiving: ' + err.message, 'err'); }
+}
+
+async function ensureSendTransfer() {
+  if (activeTransfer) return;
+  activeTransfer = new SessionTransfer({ backend: currentBackend });
+  wireTransferToSendUI(activeTransfer);
+}
 
 function wireTransferToReceiveUI(t) {
   t.on('log', ({ level, message }) => log(message, level));
   t.on('show-qr', ({ kind, text, chunks }) => {
+    if (currentScreenId() !== 'show-qr') return;  // not yet on this screen, ignore
     if (kind === 'peerid') {
-      enableStep('r-step-pjs');
-      setStatus('r-status-pjs', 'ready', 'active');
-      $('r-pjs-peerid').textContent = text;
-      renderQR($('r-pjs-qr'), text);
+      $('show-qr-peerid').textContent = text;
+      $('show-qr-peerid').classList.remove('hidden');
+      renderQR($('show-qr-frame'), text);
+      $('show-qr-info').textContent = 'Or type the ID into the other device';
     } else if (kind === 'offer-chunks') {
-      enableStep('r-step-raw-show'); enableStep('r-step-raw-scan');
-      setStatus('r-status-raw-show', `${chunks.length} chunks`, 'active');
-      startQRCycle('r-raw-qr', 'r-raw-qr-info', chunks);
+      startQRCycle('show-qr-frame', 'show-qr-info', chunks);
     }
   });
-  t.on('need-scan', () => {
-    // Raw mode receiver — webcam in step raw-scan picks up scanned text
-  });
   t.on('connected', () => {
-    enableStep('r-step-recv');
-    setStatus('r-status-recv', 'connected', 'active');
-    $('r-progress-text').textContent = 'Connected. Waiting for data…';
+    // Receiver connected → auto-advance to transfer screen
+    log('Peer connected.', 'ok');
+    if (currentScreenId() !== 'transfer') goToStep(activeFlow().indexOf('transfer'), 'forward');
+    setTransferStatus('Connected. Waiting for data…');
   });
   t.on('progress', ({ received, total }) => {
     const pct = total ? (received / total) * 100 : 0;
-    $('r-progress').style.width = pct + '%';
-    if (total) $('r-progress-text').textContent = `Receiving ${(received/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`;
+    $('transfer-progress').style.width = pct + '%';
+    if (total) setTransferStatus(`Receiving ${(received/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
   });
   t.on('status', (s) => {
-    if (s === 'done') setStatus('r-status-recv', 'done', 'ok');
-    if (s === 'error') setStatus('r-status-recv', 'error', 'err');
+    if (s === 'done') setTransferStatus('Done.', 'ok');
+    if (s === 'error') setTransferStatus('Error during receive', 'err');
   });
   t.onPayload = handleIncomingSession;
 }
 
-// --- Raw receiver: scan answer QR back into library ---
-let r_raw_scanner = null;
-$('r-raw-cam-start').addEventListener('click', async () => {
-  if (r_raw_scanner) return;
-  try {
-    r_raw_scanner = new QRScanner($('r-raw-video'), (data) => {
-      activeTransfer?.feedScannedChunk(data);
-    });
-    await r_raw_scanner.start();
-    setCamButtons('r-raw', true);
-    setStatus('r-status-raw-scan', 'scanning', 'active');
-  } catch (err) { log('Camera error: ' + err.message, 'err'); r_raw_scanner = null; }
-});
-$('r-raw-cam-stop').addEventListener('click', () => {
-  if (r_raw_scanner) { r_raw_scanner.stop(); r_raw_scanner = null; }
-  setCamButtons('r-raw', false);
-});
-
-// --- Sender wiring ---
 function wireTransferToSendUI(t) {
   t.on('log', ({ level, message }) => log(message, level));
   t.on('show-qr', ({ kind, chunks }) => {
     if (kind === 'answer-chunks') {
-      enableStep('s-step-raw-show');
-      setStatus('s-status-raw-show', `${chunks.length} chunks`, 'active');
-      startQRCycle('s-raw-qr', 's-raw-qr-info', chunks);
+      // We need to advance to show-qr screen now
+      const showQRIdx = activeFlow().indexOf('show-qr');
+      if (showQRIdx !== -1 && currentStep !== showQRIdx) {
+        goToStep(showQRIdx, 'forward');
+      }
+      startQRCycle('show-qr-frame', 'show-qr-info', chunks);
     }
   });
   t.on('connected', () => {
-    stopQRCycle('s-raw-qr');
-    enableStep('s-step-send');
-    setStatus('s-status-send', 'connected', 'active');
+    log('Peer connected.', 'ok');
+    // For raw sender, advance to transfer screen
+    if (currentBackend === 'raw') {
+      const transferIdx = activeFlow().indexOf('transfer');
+      if (currentStep !== transferIdx) goToStep(transferIdx, 'forward');
+      // Send the payload now that channel is open
+      (async () => {
+        try {
+          const session = await getSession(selectedSessionId);
+          await activeTransfer.send(session);
+        } catch (err) { log('Send failed: ' + err.message, 'err'); }
+      })();
+    } else {
+      // PeerJS sender — connect() already triggered send() in onScanResult
+      // We're already on transfer screen
+    }
+    setTransferStatus('Sending…');
   });
   t.on('progress', ({ sent, total }) => {
     const pct = total ? (sent / total) * 100 : 0;
-    $('s-progress').style.width = pct + '%';
-    if (total) $('s-progress-text').textContent = `Sent ${(sent/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`;
+    $('transfer-progress').style.width = pct + '%';
+    if (total) setTransferStatus(`Sent ${(sent/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
   });
   t.on('status', (s) => {
-    if (s === 'done') setStatus('s-status-send', 'done', 'ok');
-    if (s === 'error') setStatus('s-status-send', 'error', 'err');
+    if (s === 'done') setTransferStatus('Done.', 'ok');
+    if (s === 'error') setTransferStatus('Error during send', 'err');
   });
   t.onAck = (response, error) => {
-    if (error) log('Receiver error: ' + error, 'err');
-    else log(`Receiver: ${response?.action || 'ack'}`, 'ok');
-    $('s-progress-text').textContent = `Receiver: ${error || response?.action || 'done'}.`;
+    if (error) setTransferStatus('Receiver error: ' + error, 'err');
+    else setTransferStatus(`Receiver: ${response?.action || 'done'}.`, 'ok');
   };
 }
 
-async function startSenderPeerJS(targetPeerId) {
-  if (!sendSelectedId) { log('Pick a session first.', 'err'); return; }
-  const session = await getSession(sendSelectedId);
-  if (!session) { log('Session not found.', 'err'); return; }
-  if (activeTransfer) activeTransfer.close();
-  activeTransfer = new SessionTransfer({ backend: 'peerjs' });
-  wireTransferToSendUI(activeTransfer);
-  setStatus('s-status-pjs', 'connecting', 'active');
-  try {
-    await activeTransfer.connect(targetPeerId);
-    setStatus('s-status-pjs', 'connected', 'ok');
-    await activeTransfer.send(session);
-  } catch (err) {
-    log('Send failed: ' + err.message, 'err');
-    setStatus('s-status-pjs', 'error', 'err');
+// =====================================================================
+// Conflict resolution (receiver decides what to do with incoming session)
+// =====================================================================
+async function handleIncomingSession(payload) {
+  if (!payload || !payload.id) {
+    log('Received payload has no session ID, ignoring.', 'err');
+    return { ok: false, reason: 'no-id' };
   }
+  const incoming = payload;
+  const existing = await getSession(incoming.id);
+  if (!existing) {
+    await putSession(incoming);
+    log(`Stored new session "${incoming.name}".`, 'ok');
+    refreshSessionsCount();
+    return { ok: true, action: 'created' };
+  }
+  const choice = await showConflictModal(existing, incoming);
+  if (choice === 'skip') {
+    log('Skipped.', 'err');
+    return { ok: true, action: 'skipped' };
+  }
+  if (choice === 'replace') {
+    await putSession(incoming);
+    log(`Replaced "${existing.name}".`, 'ok');
+    refreshSessionsCount();
+    return { ok: true, action: 'replaced' };
+  }
+  // Merge using shape-aware helper. Returns null if shapes mismatch (object vs array).
+  const result = mergeData(existing.data, incoming.data);
+  if (!result) {
+    log('Cannot merge: existing and incoming have different shapes (object vs array). Use Replace or Skip instead.', 'err');
+    return { ok: false, reason: 'shape-mismatch' };
+  }
+  const merged = {
+    id: existing.id, name: incoming.name,
+    createdAt: new Date(existing.createdAt) < new Date(incoming.createdAt) ? existing.createdAt : incoming.createdAt,
+    modifiedAt: new Date(),
+    data: result.merged
+  };
+  await putSession(merged);
+  log(`Merged: +${result.added} new, ${result.overwritten} overwritten.`, 'ok');
+  refreshSessionsCount();
+  return { ok: true, action: 'merged' };
 }
 
-$('s-pjs-connect-btn').addEventListener('click', () => {
-  const id = $('s-pjs-peerid-input').value.trim();
-  if (!id) { log('Enter or scan a peer ID.', 'err'); return; }
-  startSenderPeerJS(id);
-});
+function showConflictModal(existing, incoming) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop conflict-backdrop';
+    const incomingCount = dataRecordCount(incoming.data);
+    const existingCount = dataRecordCount(existing.data);
+    const existingShape = dataIsArray(existing.data) ? 'array' : 'object';
+    const incomingShape = dataIsArray(incoming.data) ? 'array' : 'object';
+    const shapeMismatch = existingShape !== incomingShape;
+    backdrop.innerHTML = `
+      <div class="modal conflict">
+        <div class="modal-head"><h3>Session already exists</h3></div>
+        <div class="modal-body">
+          <p style="margin-bottom:14px; color:var(--dim); font-size:13px;">Both copies share ID <code class="inline-code">${existing.id}</code>. How do you want to handle this?</p>
+          <div class="conflict-side">
+            <div class="label">Existing (local)</div>
+            <div class="name"></div>
+            <div class="meta"></div>
+          </div>
+          <div class="conflict-side">
+            <div class="label">Incoming</div>
+            <div class="name"></div>
+            <div class="meta"></div>
+          </div>
+          ${shapeMismatch ? '<p style="margin-top:12px; padding:8px 10px; background:#FFF6F4; border-left:3px solid var(--warn); font-size:12px;"><strong style="color:var(--warn);">Shape mismatch:</strong> one copy is an object, the other is an array. Merge is unavailable — use Skip or Replace.</p>' : ''}
+        </div>
+        <div class="modal-footer">
+          <button id="c-skip">Skip</button>
+          <button id="c-merge" ${shapeMismatch ? 'disabled title="Shapes differ — cannot merge"' : ''}>Merge</button>
+          <button class="primary" id="c-replace" style="background:var(--accent);color:#fff;border-color:var(--accent);">Replace</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const sides = backdrop.querySelectorAll('.conflict-side');
+    sides[0].querySelector('.name').textContent = existing.name;
+    sides[0].querySelector('.meta').textContent = `${existingCount} record${existingCount === 1 ? '' : 's'} (${existingShape}) · modified ${formatRelative(existing.modifiedAt)}`;
+    sides[1].querySelector('.name').textContent = incoming.name;
+    sides[1].querySelector('.meta').textContent = `${incomingCount} record${incomingCount === 1 ? '' : 's'} (${incomingShape}) · modified ${formatRelative(incoming.modifiedAt)}`;
+    const finish = (choice) => { backdrop.remove(); resolve(choice); };
+    backdrop.querySelector('#c-skip').addEventListener('click', () => finish('skip'));
+    backdrop.querySelector('#c-merge').addEventListener('click', (e) => { if (!e.currentTarget.disabled) finish('merge'); });
+    backdrop.querySelector('#c-replace').addEventListener('click', () => finish('replace'));
+  });
+}
 
-let s_pjs_scanner = null;
-$('s-pjs-cam-start').addEventListener('click', async () => {
-  if (s_pjs_scanner) return;
-  try {
-    s_pjs_scanner = new QRScanner($('s-pjs-video'), (data) => {
-      s_pjs_scanner.stop(); s_pjs_scanner = null; setCamButtons('s-pjs', false);
-      $('s-pjs-peerid-input').value = data;
-      log(`Scanned: ${data}`);
-      startSenderPeerJS(data);
-    });
-    await s_pjs_scanner.start();
-    setCamButtons('s-pjs', true);
-  } catch (err) { log('Camera error: ' + err.message, 'err'); s_pjs_scanner = null; }
-});
-$('s-pjs-cam-stop').addEventListener('click', () => {
-  if (s_pjs_scanner) { s_pjs_scanner.stop(); s_pjs_scanner = null; }
-  setCamButtons('s-pjs', false);
-});
+// =====================================================================
+// Sessions modal (accessible from topbar on any screen)
+// =====================================================================
+async function refreshSessionsCount() {
+  const all = await listSessions();
+  $('topbar-sessions-count').textContent = all.length;
+}
 
-// --- Raw sender ---
-let s_raw_scanner = null;
-$('s-raw-cam-start').addEventListener('click', async () => {
-  if (!sendSelectedId) { log('Pick a session first.', 'err'); return; }
-  if (s_raw_scanner) return;
-  if (!activeTransfer || activeTransfer.backend !== 'raw') {
-    if (activeTransfer) activeTransfer.close();
-    activeTransfer = new SessionTransfer({ backend: 'raw' });
-    wireTransferToSendUI(activeTransfer);
-    // Queue the payload — library sends it when channel opens
-    const session = await getSession(sendSelectedId);
-    activeTransfer.send(session);
+$('topbar-sessions').addEventListener('click', showSessionsModal);
+
+async function showSessionsModal() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Sessions on this device</h3>
+        <button class="close" id="sm-close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="session-list" id="sm-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="primary" id="sm-new" style="background:var(--accent);color:#fff;border-color:var(--accent);">New session</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  let smSelectedId = null;
+  async function render() {
+    const list = backdrop.querySelector('#sm-list');
+    list.innerHTML = '';
+    const sessions = await listSessions();
+    for (const s of sessions) {
+      const row = document.createElement('div');
+      row.className = 'session-row';
+      row.innerHTML = `
+        <div class="info">
+          <div class="name"></div>
+          <div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div>
+        </div>
+        <div style="display:flex; gap:4px; align-items:start;">
+          <button data-act="edit" style="padding:4px 8px; font-size:10px; background:var(--bg); border:1px solid var(--line); color:var(--ink-soft); cursor:pointer;">Edit</button>
+          <button data-act="del"  style="padding:4px 8px; font-size:10px; background:var(--bg); border:1px solid var(--line); color:var(--warn); cursor:pointer;">Del</button>
+        </div>`;
+      row.querySelector('.name').textContent = s.name;
+      row.querySelector('.id').textContent = s.id;
+      const cnt = dataRecordCount(s.data);
+      row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
+      row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
+      row.querySelector('[data-act="edit"]').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const full = await getSession(s.id);
+        if (full) { backdrop.remove(); showSessionModal(full, 'modal'); }
+      });
+      row.querySelector('[data-act="del"]').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete "${s.name}"?`)) return;
+        await deleteSession(s.id); log('Deleted.', 'ok');
+        await refreshSessionsCount();
+        render();
+      });
+      list.appendChild(row);
+    }
   }
-  try {
-    s_raw_scanner = new QRScanner($('s-raw-video'), (data) => {
-      activeTransfer.feedScannedChunk(data);
-    });
-    await s_raw_scanner.start();
-    setCamButtons('s-raw', true);
-    setStatus('s-status-raw-scan', 'scanning', 'active');
-  } catch (err) { log('Camera error: ' + err.message, 'err'); s_raw_scanner = null; }
-});
-$('s-raw-cam-stop').addEventListener('click', () => {
-  if (s_raw_scanner) { s_raw_scanner.stop(); s_raw_scanner = null; }
-  setCamButtons('s-raw', false);
+  await render();
+
+  backdrop.querySelector('#sm-close').addEventListener('click', () => backdrop.remove());
+  backdrop.querySelector('#sm-new').addEventListener('click', () => {
+    backdrop.remove();
+    showSessionModal(null, 'modal');
+  });
+}
+
+function showSessionModal(existing, returnTo) {
+  const isNew = !existing;
+  const session = existing || { name: suggestSessionName(), data: exampleData() };
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-head">
+        <h3>${isNew ? 'New session' : 'Edit session'}</h3>
+        <button class="close" id="m-cancel">×</button>
+      </div>
+      <div class="modal-body">
+        ${isNew ? '<p style="color:var(--dim); font-size:12px; margin-bottom:14px;">Session ID is auto-generated when you create.</p>'
+                : `<p style="color:var(--dim); font-size:12px; margin-bottom:14px;">ID: <code class="inline-code">${session.id}</code></p>`}
+        <label class="field"><span>Name</span><input type="text" id="m-name"></label>
+        <label class="field"><span>Data (JSON object — keys are record IDs)</span><textarea id="m-data"></textarea></label>
+      </div>
+      <div class="modal-footer">
+        <button id="m-cancel-2">Cancel</button>
+        <button class="primary" id="m-save" style="background:var(--accent);color:#fff;border-color:var(--accent);">${isNew ? 'Create' : 'Save'}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('#m-name').value = session.name;
+  backdrop.querySelector('#m-data').value = JSON.stringify(session.data, null, 2);
+  const close = () => backdrop.remove();
+  backdrop.querySelector('#m-cancel').addEventListener('click', close);
+  backdrop.querySelector('#m-cancel-2').addEventListener('click', close);
+  backdrop.querySelector('#m-save').addEventListener('click', async () => {
+    const name = backdrop.querySelector('#m-name').value.trim();
+    const text = backdrop.querySelector('#m-data').value.trim();
+    if (!name) { alert('Name required.'); return; }
+    let data; try { data = text ? JSON.parse(text) : {}; } catch (e) { alert('Invalid JSON: ' + e.message); return; }
+    // Accept either a JSON object (keyed by record ID) or a JSON array of records.
+    // Both shapes are handled throughout the demo. Only null and primitives are rejected.
+    if (data === null || typeof data !== 'object') { alert('Data must be a JSON object or array.'); return; }
+    const now = new Date();
+    if (isNew) {
+      const id = (typeof generateFriendlyId === 'function') ? generateFriendlyId() : ('s-' + Math.random().toString(36).slice(2, 10));
+      const fresh = { id, name, createdAt: now, modifiedAt: now, data };
+      await putSession(fresh);
+      log(`Created "${fresh.name}".`, 'ok');
+      if (returnTo === 'pick') selectedSessionId = fresh.id;
+    } else {
+      await putSession({ ...session, name, data, modifiedAt: now });
+      log(`Updated "${name}".`, 'ok');
+    }
+    close();
+    await refreshSessionsCount();
+    if (returnTo === 'pick') await refreshPickList();
+  });
+}
+
+// =====================================================================
+// Navigation buttons
+// =====================================================================
+$('nav-back').addEventListener('click', prevStep);
+$('topbar-back').addEventListener('click', prevStep);
+$('nav-next').addEventListener('click', () => {
+  const screenId = currentScreenId();
+  if (screenId === 'start') {
+    nextStep();
+  } else if (screenId === 'pick') {
+    if (selectedSessionId) nextStep();
+  } else if (screenId === 'transfer') {
+    // "Start over" — go all the way back to start
+    goToStep(0, 'back');
+  }
 });
 
-// --- Init ---
+// =====================================================================
+// Init
+// =====================================================================
 window.addEventListener('load', async () => {
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS.', 'err');
@@ -1112,14 +1366,14 @@ window.addEventListener('load', async () => {
   if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof Peer === 'undefined' || typeof SessionTransfer === 'undefined') {
     log('Some libraries failed to load.', 'err');
   } else {
-    log('Ready. The demo uses webshare-transfer.js as a library.', 'ok');
+    log('Ready.', 'ok');
   }
-  await refreshSessionList();
-  // Open the receive-mode sessions panel automatically if there's data to show.
-  const existing = await listSessions();
-  if (existing.length > 0) $('r-sessions-panel').open = true;
-  applyVisibility();  // also triggers auto-start of receive transfer
+  try { await refreshSessionsCount(); } catch (e) { log('Session count failed: ' + e.message, 'err'); }
+  // Always set the nav bar to its correct state for the start screen,
+  // regardless of whether libs or IDB succeeded.
+  updateNavBar();
 });
 </script>
+
 </body>
 </html>
