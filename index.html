@@ -326,9 +326,30 @@
   <footer><span>●</span> single page · peer-to-peer · no file storage</footer>
 </div>
 
-<!-- External libs: QR generator + QR scanner. CDN once, then cached. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<!-- External libs: QR generator + QR scanner.
+     Tries jsDelivr first (npm-mirrored), falls back to local files if you
+     drop qrcode.js and jsQR.js into the same folder as index.html. -->
+<script>
+(function loadLibs() {
+  const libs = [
+    { global: 'qrcode', cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
+    { global: 'jsQR',   cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' }
+  ];
+  function loadOne(lib) {
+    return new Promise((resolve) => {
+      const tryLoad = (src, onFail) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve(true);
+        s.onerror = onFail;
+        document.head.appendChild(s);
+      };
+      tryLoad(lib.cdn, () => tryLoad(lib.local, () => resolve(false)));
+    });
+  }
+  window.__libsReady = Promise.all(libs.map(loadOne)).then(results => results.every(Boolean));
+})();
+</script>
 
 <script>
 // =====================================================================
@@ -974,15 +995,19 @@ function setupSenderChannel(channel) {
 // =====================================================================
 // Init
 // =====================================================================
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS. Some features will fail.', 'err');
   }
   if (!navigator.mediaDevices?.getUserMedia) {
     log('Warning: this browser does not support camera access.', 'err');
   }
-  if (typeof qrcode === 'undefined' || typeof jsQR === 'undefined') {
-    log('QR libraries failed to load. Check internet connection.', 'err');
+  const ok = await (window.__libsReady || Promise.resolve(false));
+  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined') {
+    log('QR libraries failed to load from both CDN and local files. ' +
+        'Either restore internet access, or download qrcode.js and jsQR.js into the same folder as this page.', 'err');
+  } else {
+    log('Ready. Pick a mode above.', 'ok');
   }
 });
 </script>
