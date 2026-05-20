@@ -2986,7 +2986,7 @@ async function showMyDevicePanel() {
           <button class="mydev-dev-btn" id="mydev-disable-dev">Disable dev mode</button>
         </div>` : ''}
 
-        <div class="mydev-footer">P2P Transfer · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}</div>
+        <div class="mydev-footer" id="mydev-footer">P2P Transfer · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}</div>
 
       </div>
     </div>`;
@@ -3059,6 +3059,53 @@ async function showMyDevicePanel() {
   const disableBtn = backdrop.querySelector('#mydev-disable-dev');
   if (disableBtn) {
     disableBtn.addEventListener('click', () => disableDevMode());
+  }
+
+  // ----- Easter egg: tap the footer 7 times to enable dev mode -----
+  // Borrowed from the Android pattern. The footer is the natural "version
+  // line" of the app, so it doubles as the dev-mode unlock target. Taps
+  // 1-3 are silent (looks like an idle user). Tap 4 starts a countdown.
+  // Tap 7 activates dev mode. If already in dev mode, the footer just
+  // tells the user they're already a developer — no further state change
+  // (matches the Android "No need" message).
+  //
+  // Counter lives in this closure, so closing My device resets progress.
+  // No visual affordance — no cursor:pointer, no hover. The egg is hidden.
+  const footerEl = backdrop.querySelector('#mydev-footer');
+  if (footerEl) {
+    let footerTaps = 0;
+    const FOOTER_DEFAULT = `P2P Transfer · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}`;
+    let resetTimer = null;
+    footerEl.addEventListener('click', () => {
+      if (DEV_MODE) {
+        footerEl.textContent = "You're already a developer.";
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => { footerEl.textContent = FOOTER_DEFAULT; }, 2000);
+        return;
+      }
+      footerTaps += 1;
+      if (footerTaps >= 7) {
+        // Activate. Stamp localStorage and reload — same shape as the
+        // ?dev=1 path, no need to duplicate logic.
+        try { localStorage.setItem('p2pt-dev-mode', '1'); } catch {}
+        footerEl.textContent = 'Developer mode enabled ✓';
+        footerEl.style.color = 'var(--ok)';
+        setTimeout(() => { window.location.reload(); }, 900);
+        return;
+      }
+      const remaining = 7 - footerTaps;
+      if (footerTaps >= 4) {
+        footerEl.textContent = `You are ${remaining} step${remaining === 1 ? '' : 's'} away from developer mode`;
+      }
+      // After a few seconds of inactivity, the message reverts and the
+      // counter resets — prevents a half-armed easter egg from waiting
+      // around for a stray tap minutes later.
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        footerTaps = 0;
+        footerEl.textContent = FOOTER_DEFAULT;
+      }, 3500);
+    });
   }
 }
 
