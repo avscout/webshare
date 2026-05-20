@@ -53,6 +53,24 @@
     height: 100vh; height: 100dvh;
   }
 
+  /* ===== Dev mode visibility ===== */
+  /* The .dev-only class hides an element by default, then is revealed when
+     <html> has the dev-mode-on class (set at script load based on URL
+     param + localStorage). Inverse class .user-only is unused but
+     reserved if we ever need to hide something specifically in dev mode. */
+  html.dev-mode-off .dev-only { display: none !important; }
+  html.dev-mode-on .user-only-paragraph { display: none !important; }
+  /* DEV badge — visible only in dev mode, sits to the left of the wordmark */
+  .dev-badge {
+    display: none;
+    background: var(--warn); color: #FFFFFF;
+    font-family: var(--mono, monospace);
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    padding: 2px 6px; border-radius: 2px;
+    margin-right: 8px;
+  }
+  html.dev-mode-on .dev-badge { display: inline-block; }
+
   /* ===== Header ===== */
   .topbar {
     flex-shrink: 0; height: var(--header-h);
@@ -232,6 +250,11 @@
   .session-row .name { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-row .meta { color: var(--dim); font-size: 11px; margin-top: 3px; }
   .session-row .id { color: var(--accent-deep); font-size: 10px; font-family: var(--mono); }
+  .session-row .history-preview {
+    color: var(--accent-deep); font-size: 11px; margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .session-row .history-preview.hidden { display: none; }
   /* "Just received" / "Just sent" badge — appears on the row that was the
      subject of the most recent transfer, alongside the cyan highlight. */
   .session-row .badge {
@@ -252,11 +275,38 @@
   }
 
   /* ===== Paper plane "sent" animation (sender only) ===== */
+  /* sent-stage is the wrapper that holds the from device, plane-stage, and
+     to device in a horizontal row. The plane-stage in the middle does the
+     animation work; the two devices flank it for narrative ("from X to Y").
+     The devices fade in just before the plane lands so the user reads them
+     as the destination contexts of the flight. */
+  .sent-stage {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 6px;
+    margin: 24px 0 18px;
+  }
+  .sent-device {
+    flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    opacity: 0;
+    animation: sent-device-in 0.4s ease-out 0.05s forwards;
+  }
+  .sent-device .sent-device-name {
+    font-size: 11px; font-weight: 600; color: var(--ink);
+    max-width: 70px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    text-align: center;
+  }
+  .sent-device.unknown svg { opacity: 0.45; }
+  .sent-device.unknown .sent-device-name { color: var(--dim); font-style: italic; }
+  @keyframes sent-device-in {
+    from { opacity: 0; transform: scale(0.7); }
+    to   { opacity: 1; transform: scale(1); }
+  }
   .plane-stage {
     position: relative;
-    width: 100%;
-    height: 200px;
-    margin: 30px 0 18px;
+    flex: 1; min-width: 0;
+    height: 160px;
     overflow: hidden;
   }
   .plane-path {
@@ -264,7 +314,7 @@
     width: 100%; height: 100%;
     opacity: 0;
     /* Draw the dashed line on first, then fade out at the end */
-    animation: path-fade 2.6s ease-out forwards;
+    animation: path-fade 2.6s ease-out 0.4s forwards;
   }
   @keyframes path-fade {
     0%   { opacity: 0; }
@@ -282,7 +332,7 @@
     offset-path: path("M 20 150 Q 100 30, 200 100 T 300 50");
     offset-rotate: auto;
     offset-distance: 0%;
-    animation: plane-fly 2.2s cubic-bezier(0.4, 0.1, 0.5, 1) forwards;
+    animation: plane-fly 2.2s cubic-bezier(0.4, 0.1, 0.5, 1) 0.4s forwards;
     /* Anchor at the path so transforms align — using top-left of the bounding box */
     top: 0; left: 0;
     /* Slight initial offset so the plane's center sits roughly on the path */
@@ -332,7 +382,29 @@
     .plane { animation: none; opacity: 0; }
     .sent-headline, .sent-subline { animation: none; opacity: 1; transform: none; }
     .sent-actions-hidden { opacity: 1 !important; pointer-events: auto !important; }
+    .sent-device { animation: none; opacity: 1; transform: none; }
   }
+
+  /* Received-from banner — receiver's done state. Quietly identifies the
+     sender alongside the session list. */
+  .received-from {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    background: rgba(0, 166, 214, 0.06);
+    border-left: 4px solid var(--accent);
+  }
+  .received-from-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  .received-from-name {
+    font-size: 16px; font-weight: 700; color: var(--ink);
+    margin-top: 2px;
+  }
+  .received-from.unknown .received-from-name {
+    font-style: italic; color: var(--dim);
+  }
+  .received-from.unknown .received-from-device svg { opacity: 0.45; }
 
   /* In-content action buttons (Start over / Send another). Placed inside the
      content area so they're contextually adjacent to the message they relate
@@ -622,6 +694,24 @@
     border-top: 1px solid var(--line-soft);
   }
 
+  /* Developer section — only rendered when dev mode is on. The buttons are
+     deliberately understated since they're for diagnostic/destructive use,
+     not the user's primary flow. Reset all data and Disable dev mode are
+     both potentially destructive; we don't bold them or color them red. */
+  .mydev-dev-section { background: rgba(224, 60, 49, 0.04); }
+  .mydev-dev-btn {
+    display: block; width: 100%; margin-bottom: 8px;
+    padding: 10px 12px;
+    background: var(--bg); border: 1px solid var(--line);
+    font-family: var(--sans); font-size: 13px; font-weight: 600;
+    color: var(--ink-soft); cursor: pointer; transition: all 0.15s;
+    text-align: left;
+  }
+  .mydev-dev-btn:hover {
+    border-color: var(--warn); color: var(--warn);
+  }
+  .mydev-dev-btn:last-child { margin-bottom: 0; }
+
   /* ===== Identity modal (first-use setup + edit-via-settings) ===== */
   /* Device frame with rolling emoji "screen". Whole SVG is the tap target;
      hover gives a small scale-up to suggest tappability (desktop only).
@@ -708,6 +798,34 @@
   .modal-body { flex: 1; padding: 18px; overflow-y: auto; }
   .modal-footer { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; }
   .modal-footer button { flex: 1; }
+
+  /* Session edit modal — history section */
+  .session-history-section {
+    margin-bottom: 18px;
+    padding: 12px 14px;
+    background: rgba(0, 166, 214, 0.04);
+    border-left: 3px solid var(--accent);
+  }
+  .session-history-head {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim);
+    margin-bottom: 8px;
+  }
+  .session-history-list {
+    list-style: none; padding: 0; margin: 0;
+    max-height: 180px; overflow-y: auto;
+  }
+  .session-history-item {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 6px 0; border-bottom: 1px solid var(--line-soft);
+    font-size: 12px;
+  }
+  .session-history-item:last-child { border-bottom: none; }
+  .session-history-event { color: var(--ink); flex: 1; min-width: 0; }
+  .session-history-when {
+    color: var(--dim); font-size: 11px; flex-shrink: 0;
+    text-align: right;
+  }
 
   /* Conflict modal special: shown inline-blocking, has narrower content */
   .modal.conflict { max-width: 480px; max-height: 90vh; margin: auto; }
@@ -867,6 +985,7 @@
      (an edge case since onboarding requires it), the badge shows just the
      empty device shape. -->
 <header class="topbar">
+  <span class="dev-badge" aria-hidden="true">DEV</span>
   <div class="title" id="topbar-title">P2P <em>Transfer</em></div>
   <button class="identity-badge" id="topbar-identity" aria-label="My device">
     <span class="identity-badge-svg" id="topbar-identity-svg"></span>
@@ -882,20 +1001,23 @@
     <div class="screen-header">
       <div class="screen-eyebrow"><span class="num">1</span> · OF 3</div>
       <h1 class="screen-title">What do you want to do?</h1>
-      <p class="screen-subtitle">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
+      <p class="screen-subtitle dev-only">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
+      <p class="screen-subtitle user-only-paragraph">Send a session to another device, or receive one from another device.</p>
     </div>
     <div class="screen-content">
-      <label class="field"><span>Backend</span></label>
-      <div class="toggle-group" id="backend-group">
-        <button class="toggle-btn active" data-backend="peerjs">PeerJS<small>cross-network</small></button>
-        <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
-      </div>
+      <div class="dev-only">
+        <label class="field"><span>Backend</span></label>
+        <div class="toggle-group" id="backend-group">
+          <button class="toggle-btn active" data-backend="peerjs">PeerJS<small>cross-network</small></button>
+          <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
+        </div>
 
-      <div class="net-banner hidden" id="net-banner">
-        <div>Raw WebRTC requires both devices on the <strong>same network</strong>.</div>
-        <div class="net-id-row hidden" id="net-id-row">
-          <span class="net-id-label">Your network:</span>
-          <code class="net-id" id="net-id">…</code>
+        <div class="net-banner hidden" id="net-banner">
+          <div>Raw WebRTC requires both devices on the <strong>same network</strong>.</div>
+          <div class="net-id-row hidden" id="net-id-row">
+            <span class="net-id-label">Your network:</span>
+            <code class="net-id" id="net-id">…</code>
+          </div>
         </div>
       </div>
 
@@ -934,7 +1056,7 @@
     <div class="screen-content">
       <div class="qr-frame" id="show-qr-frame"></div>
       <div class="qr-info" id="show-qr-info"></div>
-      <div class="peer-id hidden" id="show-qr-peerid">…</div>
+      <div class="peer-id hidden dev-only" id="show-qr-peerid">…</div>
     </div>
   </section>
 
@@ -951,8 +1073,8 @@
         <div class="reticle"></div>
       </div>
       <div class="cam-helper" id="scan-helper">Camera will start automatically.</div>
-      <div class="or-div hidden" id="scan-or">or</div>
-      <label class="field hidden" id="scan-manual-label">
+      <div class="or-div hidden dev-only" id="scan-or">or</div>
+      <label class="field hidden dev-only" id="scan-manual-label">
         <span>Enter peer ID manually</span>
         <input type="text" id="scan-manual-input" placeholder="e.g. idb-tomato-rabbit-42" autocomplete="off" autocapitalize="off" autocorrect="off">
       </label>
@@ -975,9 +1097,22 @@
         <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
         <div class="status-line" id="transfer-status">Waiting for connection…</div>
 
+        <!-- "Received from X" banner (receiver only, shown after done). Sits
+             above the session list so the user has both the sender identity
+             and the resulting session list in one frame. -->
+        <div class="hidden" id="transfer-from-banner" style="margin-top: 28px;">
+          <div class="received-from">
+            <div class="received-from-device" id="transfer-from-device"></div>
+            <div class="received-from-text">
+              <div class="received-from-eyebrow">received from</div>
+              <div class="received-from-name" id="transfer-from-name"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Session list appears below the status line after a successful transfer.
              The just-touched session is highlighted with a "just received/sent" badge. -->
-        <div class="hidden" id="transfer-sessions-panel" style="margin-top: 26px;">
+        <div class="hidden" id="transfer-sessions-panel" style="margin-top: 22px;">
           <div class="screen-eyebrow" style="margin-bottom: 10px;">Sessions on this device · <span id="transfer-sessions-count">0</span></div>
           <div class="session-list" id="transfer-session-list"></div>
         </div>
@@ -991,20 +1126,28 @@
       </div>
 
       <!-- Whimsical sent view (sender only, after status='done') -->
+      <!-- Restructured to include flanking device icons. The layout is:
+              [from device]  [plane-stage with curve+plane]  [to device]
+           Both device slots are populated by JS based on role + remote
+           peer info (which arrives via the library's peer-info handshake). -->
       <div class="hidden" id="transfer-sent-view">
-        <div class="plane-stage">
-          <!-- Dashed flight path that draws itself first -->
-          <svg class="plane-path" viewBox="0 0 320 200" preserveAspectRatio="none" aria-hidden="true">
-            <path d="M 20 150 Q 100 30, 200 100 T 300 50" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 5" stroke-linecap="round"/>
-          </svg>
-          <!-- The paper plane SVG flies along the same curve -->
-          <svg class="plane" viewBox="0 0 40 40" aria-hidden="true">
-            <g>
-              <!-- Body of the paper plane: two triangles giving the folded look -->
-              <path d="M 2 20 L 38 4 L 22 38 L 18 24 Z" fill="var(--accent)"/>
-              <path d="M 18 24 L 38 4 L 22 24 Z" fill="var(--tud-cyan-dark)"/>
-            </g>
-          </svg>
+        <div class="sent-stage">
+          <div class="sent-device sent-device-from" id="sent-device-from"></div>
+          <div class="plane-stage">
+            <!-- Dashed flight path that draws itself first -->
+            <svg class="plane-path" viewBox="0 0 320 200" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M 20 150 Q 100 30, 200 100 T 300 50" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 5" stroke-linecap="round"/>
+            </svg>
+            <!-- The paper plane SVG flies along the same curve -->
+            <svg class="plane" viewBox="0 0 40 40" aria-hidden="true">
+              <g>
+                <!-- Body of the paper plane: two triangles giving the folded look -->
+                <path d="M 2 20 L 38 4 L 22 38 L 18 24 Z" fill="var(--accent)"/>
+                <path d="M 18 24 L 38 4 L 22 24 Z" fill="var(--tud-cyan-dark)"/>
+              </g>
+            </svg>
+          </div>
+          <div class="sent-device sent-device-to" id="sent-device-to"></div>
         </div>
         <h2 class="sent-headline" id="sent-headline">Sent!</h2>
         <p class="sent-subline" id="sent-subline">Your session has been delivered.</p>
@@ -1022,7 +1165,7 @@
 </main>
 
 <!-- LOG DOCK -->
-<div class="log-dock" id="log-dock">
+<div class="log-dock dev-only" id="log-dock">
   <div class="log-dock-head" id="log-dock-head">
     <span class="label">LOG</span>
     <span class="latest" id="log-latest">Ready.</span>
@@ -1126,6 +1269,48 @@ async function deleteSession(id) {
   await txPromise(tx); db.close();
 }
 
+// ---------- Session history ----------
+// Each session has an optional `history` array of events tracking its
+// provenance and transfer activity. Three event kinds:
+//   - created-here: session was newly created on this device
+//   - received:     session was received from a peer (records sender + merge action)
+//   - sent:         session was sent to a peer (records receiver)
+// Events are pushed in chronological order; the latest is at the end.
+// The previewLatestEvent helper formats the most recent event for display
+// in the session row, and getHistory returns the full reverse-chronological
+// list for the edit modal.
+function appendHistoryEvent(session, event) {
+  if (!session.history) session.history = [];
+  // Always stamp with current time; callers shouldn't have to remember.
+  const stamped = Object.assign({ at: new Date().toISOString() }, event);
+  session.history.push(stamped);
+  return session;
+}
+function getHistory(session) {
+  // Return a defensive copy in reverse chronological order for display.
+  return (session.history || []).slice().reverse();
+}
+function previewLatestEvent(session) {
+  const h = session.history;
+  if (!h || !h.length) return null;
+  return h[h.length - 1];
+}
+// Human-readable phrasing of a single event, e.g.
+//   "created on this device" / "received from 🐮 sannevdk" / "sent to 🦊 jvanderlaan"
+function describeEvent(ev) {
+  if (!ev) return '';
+  const peerLabel = ev.peer ? `${ev.peer.emoji || ''} ${ev.peer.nickname || 'unknown'}`.trim() : 'unknown';
+  switch (ev.kind) {
+    case 'created-here': return 'created on this device';
+    case 'received': {
+      const action = ev.action ? ` (${ev.action})` : '';
+      return `received from ${peerLabel}${action}`;
+    }
+    case 'sent': return `sent to ${peerLabel}`;
+    default: return ev.kind || '';
+  }
+}
+
 // ---------- IndexedDB (preferences) ----------
 // Stores device identity (emoji + nickname/NetID), dev-mode flag, and any
 // other per-device settings. Single-key store; values are JSON objects.
@@ -1174,6 +1359,44 @@ const DEVICE_TYPE = (() => {
   }
   return 'laptop';
 })();
+
+// ---------- Dev mode ----------
+// Two activation paths:
+//   - ?dev=1 in the URL → enables dev mode, persists to localStorage, then
+//     strips the param from the URL so reloading doesn't keep re-enabling.
+//   - localStorage flag set previously → respected on every load
+// Disabled by clicking "Reset dev mode" inside the My device panel. Dev
+// mode unlocks the diagnostic surface: log dock, backend toggle, session
+// IDs, JSON editor, plus a Developer section in My device with
+// destructive actions (reset all data, edit identity).
+const DEV_MODE = (() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('dev') === '1') {
+      localStorage.setItem('p2pt-dev-mode', '1');
+      // Strip the query param so the URL is clean. History API replaces
+      // the entry rather than pushing, so the back button still works.
+      params.delete('dev');
+      const search = params.toString();
+      const cleanUrl = window.location.pathname + (search ? '?' + search : '') + window.location.hash;
+      window.history.replaceState({}, '', cleanUrl);
+      return true;
+    }
+    return localStorage.getItem('p2pt-dev-mode') === '1';
+  } catch (e) {
+    // Private mode or storage-disabled — dev mode unavailable
+    return false;
+  }
+})();
+function disableDevMode() {
+  try { localStorage.removeItem('p2pt-dev-mode'); } catch {}
+  // Hard reload so all conditional rendering takes effect cleanly. Cheaper
+  // than tearing down every conditional surface individually.
+  window.location.reload();
+}
+// Apply the body class so CSS can hide/show. This runs synchronously on
+// script load — early enough that no UI has rendered yet.
+document.documentElement.classList.add(DEV_MODE ? 'dev-mode-on' : 'dev-mode-off');
 
 // ---------- Emoji set for device identity ----------
 // 29 emojis, curated for distinct silhouettes at small sizes (audit rows
@@ -1546,12 +1769,21 @@ async function refreshPickList() {
   for (const s of sessions) {
     const row = document.createElement('div');
     row.className = 'session-row' + (s.id === selectedSessionId ? ' selected' : '');
-    row.innerHTML = `<div class="info"><div class="name"></div><div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div></div>`;
+    row.innerHTML = `<div class="info"><div class="name"></div><div class="meta"><span class="id-piece dev-only"><span class="id"></span> · </span><span class="count"></span> · <span class="mod"></span></div><div class="history-preview hidden"></div></div>`;
     row.querySelector('.name').textContent = s.name;
     row.querySelector('.id').textContent = s.id;
     const cnt = dataRecordCount(s.data);
     row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
     row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
+    // Latest history event as a quiet second meta line. Hidden when the
+    // session has no history yet (legacy sessions or just-imported ones
+    // without recorded provenance).
+    const latest = previewLatestEvent(s);
+    if (latest) {
+      const histEl = row.querySelector('.history-preview');
+      histEl.textContent = describeEvent(latest) + ', ' + formatRelative(latest.at);
+      histEl.classList.remove('hidden');
+    }
     row.addEventListener('click', () => {
       selectedSessionId = s.id;
       refreshPickList();
@@ -1710,10 +1942,12 @@ function setupTransferScreen() {
   // Restore the screen header (may have been hidden by a previous sender flow)
   $('transfer-header').classList.remove('hidden');
   // Hide post-transfer session list and inline action buttons until a
-  // terminal state fires (done or error).
+  // terminal state fires (done or error). Also hide the received-from
+  // banner (only the receiver shows it, and only on done).
   $('transfer-sessions-panel').classList.add('hidden');
   $('transfer-session-list').innerHTML = '';
   $('transfer-progress-actions').classList.add('hidden');
+  $('transfer-from-banner').classList.add('hidden');
   // Title reflects what the device is doing. Status line under the progress
   // bar carries the granular detail. No static subtitle exists in the markup
   // anymore — the previous "Please wait while the data is moved" was stale
@@ -1755,6 +1989,15 @@ function showSentAnimation() {
   void actions.offsetWidth;  // force reflow so the animation restarts
   actions.classList.add('sent-actions-hidden');
 
+  // Render the from/to device icons. As the sender, "from" is us and "to"
+  // is the remote peer (whose identity we know from peer-info exchange).
+  // If the remote peer didn't send peer-info (older client or timeout),
+  // show a question-mark device frame for "unknown".
+  renderSentDevice('sent-device-from', identity ? {
+    device: identity.device, emoji: identity.emoji, nickname: identity.nickname
+  } : null);
+  renderSentDevice('sent-device-to', remotePeerInfo || null);
+
   // Choose headline + subline based on the receiver's reported action.
   // receiverAction comes from onAck — fires immediately before status='done'
   // in the library, so it's always set by the time we run.
@@ -1789,6 +2032,26 @@ function showSentAnimation() {
   // Hide the screen header so the moment is just plane + headline + button
   $('transfer-header').classList.add('hidden');
 }
+
+// Render a device-with-name block into one of the from/to slots in the
+// sent view. Accepts a peer-info-shaped object (device, emoji, nickname)
+// or null for "unknown remote peer." Size is 48px inline.
+function renderSentDevice(slotId, info) {
+  const el = document.getElementById(slotId);
+  if (!el) return;
+  if (info && info.device && info.emoji && info.nickname) {
+    el.classList.remove('unknown');
+    el.innerHTML =
+      renderDeviceSVG(info.emoji, { size: 56, type: info.device }) +
+      `<div class="sent-device-name">${info.nickname}</div>`;
+  } else {
+    el.classList.add('unknown');
+    // Generic device shape, no emoji — using laptop as a neutral default
+    el.innerHTML =
+      renderDeviceSVG('?', { size: 56, type: 'laptop' }) +
+      `<div class="sent-device-name">unknown</div>`;
+  }
+}
 function setTransferStatus(text, kind = '') {
   const el = $('transfer-status');
   el.textContent = text;
@@ -1806,6 +2069,24 @@ async function revealPostTransferSessions() {
   // Reveal the inline action button — the receiver's terminal state should
   // give them a way to start over without the bottom nav.
   showProgressRestartButton('Start over');
+
+  // Populate the "received from" banner if we have remote peer info.
+  // remotePeerInfo arrives via the library's peer-info exchange before
+  // (or alongside) the payload, so it's almost always set by now.
+  const banner = $('transfer-from-banner');
+  const deviceEl = $('transfer-from-device');
+  const nameEl = $('transfer-from-name');
+  const fromBlock = banner.querySelector('.received-from');
+  banner.classList.remove('hidden');
+  if (remotePeerInfo && remotePeerInfo.emoji && remotePeerInfo.nickname) {
+    fromBlock.classList.remove('unknown');
+    deviceEl.innerHTML = renderDeviceSVG(remotePeerInfo.emoji, { size: 48, type: remotePeerInfo.device || 'laptop' });
+    nameEl.textContent = remotePeerInfo.nickname;
+  } else {
+    fromBlock.classList.add('unknown');
+    deviceEl.innerHTML = renderDeviceSVG('?', { size: 48, type: 'laptop' });
+    nameEl.textContent = 'an unknown device';
+  }
 
   const sessions = await listSessions();
   $('transfer-sessions-count').textContent = sessions.length;
@@ -1826,7 +2107,8 @@ async function revealPostTransferSessions() {
       : '';
     row.innerHTML = `<div class="info">
       <div class="name"></div>
-      <div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div>
+      <div class="meta"><span class="id-piece dev-only"><span class="id"></span> · </span><span class="count"></span> · <span class="mod"></span></div>
+      <div class="history-preview hidden"></div>
       ${badgeText ? `<span class="badge"></span>` : ''}
     </div>`;
     row.querySelector('.name').textContent = s.name;
@@ -1834,6 +2116,12 @@ async function revealPostTransferSessions() {
     const cnt = dataRecordCount(s.data);
     row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
     row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
+    const latest = previewLatestEvent(s);
+    if (latest) {
+      const histEl = row.querySelector('.history-preview');
+      histEl.textContent = describeEvent(latest) + ', ' + formatRelative(latest.at);
+      histEl.classList.remove('hidden');
+    }
     if (badgeText) row.querySelector('.badge').textContent = badgeText;
     // Tapping a row opens the edit modal (consistent with other places)
     row.addEventListener('click', async () => {
@@ -1844,21 +2132,75 @@ async function revealPostTransferSessions() {
   }
 }
 
+// Build the peerInfo object we send to the other side on connection.
+// Reads the saved identity, adds browser/OS detection, and a clock offset
+// placeholder. Returns null if identity isn't set (shouldn't happen if
+// onboarding completed but defensive).
+function buildLocalPeerInfo() {
+  if (!identity) return null;
+  // Best-effort browser + OS detection from UA. Imperfect but enough for
+  // a diagnostic log entry. The user-visible UI only uses device/emoji/
+  // nickname; browser/os are diagnostic.
+  const ua = navigator.userAgent;
+  let browser = 'Unknown', os = 'Unknown';
+  if (/Firefox\/[\d.]+/.test(ua)) browser = 'Firefox';
+  else if (/Edg\/[\d.]+/.test(ua)) browser = 'Edge';
+  else if (/Chrome\/[\d.]+/.test(ua) && !/Edg/.test(ua)) browser = 'Chrome';
+  else if (/Safari\/[\d.]+/.test(ua) && !/Chrome|Edg/.test(ua)) browser = 'Safari';
+  if (/Windows NT/.test(ua)) os = 'Windows';
+  else if (/Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua)) os = 'macOS';
+  else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
+  else if (/Android/.test(ua)) os = 'Android';
+  else if (/Linux/.test(ua)) os = 'Linux';
+  return {
+    device: identity.device,
+    nickname: identity.nickname,
+    emoji: identity.emoji,
+    browser, os,
+    sentAt: Date.now(),  // remote uses (Date.now() - sentAt) for clockOffset
+  };
+}
+
+// Holds the remote peer's identity once peer-info arrives. Used by the
+// sender's success animation to render the receiver's device icon.
+let remotePeerInfo = null;
+
 // =====================================================================
 // Transfer library wiring
 // =====================================================================
 async function ensureReceiveTransfer() {
   if (activeTransfer) return;
-  activeTransfer = new SessionTransfer({ backend: currentBackend });
+  remotePeerInfo = null;
+  activeTransfer = new SessionTransfer({
+    backend: currentBackend,
+    peerInfo: buildLocalPeerInfo(),
+  });
   wireTransferToReceiveUI(activeTransfer);
+  wirePeerInfoListener(activeTransfer);
   try { await activeTransfer.startReceiving(); }
   catch (err) { log('Failed to start receiving: ' + err.message, 'err'); }
 }
 
 async function ensureSendTransfer() {
   if (activeTransfer) return;
-  activeTransfer = new SessionTransfer({ backend: currentBackend });
+  remotePeerInfo = null;
+  activeTransfer = new SessionTransfer({
+    backend: currentBackend,
+    peerInfo: buildLocalPeerInfo(),
+  });
   wireTransferToSendUI(activeTransfer);
+  wirePeerInfoListener(activeTransfer);
+}
+
+// Shared listener — both roles want to know who the other peer is.
+function wirePeerInfoListener(t) {
+  t.on('peer-info', (info) => {
+    remotePeerInfo = info;
+    if (info) {
+      const clockOffset = info.sentAt ? (Date.now() - info.sentAt) : null;
+      log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
+    }
+  });
 }
 
 function wireTransferToReceiveUI(t) {
@@ -1869,7 +2211,9 @@ function wireTransferToReceiveUI(t) {
       $('show-qr-peerid').textContent = text;
       $('show-qr-peerid').classList.remove('hidden');
       renderQR($('show-qr-frame'), text);
-      $('show-qr-info').textContent = 'Or type the ID into the other device';
+      // The "or type the ID" hint is a dev-mode affordance — in user mode
+      // we don't show the ID so this hint would be misleading.
+      $('show-qr-info').textContent = DEV_MODE ? 'Or type the ID into the other device' : '';
     } else if (kind === 'offer-chunks') {
       startQRCycle('show-qr-frame', 'show-qr-info', chunks);
     }
@@ -1955,6 +2299,23 @@ function wireTransferToSendUI(t) {
       // For the sender, the just-touched session is the one we picked.
       justTransferredId = selectedSessionId;
       justTransferredDirection = 'sent';
+      // Append a 'sent' event to the session's history. We re-fetch the
+      // session here rather than mutating from cache so we don't race with
+      // any concurrent updates (the user could have edited it in the UI
+      // in another tab — unlikely but cheap to be safe).
+      if (selectedSessionId && receiverAction !== 'skipped' && !receiverError) {
+        (async () => {
+          const s = await getSession(selectedSessionId);
+          if (!s) return;
+          const peer = remotePeerInfo ? {
+            emoji: remotePeerInfo.emoji,
+            nickname: remotePeerInfo.nickname,
+            device: remotePeerInfo.device,
+          } : null;
+          appendHistoryEvent(s, { kind: 'sent', peer });
+          await putSession(s);
+        })();
+      }
       // Swap the entire view to the whimsical paper-plane animation. The
       // receiver's action (created/replaced/merged/skipped) is read inside
       // showSentAnimation from receiverAction, which onAck has already set
@@ -1988,8 +2349,18 @@ async function handleIncomingSession(payload) {
     return { ok: false, reason: 'no-id' };
   }
   const incoming = payload;
+  // Capture the sender's identity from the library's peer-info exchange.
+  // remotePeerInfo is a module-scope variable set by wirePeerInfoListener.
+  // It might be null if the sender didn't pass peerInfo (older client).
+  const senderPeer = remotePeerInfo ? {
+    emoji: remotePeerInfo.emoji,
+    nickname: remotePeerInfo.nickname,
+    device: remotePeerInfo.device,
+  } : null;
+
   const existing = await getSession(incoming.id);
   if (!existing) {
+    appendHistoryEvent(incoming, { kind: 'received', action: 'created', peer: senderPeer });
     await putSession(incoming);
     log(`Stored new session "${incoming.name}".`, 'ok');
     refreshSessionsCount();
@@ -2003,7 +2374,12 @@ async function handleIncomingSession(payload) {
     return { ok: true, action: 'skipped' };
   }
   if (choice === 'replace') {
-    await putSession(incoming);
+    // Replace preserves nothing of the existing session except the history,
+    // which carries the audit trail forward. Without this the user would
+    // "lose" the audit log every time they replace.
+    const replaced = Object.assign({}, incoming, { history: (existing.history || []).slice() });
+    appendHistoryEvent(replaced, { kind: 'received', action: 'replaced', peer: senderPeer });
+    await putSession(replaced);
     log(`Replaced "${existing.name}".`, 'ok');
     refreshSessionsCount();
     justTransferredId = incoming.id;
@@ -2020,8 +2396,10 @@ async function handleIncomingSession(payload) {
     id: existing.id, name: incoming.name,
     createdAt: new Date(existing.createdAt) < new Date(incoming.createdAt) ? existing.createdAt : incoming.createdAt,
     modifiedAt: new Date(),
-    data: result.merged
+    data: result.merged,
+    history: (existing.history || []).slice()
   };
+  appendHistoryEvent(merged, { kind: 'received', action: 'merged', peer: senderPeer });
   await putSession(merged);
   log(`Merged: +${result.added} new, ${result.overwritten} overwritten.`, 'ok');
   refreshSessionsCount();
@@ -2120,7 +2498,8 @@ async function showSessionsModal() {
       row.innerHTML = `
         <div class="info">
           <div class="name"></div>
-          <div class="meta"><span class="id"></span> · <span class="count"></span> · <span class="mod"></span></div>
+          <div class="meta"><span class="id-piece dev-only"><span class="id"></span> · </span><span class="count"></span> · <span class="mod"></span></div>
+          <div class="history-preview hidden"></div>
         </div>
         <div style="display:flex; gap:4px; align-items:start;">
           <button data-act="edit" style="padding:4px 8px; font-size:10px; background:var(--bg); border:1px solid var(--line); color:var(--ink-soft); cursor:pointer;">Edit</button>
@@ -2131,6 +2510,12 @@ async function showSessionsModal() {
       const cnt = dataRecordCount(s.data);
       row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
       row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
+      const latest = previewLatestEvent(s);
+      if (latest) {
+        const histEl = row.querySelector('.history-preview');
+        histEl.textContent = describeEvent(latest) + ', ' + formatRelative(latest.at);
+        histEl.classList.remove('hidden');
+      }
       row.querySelector('[data-act="edit"]').addEventListener('click', async (e) => {
         e.stopPropagation();
         const full = await getSession(s.id);
@@ -2158,6 +2543,22 @@ async function showSessionsModal() {
 function showSessionModal(existing, returnTo) {
   const isNew = !existing;
   const session = existing || { name: suggestSessionName(), data: exampleData() };
+  // Render the history section. For new sessions there's nothing yet, so we
+  // skip it entirely. For existing sessions, we show events in reverse
+  // chronological order.
+  const histEvents = isNew ? [] : getHistory(session);
+  const historyHTML = histEvents.length === 0 ? '' : `
+    <div class="session-history-section">
+      <div class="session-history-head">History</div>
+      <ul class="session-history-list">
+        ${histEvents.map(ev => `
+          <li class="session-history-item">
+            <div class="session-history-event">${describeEvent(ev)}</div>
+            <div class="session-history-when">${formatRelative(ev.at)}</div>
+          </li>
+        `).join('')}
+      </ul>
+    </div>`;
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
@@ -2167,10 +2568,11 @@ function showSessionModal(existing, returnTo) {
         <button class="close" id="m-cancel">×</button>
       </div>
       <div class="modal-body">
-        ${isNew ? '<p style="color:var(--dim); font-size:12px; margin-bottom:14px;">Session ID is auto-generated when you create.</p>'
-                : `<p style="color:var(--dim); font-size:12px; margin-bottom:14px;">ID: <code class="inline-code">${session.id}</code></p>`}
+        ${isNew ? '<p class="dev-only" style="color:var(--dim); font-size:12px; margin-bottom:14px;">Session ID is auto-generated when you create.</p>'
+                : `<p class="dev-only" style="color:var(--dim); font-size:12px; margin-bottom:14px;">ID: <code class="inline-code">${session.id}</code></p>`}
+        ${historyHTML}
         <label class="field"><span>Name</span><input type="text" id="m-name"></label>
-        <label class="field"><span>Data (JSON object — keys are record IDs)</span><textarea id="m-data"></textarea></label>
+        <label class="field dev-only"><span>Data (JSON object — keys are record IDs)</span><textarea id="m-data"></textarea></label>
       </div>
       <div class="modal-footer">
         <button id="m-cancel-2">Cancel</button>
@@ -2195,10 +2597,12 @@ function showSessionModal(existing, returnTo) {
     if (isNew) {
       const id = (typeof generateFriendlyId === 'function') ? generateFriendlyId() : ('s-' + Math.random().toString(36).slice(2, 10));
       const fresh = { id, name, createdAt: now, modifiedAt: now, data };
+      appendHistoryEvent(fresh, { kind: 'created-here' });
       await putSession(fresh);
       log(`Created "${fresh.name}".`, 'ok');
       if (returnTo === 'pick') selectedSessionId = fresh.id;
     } else {
+      // Edit preserves history; just updates name/data/modifiedAt.
       await putSession({ ...session, name, data, modifiedAt: now });
       log(`Updated "${name}".`, 'ok');
     }
@@ -2574,7 +2978,15 @@ async function showMyDevicePanel() {
           ${storageHTML}
         </div>
 
-        <div class="mydev-footer">P2P Transfer · TU Delft prototype</div>
+        ${DEV_MODE ? `
+        <div class="mydev-section mydev-dev-section">
+          <div class="mydev-section-head">Developer</div>
+          <button class="mydev-dev-btn" id="mydev-edit-identity">Edit identity</button>
+          <button class="mydev-dev-btn" id="mydev-reset-data">Reset all data</button>
+          <button class="mydev-dev-btn" id="mydev-disable-dev">Disable dev mode</button>
+        </div>` : ''}
+
+        <div class="mydev-footer">P2P Transfer · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}</div>
 
       </div>
     </div>`;
@@ -2609,6 +3021,44 @@ async function showMyDevicePanel() {
         showGenericInstallInstructions(backdrop);
       }
     });
+  }
+
+  // Developer section buttons (only present when DEV_MODE is on).
+  // Edit identity → opens the identity modal in edit mode (cancellable).
+  // Reset all data → confirms, wipes both IDBs + localStorage, reloads.
+  // Disable dev mode → clears the flag and reloads (page renders user-mode).
+  const editIdBtn = backdrop.querySelector('#mydev-edit-identity');
+  if (editIdBtn) {
+    editIdBtn.addEventListener('click', async () => {
+      backdrop.remove();
+      const saved = await showIdentityModal(true);
+      // Reopen My device so the user lands where they came from. Identity
+      // is refreshed via updateIdentityBadge inside showIdentityModal.
+      if (saved !== undefined) showMyDevicePanel();
+    });
+  }
+  const resetBtn = backdrop.querySelector('#mydev-reset-data');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', async () => {
+      const ok = confirm('Reset everything? This deletes your identity, all sessions, and the consent flag. The app will reload.');
+      if (!ok) return;
+      try {
+        // Wipe both IDBs and the dev-mode flag. Onboarding will run again.
+        const dbs = await indexedDB.databases();
+        await Promise.all(dbs.map(d => new Promise((res) => {
+          const r = indexedDB.deleteDatabase(d.name);
+          r.onsuccess = res; r.onerror = res; r.onblocked = res;
+        })));
+        try { localStorage.removeItem('p2pt-dev-mode'); } catch {}
+      } catch (e) {
+        log('Reset failed: ' + e.message, 'err');
+      }
+      window.location.reload();
+    });
+  }
+  const disableBtn = backdrop.querySelector('#mydev-disable-dev');
+  if (disableBtn) {
+    disableBtn.addEventListener('click', () => disableDevMode());
   }
 }
 
