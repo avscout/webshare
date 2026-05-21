@@ -380,102 +380,23 @@
   }
 
   /* ===== Paper plane "sent" animation (sender only) ===== */
-  /* sent-stage is the wrapper that holds the from device, plane-stage, and
-     to device in a horizontal row. The plane-stage in the middle does the
-     animation work; the two devices flank it for narrative ("from X to Y").
-     The devices fade in just before the plane lands so the user reads them
-     as the destination contexts of the flight. */
-  .sent-stage {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 6px;
-    margin: 24px 0 18px;
-  }
-  .sent-device {
-    flex-shrink: 0;
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
-    opacity: 0;
-    animation: sent-device-in 0.4s ease-out 0.05s forwards;
-  }
-  .sent-device .sent-device-name {
-    font-size: 11px; font-weight: 600; color: var(--ink);
-    max-width: 70px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    text-align: center;
-  }
-  .sent-device.unknown svg { opacity: 0.45; }
-  .sent-device.unknown .sent-device-name { color: var(--dim); font-style: italic; }
-  @keyframes sent-device-in {
-    from { opacity: 0; transform: scale(0.7); }
-    to   { opacity: 1; transform: scale(1); }
-  }
-  .plane-stage {
-    position: relative;
-    flex: 1; min-width: 0;
-    height: 160px;
-    overflow: hidden;
-  }
-  .plane-path {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    opacity: 0;
-    /* Draw the dashed line on first, then fade out at the end */
-    animation: path-fade 2.6s ease-out 0.4s forwards;
-  }
-  @keyframes path-fade {
-    0%   { opacity: 0; }
-    20%  { opacity: 0.7; }
-    80%  { opacity: 0.7; }
-    100% { opacity: 0; }
-  }
-  .plane {
-    position: absolute;
-    width: 44px; height: 44px;
-    /* Follow the same curve as the dashed path. The path's coordinate system
-       is the 320x200 viewBox; CSS motion-path uses pixels relative to the
-       element's top-left after positioning. To keep them aligned the SVG
-       and motion path use proportional values scaled to the stage size. */
-    offset-path: path("M 20 150 Q 100 30, 200 100 T 300 50");
-    offset-rotate: auto;
-    offset-distance: 0%;
-    animation: plane-fly 2.2s cubic-bezier(0.4, 0.1, 0.5, 1) 0.4s forwards;
-    /* Anchor at the path so transforms align — using top-left of the bounding box */
-    top: 0; left: 0;
-    /* Slight initial offset so the plane's center sits roughly on the path */
-    margin-top: -22px; margin-left: -22px;
-  }
-  @keyframes plane-fly {
-    0%   { offset-distance: 0%;   opacity: 0; }
-    8%   { opacity: 1; }
-    85%  { opacity: 1; }
-    100% { offset-distance: 100%; opacity: 0; }
-  }
-  /* Fallback for browsers without offset-path: a simple left-to-right flight */
-  @supports not (offset-path: path("M 0 0 L 1 1")) {
-    .plane {
-      offset-path: none;
-      animation: plane-fly-simple 2.2s cubic-bezier(0.4, 0.1, 0.5, 1) forwards;
-    }
-    @keyframes plane-fly-simple {
-      0%   { transform: translate(0, 100px) rotate(-10deg);    opacity: 0; }
-      10%  { opacity: 1; }
-      50%  { transform: translate(150px, 0) rotate(-15deg);    opacity: 1; }
-      90%  { opacity: 1; }
-      100% { transform: translate(300px, -30px) rotate(-20deg); opacity: 0; }
-    }
-  }
-
+  /* Sent view styles. The visual celebration lives in the connection bar
+     at the bottom of the screen (rainbow scroll); here we just style the
+     headline + subline + action buttons. Entrance animations stagger
+     so the eye lands first on the headline, then the subline, then the
+     action buttons become tappable. */
   .sent-headline {
     font-size: 32px; font-weight: 700; color: var(--accent-deep);
     text-align: center; letter-spacing: -0.01em;
-    margin-top: 8px;
+    margin-top: 32px;
     opacity: 0;
-    animation: sent-text-in 0.5s ease-out 1.9s forwards;  /* fades in just as plane lands */
+    animation: sent-text-in 0.4s ease-out 0.2s forwards;
   }
   .sent-subline {
     text-align: center; color: var(--dim); font-size: 14px;
     margin-top: 6px;
     opacity: 0;
-    animation: sent-text-in 0.5s ease-out 2.1s forwards;
+    animation: sent-text-in 0.4s ease-out 0.4s forwards;
   }
   @keyframes sent-text-in {
     from { opacity: 0; transform: translateY(8px); }
@@ -483,39 +404,17 @@
   }
   /* Honor user preference for reduced motion: skip animations, show end state */
   @media (prefers-reduced-motion: reduce) {
-    .plane-path { animation: none; opacity: 0; }
-    .plane { animation: none; opacity: 0; }
     .sent-headline, .sent-subline { animation: none; opacity: 1; transform: none; }
     .sent-actions-hidden { opacity: 1 !important; pointer-events: auto !important; }
-    .sent-device { animation: none; opacity: 1; transform: none; }
   }
 
-  /* Skip/error variants of the sent view. The paper-plane animation is the
-     "your session has been delivered" moment, and it'd be dishonest to
-     play it when the receiver said no. So:
-       - .sent-skipped: hide the plane + path, headline goes to neutral ink color
-       - .sent-error:   same as skipped but with the warn color on the headline
-     The devices on either side stay visible — they're the narrative anchors
-     ("from here to there") regardless of outcome. The headline + subline
-     fade in earlier since they're no longer waiting for a plane to land. */
-  .sent-skipped .plane-path, .sent-error .plane-path { display: none; }
-  .sent-skipped .plane,      .sent-error .plane      { display: none; }
-  .sent-skipped .sent-headline {
-    color: var(--ink);
-    animation-delay: 0.5s;
-  }
-  .sent-skipped .sent-subline { animation-delay: 0.7s; }
-  .sent-error .sent-headline {
-    color: var(--warn);
-    animation-delay: 0.5s;
-  }
-  .sent-error .sent-subline { animation-delay: 0.7s; }
-  /* In skip/error cases, the action button doesn't need the long delay
-     either — there's no animation to wait for. */
-  .sent-skipped .sent-actions-hidden,
-  .sent-error .sent-actions-hidden {
-    animation-delay: 1.1s;
-  }
+  /* Skip/error variants of the sent view. Color the headline differently
+     so the user immediately reads "this isn't a success" vs the normal
+     accent-deep blue for success. The connection bar at the bottom also
+     reflects the outcome (idle pastel for skip, fading device for error)
+     so the two indicators reinforce each other. */
+  .sent-skipped .sent-headline { color: var(--ink); }
+  .sent-error   .sent-headline { color: var(--warn); }
 
   /* Received-from banner — receiver's done state. Quietly identifies the
      sender alongside the session list. */
@@ -563,16 +462,16 @@
     background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark);
   }
 
-  /* The "Send another" button in the sent view fades in 0.4s AFTER the
-     subline finishes — total delay 2.6s from screen entry, which is roughly
-     when the plane animation ends. Hidden until then so the user isn't
-     tempted to dismiss the moment. Uses a dedicated keyframe (rather than
-     reusing sent-text-in) so pointer-events flips from none → auto at
-     animation end, otherwise the button stays visually-present but
-     un-clickable. */
+  /* The action buttons in the sent view fade in just after the subline.
+     Staggered ~0.7s from screen entry: 0.2s headline → 0.4s subline →
+     0.7s buttons. Short enough that the user doesn't sit waiting, long
+     enough to read as an intentional reveal. Uses a dedicated keyframe
+     (rather than reusing sent-text-in) so pointer-events flips from
+     none → auto at animation end, otherwise the buttons stay
+     visually-present but un-clickable. */
   .sent-actions-hidden {
     opacity: 0; pointer-events: none;
-    animation: sent-actions-in 0.5s ease-out 2.6s forwards;
+    animation: sent-actions-in 0.4s ease-out 0.7s forwards;
   }
   @keyframes sent-actions-in {
     from { opacity: 0; transform: translateY(8px); pointer-events: none; }
@@ -1280,34 +1179,16 @@
         </div>
       </div>
 
-      <!-- Whimsical sent view (sender only, after status='done') -->
-      <!-- Restructured to include flanking device icons. The layout is:
-              [from device]  [plane-stage with curve+plane]  [to device]
-           Both device slots are populated by JS based on role + remote
-           peer info (which arrives via the library's peer-info handshake). -->
+      <!-- Sent view (sender only, after status='done').
+           Pure text content + actions. The visual "transfer happened"
+           feedback lives in the connection bar at the bottom of the
+           screen (rainbow scroll for success). No standalone plane
+           animation in the content area — that would be duplicate
+           celebration. -->
       <div class="hidden" id="transfer-sent-view">
-        <div class="sent-stage">
-          <div class="sent-device sent-device-from" id="sent-device-from"></div>
-          <div class="plane-stage">
-            <!-- Dashed flight path that draws itself first -->
-            <svg class="plane-path" viewBox="0 0 320 200" preserveAspectRatio="none" aria-hidden="true">
-              <path d="M 20 150 Q 100 30, 200 100 T 300 50" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 5" stroke-linecap="round"/>
-            </svg>
-            <!-- The paper plane SVG flies along the same curve -->
-            <svg class="plane" viewBox="0 0 40 40" aria-hidden="true">
-              <g>
-                <!-- Body of the paper plane: two triangles giving the folded look -->
-                <path d="M 2 20 L 38 4 L 22 38 L 18 24 Z" fill="var(--accent)"/>
-                <path d="M 18 24 L 38 4 L 22 24 Z" fill="var(--tud-cyan-dark)"/>
-              </g>
-            </svg>
-          </div>
-          <div class="sent-device sent-device-to" id="sent-device-to"></div>
-        </div>
         <h2 class="sent-headline" id="sent-headline">Sent!</h2>
         <p class="sent-subline" id="sent-subline">Your session has been delivered.</p>
-        <!-- Two actions, revealed together after the plane animation finishes
-             (controlled by the delayed reveal class on the wrapper):
+        <!-- Two actions, revealed together via a short delayed reveal:
                - "Send another →" (primary): reuses the connection, returns
                  the user to the pick screen to choose another session.
                - "Disconnect": closes the pairing, goes to start screen.
@@ -2264,25 +2145,23 @@ function showSentAnimation() {
   void actions.offsetWidth;  // force reflow so the animation restarts
   actions.classList.add('sent-actions-hidden');
 
-  // Render the from/to device icons. As the sender, "from" is us and "to"
-  // is the remote peer (whose identity we know from peer-info exchange).
-  // If the remote peer didn't send peer-info (older client or timeout),
-  // show a question-mark device frame for "unknown".
-  renderSentDevice('sent-device-from', identity ? {
-    device: identity.device, emoji: identity.emoji, nickname: identity.nickname
-  } : null);
-  renderSentDevice('sent-device-to', remotePeerInfo || null);
-
-  // Determine the outcome. Three categories drive the visual + copy:
-  //   - success: created/replaced/merged → plane animates, "Sent!" headline
-  //   - skipped: receiver actively chose Skip → no plane, neutral copy
-  //   - error:   receiver's onPayload threw or other failure → no plane, error copy
-  // For skip and error, suppressing the celebratory paper-plane animation
-  // is important. The receiver said no; showing a flying plane and "Sent!"
-  // would be dishonest about what just happened.
+  // The visual "transfer happened" celebration lives in the connection bar
+  // at the bottom (rainbow scroll for success, idle pastel for skip,
+  // device fade for error). Here we set the words that go with it.
+  //
+  // Three outcome categories drive headline + subline:
+  //   - success (created/replaced/merged): cheerful headline, outcome-
+  //     specific subline naming the receiver and what they did with it
+  //   - skipped: honest neutral copy, no celebration
+  //   - error: error headline + the actual error message
+  // The .sent-skipped / .sent-error classes are kept on the wrapper so
+  // CSS can tweak entrance animation timing per outcome (see styles).
   const sentView = $('transfer-sent-view');
   sentView.classList.remove('sent-skipped', 'sent-error');
-  let headline = 'Sent!';
+  // Use the receiver's nickname when we know it; falls back to a generic
+  // phrase otherwise. Keeps the copy from saying "undefined merged…".
+  const who = (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname : 'The receiver';
+  let headline = 'Sent! 🎉';
   let subline  = 'Your session has been delivered.';
   if (receiverError) {
     sentView.classList.add('sent-error');
@@ -2291,50 +2170,30 @@ function showSentAnimation() {
   } else if (receiverAction === 'skipped') {
     sentView.classList.add('sent-skipped');
     headline = 'Not kept';
-    const who = (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname : 'The receiver';
     subline  = `${who} chose not to keep this session.`;
   } else {
     switch (receiverAction) {
       case 'created':
-        headline = 'Sent!';
-        subline  = 'Stored as a new session on the other device.';
+        headline = 'Sent! 🎉';
+        subline  = `${who} added it as a new session.`;
         break;
       case 'replaced':
-        headline = 'Sent!';
-        subline  = 'The receiver replaced their copy with yours.';
+        headline = 'Sent! 🎉';
+        subline  = `${who} replaced their copy with yours.`;
         break;
       case 'merged':
-        headline = 'Sent!';
-        subline  = 'The receiver merged your data into theirs.';
+        headline = 'Sent! 🎉';
+        subline  = `${who} merged it into their session.`;
         break;
       // null / unknown — keep generic defaults
     }
   }
   $('sent-headline').textContent = headline;
   $('sent-subline').textContent = subline;
-  // Hide the screen header so the moment is just plane + headline + button
+  // Hide the screen header so the moment is just headline + subline + buttons
   $('transfer-header').classList.add('hidden');
 }
 
-// Render a device-with-name block into one of the from/to slots in the
-// sent view. Accepts a peer-info-shaped object (device, emoji, nickname)
-// or null for "unknown remote peer." Size is 48px inline.
-function renderSentDevice(slotId, info) {
-  const el = document.getElementById(slotId);
-  if (!el) return;
-  if (info && info.device && info.emoji && info.nickname) {
-    el.classList.remove('unknown');
-    el.innerHTML =
-      renderDeviceSVG(info.emoji, { size: 56, type: info.device }) +
-      `<div class="sent-device-name">${info.nickname}</div>`;
-  } else {
-    el.classList.add('unknown');
-    // Generic device shape, no emoji — using laptop as a neutral default
-    el.innerHTML =
-      renderDeviceSVG('?', { size: 56, type: 'laptop' }) +
-      `<div class="sent-device-name">unknown</div>`;
-  }
-}
 function setTransferStatus(text, kind = '') {
   const el = $('transfer-status');
   el.textContent = text;
