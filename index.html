@@ -112,6 +112,82 @@
   }
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
 
+  /* ===== Connection bar ===== */
+  /* Live P2P link indicator. A single SVG scene with two devices flanking
+     two puzzle-piece pills that meet at the bar's center.
+       - Sender on LEFT, receiver on RIGHT (always — even when this device
+         is receiving, the sender goes on the left because we read left
+         to right and the data flows that way).
+       - Three visual states driven by data-state attribute:
+           connected     pastel cyan pills, static
+           transferring  rainbow gradient scrolls left→right through pills
+           disconnected  other side's device fades nearly-invisible and back
+     Hidden entirely (display:none) when there's no active connection. */
+  .connection-bar {
+    flex-shrink: 0;
+    background: var(--bg);
+    padding: 8px 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    animation: connection-bar-in 0.25s ease-out;
+  }
+  .connection-bar-svg {
+    display: block;
+    width: 100%;
+    height: 78px;
+  }
+  @keyframes connection-bar-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Pills: default fill is pastel cyan. The transferring state overrides
+     this with the rainbow gradient. Disconnected state keeps the cyan
+     on the sender pill, greys out the receiver pill. */
+  .cb-pill { fill: #D6EAF2; }
+  .cb-name {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    fill: var(--ink);
+  }
+
+  /* Transferring: both pills are filled with the SAME gradient. Because
+     it uses gradientUnits="userSpaceOnUse", the gradient's coordinate
+     system is the SVG's own viewBox, NOT each pill's bounding box. So
+     both pills sample from the same continuous wave — when the gradient
+     animates, the wave appears to flow seamlessly across the whole bar
+     (sender → gap → receiver) as one piece of motion. */
+  .connection-bar[data-state="transferring"] .cb-pill {
+    fill: url(#connbar-rainbow);
+  }
+
+  /* Disconnected: receiver pill goes grey, receiver name greys. Sender
+     side stays at full color (my side). The device + emoji on the
+     greyed side gets the breathing animation applied via a class
+     that's set in JS (cb-device-fading). */
+  .connection-bar[data-state="disconnected"] .cb-pill-receiver { fill: #E5E5E5; }
+  .connection-bar[data-state="disconnected"] .cb-name-receiver { fill: #999; }
+
+  /* The fade-and-return animation for the disconnected device.
+     opacity goes from greyed-visible (1) down to nearly invisible (0.15)
+     and back, repeating every 3s. Tells the user "this end is going dark"
+     without any color change or alarm. */
+  .cb-device-fading {
+    animation: cb-device-fade 3s ease-in-out infinite;
+  }
+  @keyframes cb-device-fade {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.15; }
+  }
+
+  /* When reduce-motion is on, drop the entrance + fade animations.
+     The rainbow gradient animation is inside the SVG (animateTransform)
+     so it's handled separately by browsers honoring the OS pref. */
+  @media (prefers-reduced-motion: reduce) {
+    .connection-bar { animation: none; }
+    .cb-device-fading { animation: none; opacity: 0.5; }
+  }
+
   /* ===== Screen container ===== */
   .stage {
     flex: 1; position: relative; overflow: hidden;
@@ -414,6 +490,33 @@
     .sent-device { animation: none; opacity: 1; transform: none; }
   }
 
+  /* Skip/error variants of the sent view. The paper-plane animation is the
+     "your session has been delivered" moment, and it'd be dishonest to
+     play it when the receiver said no. So:
+       - .sent-skipped: hide the plane + path, headline goes to neutral ink color
+       - .sent-error:   same as skipped but with the warn color on the headline
+     The devices on either side stay visible — they're the narrative anchors
+     ("from here to there") regardless of outcome. The headline + subline
+     fade in earlier since they're no longer waiting for a plane to land. */
+  .sent-skipped .plane-path, .sent-error .plane-path { display: none; }
+  .sent-skipped .plane,      .sent-error .plane      { display: none; }
+  .sent-skipped .sent-headline {
+    color: var(--ink);
+    animation-delay: 0.5s;
+  }
+  .sent-skipped .sent-subline { animation-delay: 0.7s; }
+  .sent-error .sent-headline {
+    color: var(--warn);
+    animation-delay: 0.5s;
+  }
+  .sent-error .sent-subline { animation-delay: 0.7s; }
+  /* In skip/error cases, the action button doesn't need the long delay
+     either — there's no animation to wait for. */
+  .sent-skipped .sent-actions-hidden,
+  .sent-error .sent-actions-hidden {
+    animation-delay: 1.1s;
+  }
+
   /* Received-from banner — receiver's done state. Quietly identifies the
      sender alongside the session list. */
   .received-from {
@@ -435,15 +538,16 @@
   }
   .received-from.unknown .received-from-device svg { opacity: 0.45; }
 
-  /* In-content action buttons (Start over / Send another). Placed inside the
+  /* In-content action buttons (Disconnect / Send another). Placed inside the
      content area so they're contextually adjacent to the message they relate
      to, rather than floating in a global nav bar. */
   .transfer-actions {
     margin-top: 28px;
     display: flex; gap: 10px; justify-content: center;
+    padding: 0 14px;
   }
   .transfer-actions button {
-    min-width: 200px; height: 44px;
+    flex: 1; max-width: 200px; height: 44px;
     font-family: var(--sans); font-size: 13px; font-weight: 700;
     letter-spacing: 0.04em; text-transform: uppercase;
     border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft);
@@ -1172,7 +1276,7 @@
              (done on receiver, or error on either side). During active transfer
              this is empty so there's no button to confuse the user. -->
         <div class="transfer-actions hidden" id="transfer-progress-actions">
-          <button class="primary" id="progress-restart-btn">Start over</button>
+          <button class="primary" id="progress-restart-btn">Disconnect</button>
         </div>
       </div>
 
@@ -1202,11 +1306,16 @@
         </div>
         <h2 class="sent-headline" id="sent-headline">Sent!</h2>
         <p class="sent-subline" id="sent-subline">Your session has been delivered.</p>
-        <!-- The "Send another" button is rendered here, INSIDE the content area
-             rather than in the bottom nav bar, and only appears after the
-             plane animation finishes (controlled by a delayed reveal class). -->
+        <!-- Two actions, revealed together after the plane animation finishes
+             (controlled by the delayed reveal class on the wrapper):
+               - "Send another →" (primary): reuses the connection, returns
+                 the user to the pick screen to choose another session.
+               - "Disconnect": closes the pairing, goes to start screen.
+             Both buttons live inside the content area (not the bottom nav)
+             since the bottom nav is hidden on the transfer screen. -->
         <div class="transfer-actions sent-actions-hidden" id="transfer-sent-actions">
           <button class="primary" id="sent-restart-btn">Send another →</button>
+          <button id="sent-disconnect-btn">Disconnect</button>
         </div>
       </div>
 
@@ -1223,6 +1332,56 @@
     <span class="toggle">▾</span>
   </div>
   <div class="log" id="log"></div>
+</div>
+
+<!-- CONNECTION BAR
+     A persistent indicator of the live P2P connection. Sits at the bottom
+     of the screen, above the bottom-nav, below the log-dock when present.
+     Three visual states (driven by data-state on the host div):
+       - 'connected'    pastel cyan pills, static, both sides full color
+       - 'transferring' same pills with a pastel rainbow scrolling left-to-right
+       - 'disconnected' other side's device fades in and out (3s loop)
+     Hidden entirely (display:none) when there's no active connection
+     (e.g. start screen, before pairing). The two SVG <text> elements
+     for nicknames and the two device frames are filled in at runtime
+     from the local identity + remotePeerInfo.
+
+     Layout: a single 380x78 SVG containing
+       - two pill paths meeting at the bar's center
+       - two name texts (anchored to outer edges)
+       - two device sub-SVGs (centered above their names)
+     The rainbow uses gradientUnits="userSpaceOnUse" so both pills sample
+     the same continuous wave across the full bar. -->
+<div class="connection-bar hidden" id="connection-bar" data-state="connected">
+  <svg class="connection-bar-svg" viewBox="0 0 380 78" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="connbar-rainbow" gradientUnits="userSpaceOnUse" x1="0" y1="58" x2="760" y2="58">
+        <stop offset="0%"   stop-color="#F8C8D0"/>
+        <stop offset="8%"   stop-color="#FAD4A6"/>
+        <stop offset="16%"  stop-color="#FAF2C2"/>
+        <stop offset="25%"  stop-color="#C6E8C8"/>
+        <stop offset="33%"  stop-color="#C2DDF0"/>
+        <stop offset="42%"  stop-color="#D4C8E8"/>
+        <stop offset="50%"  stop-color="#F8C8D0"/>
+        <stop offset="58%"  stop-color="#FAD4A6"/>
+        <stop offset="66%"  stop-color="#FAF2C2"/>
+        <stop offset="75%"  stop-color="#C6E8C8"/>
+        <stop offset="83%"  stop-color="#C2DDF0"/>
+        <stop offset="92%"  stop-color="#D4C8E8"/>
+        <stop offset="100%" stop-color="#F8C8D0"/>
+        <animateTransform attributeName="gradientTransform" type="translate" from="-380 0" to="0 0" dur="3s" repeatCount="indefinite"/>
+      </linearGradient>
+    </defs>
+    <!-- Sender pill: rectangle from x=0 to x=180, then chevron point at x=188 -->
+    <path class="cb-pill cb-pill-sender" d="M 0 46 L 180 46 L 188 58 L 180 70 L 0 70 Z"/>
+    <text class="cb-name cb-name-sender" id="cb-name-sender" x="20" y="63" text-anchor="start">…</text>
+    <!-- Receiver pill: notch at x=192 with apex at x=200, then rectangle to x=380 -->
+    <path class="cb-pill cb-pill-receiver" d="M 192 46 L 380 46 L 380 70 L 192 70 L 200 58 Z"/>
+    <text class="cb-name cb-name-receiver" id="cb-name-receiver" x="360" y="63" text-anchor="end">…</text>
+    <!-- Devices: sub-SVGs injected at runtime. Sender at translate(34 0), receiver at translate(307 0). -->
+    <g class="cb-device cb-device-sender" id="cb-device-sender" transform="translate(34 0)"></g>
+    <g class="cb-device cb-device-receiver" id="cb-device-receiver" transform="translate(307 0)"></g>
+  </svg>
 </div>
 
 <!-- BOTTOM NAV — hidden on the transfer screen since the action buttons
@@ -1653,8 +1812,15 @@ const FLOWS = {
   // [mode][backend] -> array of screen IDs (excluding 'start' which is always 0)
   'receive-peerjs': ['start', 'show-qr', 'transfer'],
   'receive-raw':    ['start', 'show-qr', 'scan-qr', 'transfer'],
-  'send-peerjs':    ['start', 'pick', 'scan-qr', 'transfer'],
-  'send-raw':       ['start', 'pick', 'scan-qr', 'show-qr', 'transfer']
+  // Send flows: pair FIRST, then pick what to send. Two reasons:
+  //   1. The connection is the commitment to a recipient; picking is the
+  //      payload choice. Pair → pick reads more naturally — "I'm sending
+  //      to Sanne, now what shall I send her?".
+  //   2. Enables multi-send: after a successful send, "Send another" can
+  //      return to the pick screen without re-pairing. The QR step only
+  //      happens once per pairing.
+  'send-peerjs':    ['start', 'scan-qr', 'pick', 'transfer'],
+  'send-raw':       ['start', 'scan-qr', 'show-qr', 'pick', 'transfer']
 };
 
 let currentBackend = 'peerjs';
@@ -1732,7 +1898,22 @@ function updateNavBar() {
     return;
   }
   bottombar.classList.remove('hidden');
-  $('nav-back').disabled = currentStep === 0;
+  // Back-button label and state:
+  //   - When paired (connection bar visible), the "previous step" is the
+  //     pairing step (scan-qr / show-qr). Backing up there is meaningless
+  //     since the pairing is already done. Instead, the button becomes
+  //     "Disconnect" — explicit about what tapping it does (close the
+  //     pairing, return to start). Always enabled in this mode.
+  //   - Otherwise, normal step-back. Disabled on step 0.
+  const backBtn = $('nav-back');
+  const barShown = !$('connection-bar').classList.contains('hidden');
+  if (barShown) {
+    backBtn.textContent = 'Disconnect';
+    backBtn.disabled = false;
+  } else {
+    backBtn.textContent = '← Back';
+    backBtn.disabled = currentStep === 0;
+  }
   const nextBtn = $('nav-next');
   nextBtn.disabled = true;
   nextBtn.textContent = 'Continue →';
@@ -1773,6 +1954,11 @@ async function onEnterScreen(screenId) {
     // Returning to start resets the transfer
     if (activeTransfer) { try { activeTransfer.close(); } catch {} activeTransfer = null; }
     selectedSessionId = null;
+    // Tear down the connection bar — there is no active link anymore.
+    // This also handles the case where the user navigated back from
+    // a disconnected state: the bar was showing the fade animation;
+    // hiding it removes the visual cue.
+    hideConnectionBar();
     refreshSessionsCount();
   } else if (screenId === 'pick') {
     await refreshPickList();
@@ -1959,16 +2145,23 @@ async function onScanResult(data) {
   if (isPeerJSSender) {
     // 'data' is the peer ID
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
-    nextStep();  // → transfer screen, where connect() runs
     try {
+      // Connect now. Library fires 'connected' event when channel opens.
+      // We advance to the pick screen — the user picks their session
+      // there, then Continue triggers the actual send() in
+      // setupTransferScreen.
       await activeTransfer.connect(data);
-      const session = await getSession(selectedSessionId);
-      await activeTransfer.send(session);
+      // Pairing succeeded → move to pick screen so user can choose a session
+      const pickIdx = activeFlow().indexOf('pick');
+      if (pickIdx !== -1) goToStep(pickIdx, 'forward');
     } catch (err) {
       log('Connect failed: ' + err.message, 'err');
+      // Go to transfer screen to show the error — same pattern as before
+      const transferIdx = activeFlow().indexOf('transfer');
+      if (transferIdx !== -1) goToStep(transferIdx, 'forward');
       $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Connection failed: ' + err.message, 'err');
-      showProgressRestartButton('Start over');
+      showProgressRestartButton('Disconnect');
     }
   } else if (isRawSender || isRawReceiver) {
     // 'data' is a QR chunk — feed back to library; library will advance via events
@@ -2007,24 +2200,47 @@ function setupTransferScreen() {
   $('transfer-session-list').innerHTML = '';
   $('transfer-progress-actions').classList.add('hidden');
   $('transfer-from-banner').classList.add('hidden');
+  // Reset per-send state that's left over from any previous send on
+  // the same connection. (justTransferredId / Direction stay set across
+  // sends so the LAST highlight survives the next session-list refresh,
+  // but receiverAction / receiverError are about the CURRENT send and
+  // need to clear.)
+  receiverAction = null;
+  receiverError = null;
   // Title reflects what the device is doing. Status line under the progress
   // bar carries the granular detail. No static subtitle exists in the markup
   // anymore — the previous "Please wait while the data is moved" was stale
   // and never reflected actual state.
   if (currentMode === 'send') {
     $('transfer-title').textContent = 'Sending session';
-    setTransferStatus('Connecting…');
+    setTransferStatus('Sending…');
+    // Trigger the actual send. The connection is already open (we paired
+    // on the scan-qr screen). The library's `send()` can be called
+    // repeatedly on the same channel — that's what enables multi-send
+    // across "Send another" without re-pairing.
+    (async () => {
+      try {
+        const session = await getSession(selectedSessionId);
+        if (!session) throw new Error('No session selected');
+        await activeTransfer.send(session);
+      } catch (err) {
+        log('Send failed: ' + err.message, 'err');
+        $('transfer-title').textContent = 'Something went wrong';
+        setTransferStatus('Send failed: ' + err.message, 'err');
+        showProgressRestartButton('Disconnect');
+      }
+    })();
   } else {
     $('transfer-title').textContent = 'Receiving';
     setTransferStatus('Waiting for sender…');
   }
 }
 
-// Show the inline "Start over" button at terminal states (done or error).
+// Show the inline "Disconnect" button at terminal states (done or error).
 // Used by both progress-view (receiver done, any error) and sent-view (CSS
 // handles the sent-view button's delayed reveal, so this is only called for
 // the progress view).
-function showProgressRestartButton(label = 'Start over') {
+function showProgressRestartButton(label = 'Disconnect') {
   const area = $('transfer-progress-actions');
   area.classList.remove('hidden');
   $('progress-restart-btn').textContent = label;
@@ -2057,14 +2273,26 @@ function showSentAnimation() {
   } : null);
   renderSentDevice('sent-device-to', remotePeerInfo || null);
 
-  // Choose headline + subline based on the receiver's reported action.
-  // receiverAction comes from onAck — fires immediately before status='done'
-  // in the library, so it's always set by the time we run.
+  // Determine the outcome. Three categories drive the visual + copy:
+  //   - success: created/replaced/merged → plane animates, "Sent!" headline
+  //   - skipped: receiver actively chose Skip → no plane, neutral copy
+  //   - error:   receiver's onPayload threw or other failure → no plane, error copy
+  // For skip and error, suppressing the celebratory paper-plane animation
+  // is important. The receiver said no; showing a flying plane and "Sent!"
+  // would be dishonest about what just happened.
+  const sentView = $('transfer-sent-view');
+  sentView.classList.remove('sent-skipped', 'sent-error');
   let headline = 'Sent!';
   let subline  = 'Your session has been delivered.';
   if (receiverError) {
-    headline = 'Sent — but…';
-    subline  = `Receiver reported an error: ${receiverError}`;
+    sentView.classList.add('sent-error');
+    headline = 'Not delivered';
+    subline  = `Something went wrong on the other device: ${receiverError}`;
+  } else if (receiverAction === 'skipped') {
+    sentView.classList.add('sent-skipped');
+    headline = 'Not kept';
+    const who = (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname : 'The receiver';
+    subline  = `${who} chose not to keep this session.`;
   } else {
     switch (receiverAction) {
       case 'created':
@@ -2078,10 +2306,6 @@ function showSentAnimation() {
       case 'merged':
         headline = 'Sent!';
         subline  = 'The receiver merged your data into theirs.';
-        break;
-      case 'skipped':
-        headline = 'Delivered';
-        subline  = 'The receiver chose to skip this session.';
         break;
       // null / unknown — keep generic defaults
     }
@@ -2127,7 +2351,7 @@ async function revealPostTransferSessions() {
   list.innerHTML = '';
   // Reveal the inline action button — the receiver's terminal state should
   // give them a way to start over without the bottom nav.
-  showProgressRestartButton('Start over');
+  showProgressRestartButton('Disconnect');
 
   // Populate the "received from" banner — but only if a session was
   // actually received. If justTransferredDirection is null we're in the
@@ -2256,6 +2480,134 @@ async function ensureSendTransfer() {
   wirePeerInfoListener(activeTransfer);
 }
 
+// =====================================================================
+// Connection bar — visible status indicator for the live P2P link
+// =====================================================================
+// State machine:
+//   - hidden:        no active link (bar removed from view via .hidden)
+//   - connected:     paired, idle. Pastel cyan pills, both sides full color
+//   - transferring:  during active send. Rainbow scrolls through pills
+//   - disconnected:  channel closed unexpectedly. Other device fades in/out
+//
+// The bar's layout is sender-on-left / receiver-on-right ALWAYS, regardless
+// of which role *this* device plays. So when the local user is the
+// receiver, the "sender" slot on the left shows the remote peer's info
+// and the "receiver" slot on the right shows the local user.
+//
+// Driven by:
+//   - library 'connected' event   → showConnectionBar() in idle state
+//   - library 'peer-info' event   → updateConnectionBarPeer() fills in name+device
+//   - showSentAnimation() etc.    → setConnectionBarState('transferring' | 'connected')
+//   - library 'disconnected' evt  → setConnectionBarState('disconnected')
+//   - entering start screen       → hideConnectionBar() (clean slate)
+
+function showConnectionBar() {
+  const bar = $('connection-bar');
+  bar.classList.remove('hidden');
+  bar.setAttribute('data-state', 'connected');
+  // Force the entrance animation to restart by reflow
+  void bar.offsetWidth;
+  // Populate whatever we already know about the two peers
+  renderConnectionBarPeers();
+  // The Back button label depends on whether the bar is visible — refresh
+  // it so the nav transitions from "← Back" to "Disconnect".
+  updateNavBar();
+}
+
+function hideConnectionBar() {
+  const bar = $('connection-bar');
+  bar.classList.add('hidden');
+  // Clear the fading class so we don't leak it across show/hide cycles
+  $('cb-device-receiver').classList.remove('cb-device-fading');
+  $('cb-device-sender').classList.remove('cb-device-fading');
+  // Nav label reverts to "← Back"
+  updateNavBar();
+}
+
+function setConnectionBarState(state) {
+  const bar = $('connection-bar');
+  if (bar.classList.contains('hidden')) return;  // bar not currently shown
+  bar.setAttribute('data-state', state);
+  // The fading device animation lives on the receiver-side device by
+  // default — but actually the rule is "the OTHER side fades", which
+  // means it lives on whichever side ISN'T this user. Determine which.
+  const senderG = $('cb-device-sender');
+  const receiverG = $('cb-device-receiver');
+  senderG.classList.remove('cb-device-fading');
+  receiverG.classList.remove('cb-device-fading');
+  if (state === 'disconnected') {
+    // currentMode tells us which side WE are on. When currentMode is
+    // 'send', we're the sender (left) so the receiver (right) is the
+    // remote peer that disconnected. When 'receive', it's the opposite.
+    if (currentMode === 'send') {
+      receiverG.classList.add('cb-device-fading');
+    } else {
+      senderG.classList.add('cb-device-fading');
+    }
+  }
+}
+
+// Single source of truth for "what should the connection bar look like
+// based on this transfer status event?" Used by both sender and receiver
+// status handlers — the rules are identical.
+//
+// Outcome:
+//   - 'transferring'           rainbow scrolls (data is flowing)
+//   - 'done', success          rainbow KEEPS scrolling (celebration lingers)
+//   - 'done', skipped (receiver chose not to keep)  → return to idle
+//   - 'done', error            → disconnected visual
+//   - 'error' (anywhere)       → disconnected visual
+function updateBarForTransferStatus(status, outcome = {}) {
+  if (status === 'transferring') {
+    setConnectionBarState('transferring');
+    return;
+  }
+  if (status === 'error') {
+    setConnectionBarState('disconnected');
+    return;
+  }
+  if (status === 'done') {
+    if (outcome.error)       setConnectionBarState('disconnected');
+    else if (outcome.skipped) setConnectionBarState('connected');
+    // else: success → no call. Bar stays in 'transferring' (rainbow lingers).
+  }
+}
+
+// Render the names + device SVGs into both slots of the connection bar.
+// Reads identity (local) and remotePeerInfo (remote). Which one goes in
+// the sender slot vs receiver slot depends on currentMode.
+function renderConnectionBarPeers() {
+  const localInfo = identity ? {
+    device: identity.device, emoji: identity.emoji, nickname: identity.nickname
+  } : null;
+  const remoteInfo = remotePeerInfo;
+  // currentMode 'send' → local=sender (left), remote=receiver (right)
+  // currentMode 'receive' → local=receiver (right), remote=sender (left)
+  const senderInfo   = (currentMode === 'send') ? localInfo : remoteInfo;
+  const receiverInfo = (currentMode === 'send') ? remoteInfo : localInfo;
+  renderConnectionBarSlot('sender', senderInfo);
+  renderConnectionBarSlot('receiver', receiverInfo);
+}
+
+function renderConnectionBarSlot(slot, info) {
+  const nameEl = $('cb-name-' + slot);
+  const deviceEl = $('cb-device-' + slot);
+  if (info && info.nickname) {
+    nameEl.textContent = info.nickname;
+    // The renderDeviceSVG helper returns an <svg> string. We want to embed
+    // it as a child of the existing <g> with the translate. The SVG output
+    // is sized to 48x48 (medium) to match the bar's design spec.
+    deviceEl.innerHTML = renderDeviceSVG(info.emoji || '?', {
+      size: 48,
+      type: info.device || 'laptop'
+    });
+  } else {
+    // Placeholder while peer-info hasn't arrived yet, or in the unknown case
+    nameEl.textContent = '…';
+    deviceEl.innerHTML = renderDeviceSVG('?', { size: 48, type: 'laptop' });
+  }
+}
+
 // Shared listener — both roles want to know who the other peer is.
 function wirePeerInfoListener(t) {
   t.on('peer-info', (info) => {
@@ -2264,6 +2616,20 @@ function wirePeerInfoListener(t) {
       const clockOffset = info.sentAt ? (Date.now() - info.sentAt) : null;
       log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
     }
+    // Update the bar with the now-known remote identity
+    renderConnectionBarPeers();
+  });
+  // The library emits 'connected' the moment the data channel opens.
+  // That's also our cue to show the bar in idle state. Names will fill
+  // in immediately after via the peer-info event (typically within ms).
+  t.on('connected', () => {
+    showConnectionBar();
+  });
+  // 'disconnected' fires when the channel closes unexpectedly (other peer
+  // closed their tab, network blip, etc.). Don't hide the bar — change
+  // state so the user sees what happened.
+  t.on('disconnected', () => {
+    setConnectionBarState('disconnected');
   });
 }
 
@@ -2294,24 +2660,32 @@ function wireTransferToReceiveUI(t) {
     if (total) setTransferStatus(`Receiving ${(received/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
   });
   t.on('status', (s) => {
+    if (s === 'transferring') {
+      updateBarForTransferStatus('transferring');
+    }
     if (s === 'done') {
       // Title and status reflect the terminal state. justTransferredDirection
       // is set by handleIncomingSession only when a session was actually
       // stored (created / replaced / merged). If it's null the receiver
       // chose Skip, so we shouldn't pretend they "Received" anything.
-      if (justTransferredDirection === 'received') {
+      const skipped = justTransferredDirection !== 'received';
+      if (!skipped) {
         $('transfer-title').textContent = 'Received';
         setTransferStatus('Done.', 'ok');
       } else {
         $('transfer-title').textContent = 'Skipped';
         setTransferStatus('Nothing was changed.', '');
       }
+      // Bar: success keeps the rainbow scrolling for celebration; skip
+      // returns to idle pastel cyan (channel's fine, but no party).
+      updateBarForTransferStatus('done', { skipped });
       revealPostTransferSessions();
     }
     if (s === 'error') {
       $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Error during receive.', 'err');
-      showProgressRestartButton('Start over');
+      updateBarForTransferStatus('error');
+      showProgressRestartButton('Disconnect');
     }
   });
   t.onPayload = handleIncomingSession;
@@ -2331,22 +2705,15 @@ function wireTransferToSendUI(t) {
   });
   t.on('connected', () => {
     log('Peer connected.', 'ok');
-    // For raw sender, advance to transfer screen
-    if (currentBackend === 'raw') {
-      const transferIdx = activeFlow().indexOf('transfer');
-      if (currentStep !== transferIdx) goToStep(transferIdx, 'forward');
-      // Send the payload now that channel is open
-      (async () => {
-        try {
-          const session = await getSession(selectedSessionId);
-          await activeTransfer.send(session);
-        } catch (err) { log('Send failed: ' + err.message, 'err'); }
-      })();
-    } else {
-      // PeerJS sender — connect() already triggered send() in onScanResult
-      // We're already on transfer screen
+    // For raw sender, advance to the pick screen now that the channel
+    // is open. The actual send() fires from setupTransferScreen() once
+    // the user picks a session and taps Continue.
+    if (currentBackend === 'raw' && currentMode === 'send') {
+      const pickIdx = activeFlow().indexOf('pick');
+      if (pickIdx !== -1 && currentStep !== pickIdx) goToStep(pickIdx, 'forward');
     }
-    setTransferStatus('Sending…');
+    // PeerJS sender: after connect() succeeded, onScanResult already
+    // advanced us to pick. Nothing to do here for that case.
   });
   t.on('progress', ({ sent, total }) => {
     const pct = total ? (sent / total) * 100 : 0;
@@ -2365,6 +2732,9 @@ function wireTransferToSendUI(t) {
     }
   });
   t.on('status', (s) => {
+    if (s === 'transferring') {
+      updateBarForTransferStatus('transferring');
+    }
     if (s === 'done') {
       // For the sender, the just-touched session is the one we picked.
       justTransferredId = selectedSessionId;
@@ -2386,6 +2756,13 @@ function wireTransferToSendUI(t) {
           await putSession(s);
         })();
       }
+      // Bar transitions based on outcome — see updateBarForTransferStatus
+      // for the rules. The receiver's verdict (set by onAck) reaches us
+      // via receiverAction + receiverError before status='done' fires.
+      updateBarForTransferStatus('done', {
+        skipped: receiverAction === 'skipped',
+        error: !!receiverError,
+      });
       // Swap the entire view to the whimsical paper-plane animation. The
       // receiver's action (created/replaced/merged/skipped) is read inside
       // showSentAnimation from receiverAction, which onAck has already set
@@ -2395,7 +2772,8 @@ function wireTransferToSendUI(t) {
     if (s === 'error') {
       $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Error during send.', 'err');
-      showProgressRestartButton('Start over');
+      updateBarForTransferStatus('error');
+      showProgressRestartButton('Disconnect');
     }
   });
   t.onAck = (response, error) => {
@@ -3402,10 +3780,27 @@ async function maybeShowOnboarding() {
   return true;
 }
 
+// Helper: close the pairing and return to start screen. Used by:
+// - Bottom-nav back button when in disconnected mode (paired session)
+// - Inline progress-restart-btn at terminal states
+// - Inline sent-disconnect-btn next to "Send another"
+// The onEnterScreen('start') hook takes care of closing activeTransfer
+// and hiding the connection bar; we just navigate there.
+const restartToStart = () => goToStep(0, 'back');
+
 $('nav-back').addEventListener('click', () => {
-  // No-op on the start screen (currentStep === 0). The button is also
-  // disabled in updateNavBar() in that state, but defensive check here
-  // so a stray click doesn't try to navigate to a nonexistent step.
+  // When the connection bar is showing, we're in an active paired session.
+  // The Back button has been relabeled to "Disconnect" in that case (see
+  // updateNavBar), and its click should end the pairing rather than step
+  // back through the flow. Going to step 0 (start) triggers onEnterScreen
+  // cleanup which closes activeTransfer and hides the bar.
+  const barShown = !$('connection-bar').classList.contains('hidden');
+  if (barShown) {
+    restartToStart();
+    return;
+  }
+  // Normal step-back navigation. No-op on the start screen (currentStep === 0)
+  // since the button is also disabled in updateNavBar().
   if (currentStep > 0) prevStep();
 });
 $('nav-next').addEventListener('click', async () => {
@@ -3417,30 +3812,37 @@ $('nav-next').addEventListener('click', async () => {
     if (selectedSessionId) nextStep();
   }
 });
-// Inline restart buttons — same destination as the old bottom-nav Start over
-const restartToStart = () => goToStep(0, 'back');
 $('progress-restart-btn').addEventListener('click', restartToStart);
+$('sent-disconnect-btn').addEventListener('click', restartToStart);
 
-// "Send another" goes to step 1 (the pick screen) rather than all the way
-// back to step 0. The cleanup that normally happens on entering 'start'
-// (closing the active transfer, clearing selected session, resetting
-// receiver-action state) has to happen explicitly here, since we're
-// skipping that screen.
+// "Send another" — reuse the open connection. Returns to the pick screen
+// so the user can choose another session to send to the same peer.
+//
+// DOES NOT close activeTransfer (the data channel is reused for the next
+// send) and DOES NOT hide the connection bar (the pairing is still alive).
+// Bar stays in its rainbow "transferring" state — it'll transition to
+// idle on this screen change because setupTransferScreen's done handler
+// already set it to that. Actually wait — the rainbow KEEPS playing
+// through done (per the celebration design). Going back to pick now,
+// the bar should return to idle pastel cyan since we're not currently
+// transferring. Set it explicitly.
 $('sent-restart-btn').addEventListener('click', () => {
-  if (activeTransfer) {
-    try { activeTransfer.close(); } catch {}
-    activeTransfer = null;
-  }
+  // Reset state about the just-completed send so the next send starts
+  // clean. KEEP: activeTransfer (the channel), remotePeerInfo (still
+  // the same peer), currentMode/currentBackend.
   selectedSessionId = null;
   receiverAction = null;
   receiverError = null;
-  remotePeerInfo = null;
   justTransferredId = null;
   justTransferredDirection = null;
-  // currentMode stays 'send' since the user is sending another; backend
-  // also stays put. goToStep with 'back' direction gives the right
-  // slide animation (returning to a familiar screen).
-  goToStep(1, 'back');
+  // Bar returns to idle pastel cyan — we're between sends, no celebration
+  // ongoing, but still paired.
+  setConnectionBarState('connected');
+  // Navigate to the pick screen. Don't use prevStep — the pick screen
+  // could be at different indices depending on backend (2 for peerjs,
+  // 3 for raw because raw has show-qr between scan-qr and pick).
+  const pickIdx = activeFlow().indexOf('pick');
+  if (pickIdx !== -1) goToStep(pickIdx, 'back');
 });
 
 // =====================================================================

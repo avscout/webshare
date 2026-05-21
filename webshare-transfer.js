@@ -249,16 +249,21 @@
       this._releasedSignalingPeer = false;
     }
 
-    // Destroy the signaling peer (PeerJS) WITHOUT closing the active data
-    // channel. After this, the QR code's peer ID is no longer routable.
-    // The already-established WebRTC connection survives because the
-    // signaling server is only needed for setup, not ongoing transport.
+    // Disconnect the signaling WebSocket (PeerJS) WITHOUT closing the
+    // active data channel. After this, the peer ID is no longer reachable
+    // for NEW connections, but the already-established WebRTC connection
+    // continues to flow because PeerJS only needs the signaling server
+    // for setup, not for ongoing transport.
+    //
+    // IMPORTANT: We must use peer.disconnect() here, NOT peer.destroy().
+    // Calling .destroy() tears down the DataConnection too, which would
+    // break the transfer mid-flight. .disconnect() only closes the
+    // WebSocket to peerjs.com, which is precisely what we want.
     _releaseSignalingPeer() {
       if (this._releasedSignalingPeer) return;
       if (!this._peer) return;
       this._releasedSignalingPeer = true;
-      try { this._peer.destroy(); } catch {}
-      this._peer = null;
+      try { this._peer.disconnect(); } catch {}
       this._log('info', 'Signaling peer released; QR code is no longer reachable.');
     }
 
@@ -357,8 +362,19 @@
             }
           }
         });
-        conn.on('close', () => this._log('info', 'Sender disconnected.'));
-        conn.on('error', (e) => this._log('err', 'Conn error: ' + e.message));
+        conn.on('close', () => {
+          this._log('info', 'Sender disconnected.');
+          // Emit a public 'disconnected' event so the UI can update the
+          // connection bar. We DON'T call this._status('error') because
+          // the channel close after a successful transfer is normal —
+          // status stays at whatever it was. The disconnected event is
+          // purely about the LINK going away.
+          this.emit('disconnected', { reason: 'channel-closed' });
+        });
+        conn.on('error', (e) => {
+          this._log('err', 'Conn error: ' + e.message);
+          this.emit('disconnected', { reason: 'channel-error', message: e.message });
+        });
       });
       this._peer.on('error', (err) => {
         this._log('err', `PeerJS error: ${err.type}`);
@@ -465,6 +481,14 @@
           if (this.onAck) try { this.onAck(msg.response, msg.error); } catch (e) { console.error(e); }
           this._status('done');
         }
+      });
+      // Listen for channel close from the sender's side too. The receiver
+      // closing the conn (e.g. their tab went away) fires 'close' on our
+      // local _conn. Emit a public 'disconnected' event so the UI can
+      // react. Same logic as the receiver's connection handler.
+      this._conn.on('close', () => {
+        this._log('info', 'Receiver disconnected.');
+        this.emit('disconnected', { reason: 'channel-closed' });
       });
       await new Promise((resolve, reject) => {
         this._conn.on('open', resolve);
