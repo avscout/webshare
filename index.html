@@ -113,79 +113,46 @@
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
 
   /* ===== Connection bar ===== */
-  /* Live P2P link indicator. A single SVG scene with two devices flanking
-     two puzzle-piece pills that meet at the bar's center.
-       - Sender on LEFT, receiver on RIGHT (always — even when this device
-         is receiving, the sender goes on the left because we read left
-         to right and the data flows that way).
-       - Three visual states driven by data-state attribute:
-           connected     pastel cyan pills, static
-           transferring  rainbow gradient scrolls left→right through pills
-           disconnected  other side's device fades nearly-invisible and back
-     Hidden entirely (display:none) when there's no active connection. */
+  /* Thin single-line text indicator that shows who you're paired with
+     and the current connection status. Sits at the bottom of the screen,
+     just above the bottom nav. No animation, no SVG art — just words
+     and a small device icon.
+     Hidden entirely (display:none via .hidden) when there's no active
+     connection. */
   .connection-bar {
     flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
     background: var(--bg);
-    padding: 8px 0;
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
-    animation: connection-bar-in 0.25s ease-out;
-  }
-  .connection-bar-svg {
-    display: block;
-    width: 100%;
-    height: 78px;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    font-size: 13px;
+    color: var(--ink);
+    animation: connection-bar-in 0.2s ease-out;
   }
   @keyframes connection-bar-in {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
   }
-
-  /* Pills: default fill is pastel cyan. The transferring state overrides
-     this with the rainbow gradient. Disconnected state keeps the cyan
-     on the sender pill, greys out the receiver pill. */
-  .cb-pill { fill: #D6EAF2; }
-  .cb-name {
-    font-family: var(--sans);
-    font-size: 13px;
-    font-weight: 600;
-    fill: var(--ink);
+  .conn-bar-icon { flex-shrink: 0; display: inline-flex; }
+  .conn-bar-icon svg { display: block; }
+  .conn-bar-text {
+    min-width: 0; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .conn-bar-peer  { font-weight: 600; }
+  .conn-bar-sep   { color: var(--dim); }
+  .conn-bar-status { color: var(--ink); }
+  .conn-bar-stale { color: var(--dim); margin-left: 4px; font-style: italic; }
 
-  /* Transferring: both pills are filled with the SAME gradient. Because
-     it uses gradientUnits="userSpaceOnUse", the gradient's coordinate
-     system is the SVG's own viewBox, NOT each pill's bounding box. So
-     both pills sample from the same continuous wave — when the gradient
-     animates, the wave appears to flow seamlessly across the whole bar
-     (sender → gap → receiver) as one piece of motion. */
-  .connection-bar[data-state="transferring"] .cb-pill {
-    fill: url(#connbar-rainbow);
-  }
+  /* When the peer has disconnected, dim the whole bar so the user gets
+     a passive visual cue alongside the "disconnected" word. No alarm
+     red, no animation — just a quieter version of the same bar. */
+  .connection-bar.disconnected { color: var(--dim); }
+  .connection-bar.disconnected .conn-bar-peer { color: var(--dim); font-weight: 500; }
+  .connection-bar.disconnected .conn-bar-icon svg { opacity: 0.5; }
 
-  /* Disconnected: receiver pill goes grey, receiver name greys. Sender
-     side stays at full color (my side). The device + emoji on the
-     greyed side gets the breathing animation applied via a class
-     that's set in JS (cb-device-fading). */
-  .connection-bar[data-state="disconnected"] .cb-pill-receiver { fill: #E5E5E5; }
-  .connection-bar[data-state="disconnected"] .cb-name-receiver { fill: #999; }
-
-  /* The fade-and-return animation for the disconnected device.
-     opacity goes from greyed-visible (1) down to nearly invisible (0.15)
-     and back, repeating every 3s. Tells the user "this end is going dark"
-     without any color change or alarm. */
-  .cb-device-fading {
-    animation: cb-device-fade 3s ease-in-out infinite;
-  }
-  @keyframes cb-device-fade {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.15; }
-  }
-
-  /* When reduce-motion is on, drop the entrance + fade animations.
-     The rainbow gradient animation is inside the SVG (animateTransform)
-     so it's handled separately by browsers honoring the OS pref. */
   @media (prefers-reduced-motion: reduce) {
     .connection-bar { animation: none; }
-    .cb-device-fading { animation: none; opacity: 0.5; }
   }
 
   /* ===== Screen container ===== */
@@ -1215,54 +1182,25 @@
   <div class="log" id="log"></div>
 </div>
 
-<!-- CONNECTION BAR
-     A persistent indicator of the live P2P connection. Sits at the bottom
-     of the screen, above the bottom-nav, below the log-dock when present.
-     Three visual states (driven by data-state on the host div):
-       - 'connected'    pastel cyan pills, static, both sides full color
-       - 'transferring' same pills with a pastel rainbow scrolling left-to-right
-       - 'disconnected' other side's device fades in and out (3s loop)
-     Hidden entirely (display:none) when there's no active connection
-     (e.g. start screen, before pairing). The two SVG <text> elements
-     for nicknames and the two device frames are filled in at runtime
-     from the local identity + remotePeerInfo.
-
-     Layout: a single 380x78 SVG containing
-       - two pill paths meeting at the bar's center
-       - two name texts (anchored to outer edges)
-       - two device sub-SVGs (centered above their names)
-     The rainbow uses gradientUnits="userSpaceOnUse" so both pills sample
-     the same continuous wave across the full bar. -->
-<div class="connection-bar hidden" id="connection-bar" data-state="connected">
-  <svg class="connection-bar-svg" viewBox="0 0 380 78" preserveAspectRatio="none" aria-hidden="true">
-    <defs>
-      <linearGradient id="connbar-rainbow" gradientUnits="userSpaceOnUse" x1="0" y1="58" x2="760" y2="58">
-        <stop offset="0%"   stop-color="#F8C8D0"/>
-        <stop offset="8%"   stop-color="#FAD4A6"/>
-        <stop offset="16%"  stop-color="#FAF2C2"/>
-        <stop offset="25%"  stop-color="#C6E8C8"/>
-        <stop offset="33%"  stop-color="#C2DDF0"/>
-        <stop offset="42%"  stop-color="#D4C8E8"/>
-        <stop offset="50%"  stop-color="#F8C8D0"/>
-        <stop offset="58%"  stop-color="#FAD4A6"/>
-        <stop offset="66%"  stop-color="#FAF2C2"/>
-        <stop offset="75%"  stop-color="#C6E8C8"/>
-        <stop offset="83%"  stop-color="#C2DDF0"/>
-        <stop offset="92%"  stop-color="#D4C8E8"/>
-        <stop offset="100%" stop-color="#F8C8D0"/>
-        <animateTransform attributeName="gradientTransform" type="translate" from="-380 0" to="0 0" dur="3s" repeatCount="indefinite"/>
-      </linearGradient>
-    </defs>
-    <!-- Sender pill: rectangle from x=0 to x=180, then chevron point at x=188 -->
-    <path class="cb-pill cb-pill-sender" d="M 0 46 L 180 46 L 188 58 L 180 70 L 0 70 Z"/>
-    <text class="cb-name cb-name-sender" id="cb-name-sender" x="20" y="63" text-anchor="start">…</text>
-    <!-- Receiver pill: notch at x=192 with apex at x=200, then rectangle to x=380 -->
-    <path class="cb-pill cb-pill-receiver" d="M 192 46 L 380 46 L 380 70 L 192 70 L 200 58 Z"/>
-    <text class="cb-name cb-name-receiver" id="cb-name-receiver" x="360" y="63" text-anchor="end">…</text>
-    <!-- Devices: sub-SVGs injected at runtime. Sender at translate(34 0), receiver at translate(307 0). -->
-    <g class="cb-device cb-device-sender" id="cb-device-sender" transform="translate(34 0)"></g>
-    <g class="cb-device cb-device-receiver" id="cb-device-receiver" transform="translate(307 0)"></g>
-  </svg>
+<!-- CONNECTION BAR — thin single-line text indicator at the bottom of the
+     screen, just above the bottom nav. Visible only when paired. Shows:
+       [device frame with peer's emoji]  peer-nickname — last-status  (X min ago)
+     Three pieces of dynamic content, populated by JS:
+       - .conn-bar-icon: 24px SVG of the peer's device frame + emoji
+       - .conn-bar-peer: the peer's nickname
+       - .conn-bar-status: short curated status word ("connected", "sending…",
+         "sent ✓", "not kept", "disconnected"). The relative timestamp
+         "(X min ago)" appends after 1 minute and refreshes live via a
+         setInterval started when the status is set.
+     No animation, no SVG art — just a sentence. -->
+<div class="connection-bar hidden" id="connection-bar">
+  <span class="conn-bar-icon" id="conn-bar-icon" aria-hidden="true"></span>
+  <span class="conn-bar-text">
+    <span class="conn-bar-peer" id="conn-bar-peer">…</span>
+    <span class="conn-bar-sep"> — </span>
+    <span class="conn-bar-status" id="conn-bar-status">connecting</span>
+    <span class="conn-bar-stale" id="conn-bar-stale"></span>
+  </span>
 </div>
 
 <!-- BOTTOM NAV — hidden on the transfer screen since the action buttons
@@ -1488,6 +1426,33 @@ function disableDevMode() {
 // Apply the body class so CSS can hide/show. This runs synchronously on
 // script load — early enough that no UI has rendered yet.
 document.documentElement.classList.add(DEV_MODE ? 'dev-mode-on' : 'dev-mode-off');
+
+// ---------- Deep-link "join" peer ID ----------
+// When the receiver's QR is scanned with the phone's native camera app,
+// the user lands at https://{site}?join={peerId}. We capture that peer
+// ID here on script load (synchronous, so no race), strip it from the
+// URL so a refresh doesn't auto-trigger, and stash it for use after
+// init completes. autoJoinIfPending() reads this and kicks off the
+// pairing flow once identity + libs are ready.
+const PENDING_JOIN_PEER_ID = (() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const joinId = params.get('join');
+    if (!joinId) return null;
+    // Strip the param so refresh / back-button doesn't re-pair. Keep
+    // any other params (like ?dev=1) intact.
+    params.delete('join');
+    const search = params.toString();
+    const cleanUrl = window.location.pathname + (search ? '?' + search : '') + window.location.hash;
+    window.history.replaceState({}, '', cleanUrl);
+    return joinId;
+  } catch (e) {
+    return null;
+  }
+})();
+// One-shot flag so autoJoinIfPending only runs the pairing once even
+// when called from multiple init points (load handler + finishOnboarding).
+let autoJoinConsumed = false;
 
 // ---------- Emoji set for device identity ----------
 // 29 emojis, curated for distinct silhouettes at small sizes (audit rows
@@ -2017,6 +1982,46 @@ async function setupScanQRScreen() {
   }
 }
 
+// =====================================================================
+// Join-URL helpers
+// =====================================================================
+// The receiver's QR contains a full URL of the form
+//   {site}?join={peerId}
+// so a user scanning it with their phone's native camera app gets a
+// tappable link that opens (or reopens) P2P Transfer in send mode,
+// already wired to connect to the right peer.
+//
+// Scanning from WITHIN the app also goes through this layer — we just
+// strip the URL wrapping back to a bare peer ID and feed it to
+// activeTransfer.connect(). Legacy QRs that contain a bare ID (older
+// app versions) are still accepted unchanged.
+
+// Build the URL form for a peer ID. Uses the current page's origin +
+// pathname so it works whether the app is hosted at the root or in a
+// subdirectory. Query string and hash on the current URL are dropped —
+// we want a clean entry point.
+function buildJoinURL(peerId) {
+  const base = window.location.origin + window.location.pathname;
+  return `${base}?join=${encodeURIComponent(peerId)}`;
+}
+
+// Given scanned text (could be either a URL with ?join=... or a bare
+// peer ID from a legacy QR), return just the peer ID. If parsing fails
+// for any reason, fall back to using the input as-is — that handles
+// non-URL inputs (typed manual entry, legacy QRs) without special-casing.
+function extractPeerIdFromScan(text) {
+  if (!text) return text;
+  try {
+    // Try to parse as a URL. URL constructor throws for non-URL inputs.
+    const url = new URL(text);
+    const joinParam = url.searchParams.get('join');
+    if (joinParam) return joinParam;
+  } catch {
+    // Not a URL — treat the whole string as a bare peer ID.
+  }
+  return text;
+}
+
 async function onScanResult(data) {
   log(`Scanned: ${data.slice(0, 40)}${data.length > 40 ? '…' : ''}`, 'info');
   const isPeerJSSender = currentMode === 'send' && currentBackend === 'peerjs';
@@ -2024,14 +2029,17 @@ async function onScanResult(data) {
   const isRawReceiver  = currentMode === 'receive' && currentBackend === 'raw';
 
   if (isPeerJSSender) {
-    // 'data' is the peer ID
+    // 'data' could be either a bare peer ID (legacy QR or manual entry)
+    // or a URL like https://avscout.github.io/webshare?join={peerId}
+    // (current QR format). extractPeerIdFromScan handles both.
+    const peerId = extractPeerIdFromScan(data);
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
     try {
       // Connect now. Library fires 'connected' event when channel opens.
       // We advance to the pick screen — the user picks their session
       // there, then Continue triggers the actual send() in
       // setupTransferScreen.
-      await activeTransfer.connect(data);
+      await activeTransfer.connect(peerId);
       // Pairing succeeded → move to pick screen so user can choose a session
       const pickIdx = activeFlow().indexOf('pick');
       if (pickIdx !== -1) goToStep(pickIdx, 'forward');
@@ -2340,34 +2348,37 @@ async function ensureSendTransfer() {
 }
 
 // =====================================================================
-// Connection bar — visible status indicator for the live P2P link
+// Connection bar — thin single-line text indicator at the bottom of the
+// screen. Shows the remote peer's identity + the current status. No
+// animation, no SVG art.
 // =====================================================================
-// State machine:
-//   - hidden:        no active link (bar removed from view via .hidden)
-//   - connected:     paired, idle. Pastel cyan pills, both sides full color
-//   - transferring:  during active send. Rainbow scrolls through pills
-//   - disconnected:  channel closed unexpectedly. Other device fades in/out
 //
-// The bar's layout is sender-on-left / receiver-on-right ALWAYS, regardless
-// of which role *this* device plays. So when the local user is the
-// receiver, the "sender" slot on the left shows the remote peer's info
-// and the "receiver" slot on the right shows the local user.
+// Visible only while paired. The bar's visibility is also the source of
+// truth for "are we paired?" — updateNavBar reads it to decide whether
+// the bottom-nav back button should say "← Back" or "Disconnect".
 //
-// Driven by:
-//   - library 'connected' event   → showConnectionBar() in idle state
-//   - library 'peer-info' event   → updateConnectionBarPeer() fills in name+device
-//   - showSentAnimation() etc.    → setConnectionBarState('transferring' | 'connected')
-//   - library 'disconnected' evt  → setConnectionBarState('disconnected')
-//   - entering start screen       → hideConnectionBar() (clean slate)
+// Status text is set explicitly by callers via setConnectionBarStatus().
+// Examples:  'connecting', 'connected', 'sending…', 'receiving…',
+//            'sent ✓', 'not kept', 'disconnected'.
+// When set, we record the timestamp. A setInterval refreshes the bar
+// every 30s; once the status is more than 1 minute old, "(N min ago)"
+// is appended after the status word.
+
+let connBarStatusSetAt = 0;       // ms timestamp of last setConnectionBarStatus
+let connBarStaleTimer = null;     // setInterval handle for refreshing "(X min ago)"
 
 function showConnectionBar() {
   const bar = $('connection-bar');
   bar.classList.remove('hidden');
-  bar.setAttribute('data-state', 'connected');
-  // Force the entrance animation to restart by reflow
+  bar.classList.remove('disconnected');
+  // Force the entrance animation to restart by reflow so re-showing
+  // (e.g. after a hide cycle) animates in again, not silently appearing.
   void bar.offsetWidth;
-  // Populate whatever we already know about the two peers
-  renderConnectionBarPeers();
+  renderConnectionBarPeer();
+  // Start the stale-time refresh loop if not already running
+  if (!connBarStaleTimer) {
+    connBarStaleTimer = setInterval(refreshConnBarStale, 30 * 1000);
+  }
   // The Back button label depends on whether the bar is visible — refresh
   // it so the nav transitions from "← Back" to "Disconnect".
   updateNavBar();
@@ -2376,94 +2387,47 @@ function showConnectionBar() {
 function hideConnectionBar() {
   const bar = $('connection-bar');
   bar.classList.add('hidden');
-  // Clear the fading class so we don't leak it across show/hide cycles
-  $('cb-device-receiver').classList.remove('cb-device-fading');
-  $('cb-device-sender').classList.remove('cb-device-fading');
+  bar.classList.remove('disconnected');
+  if (connBarStaleTimer) { clearInterval(connBarStaleTimer); connBarStaleTimer = null; }
   // Nav label reverts to "← Back"
   updateNavBar();
 }
 
-function setConnectionBarState(state) {
+// Set the displayed status word and reset the "X min ago" timer.
+// Optional 'disconnectedStyle' flag dims the whole bar (no alarm, just
+// quieter) — used when the peer has gone away.
+function setConnectionBarStatus(text, { disconnected = false } = {}) {
+  $('conn-bar-status').textContent = text;
+  $('conn-bar-stale').textContent = '';
+  connBarStatusSetAt = Date.now();
   const bar = $('connection-bar');
-  if (bar.classList.contains('hidden')) return;  // bar not currently shown
-  bar.setAttribute('data-state', state);
-  // The fading device animation lives on the receiver-side device by
-  // default — but actually the rule is "the OTHER side fades", which
-  // means it lives on whichever side ISN'T this user. Determine which.
-  const senderG = $('cb-device-sender');
-  const receiverG = $('cb-device-receiver');
-  senderG.classList.remove('cb-device-fading');
-  receiverG.classList.remove('cb-device-fading');
-  if (state === 'disconnected') {
-    // currentMode tells us which side WE are on. When currentMode is
-    // 'send', we're the sender (left) so the receiver (right) is the
-    // remote peer that disconnected. When 'receive', it's the opposite.
-    if (currentMode === 'send') {
-      receiverG.classList.add('cb-device-fading');
-    } else {
-      senderG.classList.add('cb-device-fading');
-    }
-  }
+  bar.classList.toggle('disconnected', disconnected);
 }
 
-// Single source of truth for "what should the connection bar look like
-// based on this transfer status event?" Used by both sender and receiver
-// status handlers — the rules are identical.
-//
-// Outcome:
-//   - 'transferring'           rainbow scrolls (data is flowing)
-//   - 'done', success          rainbow KEEPS scrolling (celebration lingers)
-//   - 'done', skipped (receiver chose not to keep)  → return to idle
-//   - 'done', error            → disconnected visual
-//   - 'error' (anywhere)       → disconnected visual
-function updateBarForTransferStatus(status, outcome = {}) {
-  if (status === 'transferring') {
-    setConnectionBarState('transferring');
-    return;
-  }
-  if (status === 'error') {
-    setConnectionBarState('disconnected');
-    return;
-  }
-  if (status === 'done') {
-    if (outcome.error)       setConnectionBarState('disconnected');
-    else if (outcome.skipped) setConnectionBarState('connected');
-    // else: success → no call. Bar stays in 'transferring' (rainbow lingers).
-  }
+// Refresh the "(X min ago)" suffix. Runs every 30s while the bar is up.
+function refreshConnBarStale() {
+  if (!connBarStatusSetAt) return;
+  const minutes = Math.floor((Date.now() - connBarStatusSetAt) / 60000);
+  // Only show the suffix once a full minute has passed
+  $('conn-bar-stale').textContent = minutes >= 1 ? `(${minutes} min ago)` : '';
 }
 
-// Render the names + device SVGs into both slots of the connection bar.
-// Reads identity (local) and remotePeerInfo (remote). Which one goes in
-// the sender slot vs receiver slot depends on currentMode.
-function renderConnectionBarPeers() {
-  const localInfo = identity ? {
-    device: identity.device, emoji: identity.emoji, nickname: identity.nickname
-  } : null;
-  const remoteInfo = remotePeerInfo;
-  // currentMode 'send' → local=sender (left), remote=receiver (right)
-  // currentMode 'receive' → local=receiver (right), remote=sender (left)
-  const senderInfo   = (currentMode === 'send') ? localInfo : remoteInfo;
-  const receiverInfo = (currentMode === 'send') ? remoteInfo : localInfo;
-  renderConnectionBarSlot('sender', senderInfo);
-  renderConnectionBarSlot('receiver', receiverInfo);
-}
-
-function renderConnectionBarSlot(slot, info) {
-  const nameEl = $('cb-name-' + slot);
-  const deviceEl = $('cb-device-' + slot);
+// Render the peer name + device icon into the bar. Reads remotePeerInfo
+// (the remote peer's identity, populated by the library's peer-info
+// event). If peer-info hasn't arrived yet, shows a placeholder.
+function renderConnectionBarPeer() {
+  const info = remotePeerInfo;
+  const peerEl = $('conn-bar-peer');
+  const iconEl = $('conn-bar-icon');
   if (info && info.nickname) {
-    nameEl.textContent = info.nickname;
-    // The renderDeviceSVG helper returns an <svg> string. We want to embed
-    // it as a child of the existing <g> with the translate. The SVG output
-    // is sized to 48x48 (medium) to match the bar's design spec.
-    deviceEl.innerHTML = renderDeviceSVG(info.emoji || '?', {
-      size: 48,
+    peerEl.textContent = info.nickname;
+    iconEl.innerHTML = renderDeviceSVG(info.emoji || '?', {
+      size: 24,
       type: info.device || 'laptop'
     });
   } else {
-    // Placeholder while peer-info hasn't arrived yet, or in the unknown case
-    nameEl.textContent = '…';
-    deviceEl.innerHTML = renderDeviceSVG('?', { size: 48, type: 'laptop' });
+    peerEl.textContent = '…';
+    iconEl.innerHTML = renderDeviceSVG('?', { size: 24, type: 'laptop' });
   }
 }
 
@@ -2476,20 +2440,38 @@ function wirePeerInfoListener(t) {
       log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
     }
     // Update the bar with the now-known remote identity
-    renderConnectionBarPeers();
+    renderConnectionBarPeer();
   });
   // The library emits 'connected' the moment the data channel opens.
-  // That's also our cue to show the bar in idle state. Names will fill
-  // in immediately after via the peer-info event (typically within ms).
+  // That's also our cue to show the bar. The peer's identity will fill
+  // in immediately after via the peer-info event (typically ms later).
   t.on('connected', () => {
     showConnectionBar();
+    setConnectionBarStatus('connected');
   });
-  // 'disconnected' fires when the channel closes unexpectedly (other peer
-  // closed their tab, network blip, etc.). Don't hide the bar — change
-  // state so the user sees what happened.
+  // 'disconnected' fires when the channel closes — could be the peer's
+  // intentional close (bye message), a network drop, or a tab close.
+  // All treated the same: show the disconnected status briefly, then
+  // route the user to the start screen as if they'd hit Disconnect
+  // themselves. The status update happens on the way out so it's the
+  // last thing the bar shows before being hidden. handleRemoteDisconnect
+  // does the actual cleanup + navigation.
   t.on('disconnected', () => {
-    setConnectionBarState('disconnected');
+    setConnectionBarStatus('disconnected', { disconnected: true });
+    handleRemoteDisconnect();
   });
+}
+
+// The peer disconnected on us. Route to start the same way the user's
+// own Disconnect button does — closes activeTransfer (defensive; usually
+// already closed), navigates to start. The onEnterScreen('start') hook
+// hides the bar and resets state.
+function handleRemoteDisconnect() {
+  // Avoid a duplicate route if we're already heading to start (e.g. the
+  // local user pressed Disconnect, which closed the channel, which fired
+  // disconnected on this side too via the close event).
+  if (currentScreenId() === 'start') return;
+  restartToStart();
 }
 
 function wireTransferToReceiveUI(t) {
@@ -2499,7 +2481,12 @@ function wireTransferToReceiveUI(t) {
     if (kind === 'peerid') {
       $('show-qr-peerid').textContent = text;
       $('show-qr-peerid').classList.remove('hidden');
-      renderQR($('show-qr-frame'), text);
+      // QR encodes the URL form (?join={peerId}), not the bare ID. This
+      // lets a user scan the QR with their phone's native camera app —
+      // they get a tappable link that opens the app already paired to
+      // this peer. Scanning from within the app also works: the
+      // onScanResult handler strips the URL wrapping back to a peer ID.
+      renderQR($('show-qr-frame'), buildJoinURL(text));
       // The "or type the ID" hint is a dev-mode affordance — in user mode
       // we don't show the ID so this hint would be misleading.
       $('show-qr-info').textContent = DEV_MODE ? 'Or type the ID into the other device' : '';
@@ -2520,7 +2507,7 @@ function wireTransferToReceiveUI(t) {
   });
   t.on('status', (s) => {
     if (s === 'transferring') {
-      updateBarForTransferStatus('transferring');
+      setConnectionBarStatus('receiving…');
     }
     if (s === 'done') {
       // Title and status reflect the terminal state. justTransferredDirection
@@ -2531,19 +2518,18 @@ function wireTransferToReceiveUI(t) {
       if (!skipped) {
         $('transfer-title').textContent = 'Received';
         setTransferStatus('Done.', 'ok');
+        setConnectionBarStatus('received ✓');
       } else {
         $('transfer-title').textContent = 'Skipped';
         setTransferStatus('Nothing was changed.', '');
+        setConnectionBarStatus('not kept');
       }
-      // Bar: success keeps the rainbow scrolling for celebration; skip
-      // returns to idle pastel cyan (channel's fine, but no party).
-      updateBarForTransferStatus('done', { skipped });
       revealPostTransferSessions();
     }
     if (s === 'error') {
       $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Error during receive.', 'err');
-      updateBarForTransferStatus('error');
+      setConnectionBarStatus('error', { disconnected: true });
       showProgressRestartButton('Disconnect');
     }
   });
@@ -2592,7 +2578,7 @@ function wireTransferToSendUI(t) {
   });
   t.on('status', (s) => {
     if (s === 'transferring') {
-      updateBarForTransferStatus('transferring');
+      setConnectionBarStatus('sending…');
     }
     if (s === 'done') {
       // For the sender, the just-touched session is the one we picked.
@@ -2615,23 +2601,19 @@ function wireTransferToSendUI(t) {
           await putSession(s);
         })();
       }
-      // Bar transitions based on outcome — see updateBarForTransferStatus
-      // for the rules. The receiver's verdict (set by onAck) reaches us
-      // via receiverAction + receiverError before status='done' fires.
-      updateBarForTransferStatus('done', {
-        skipped: receiverAction === 'skipped',
-        error: !!receiverError,
-      });
-      // Swap the entire view to the whimsical paper-plane animation. The
-      // receiver's action (created/replaced/merged/skipped) is read inside
-      // showSentAnimation from receiverAction, which onAck has already set
-      // (onAck fires immediately before status='done' in the library).
+      // Bar status word picks the most accurate word for the outcome.
+      // receiverError + receiverAction were set by onAck which fired
+      // immediately before status='done' in the library.
+      if (receiverError)                       setConnectionBarStatus('error', { disconnected: true });
+      else if (receiverAction === 'skipped')   setConnectionBarStatus('not kept');
+      else                                     setConnectionBarStatus('sent ✓');
+      // Swap to the sent view (headline + subline + buttons).
       showSentAnimation();
     }
     if (s === 'error') {
       $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Error during send.', 'err');
-      updateBarForTransferStatus('error');
+      setConnectionBarStatus('error', { disconnected: true });
       showProgressRestartButton('Disconnect');
     }
   });
@@ -3602,6 +3584,10 @@ function initOnboardingSetup() {
 function finishOnboarding() {
   const root = document.getElementById('onboarding');
   root.classList.add('hidden');
+  // If the user landed here via a join URL but had to do onboarding
+  // first, fire the auto-pair now that identity is set up. autoJoinIfPending
+  // no-ops if there was no pending join.
+  autoJoinIfPending().catch(e => log('Auto-join error: ' + e.message, 'err'));
 }
 
 // Decide whether to show onboarding at startup. Called once at load.
@@ -3694,9 +3680,8 @@ $('sent-restart-btn').addEventListener('click', () => {
   receiverError = null;
   justTransferredId = null;
   justTransferredDirection = null;
-  // Bar returns to idle pastel cyan — we're between sends, no celebration
-  // ongoing, but still paired.
-  setConnectionBarState('connected');
+  // Bar returns to idle — still paired, between sends.
+  setConnectionBarStatus('connected');
   // Navigate to the pick screen. Don't use prevStep — the pick screen
   // could be at different indices depending on backend (2 for peerjs,
   // 3 for raw because raw has show-qr between scan-qr and pick).
@@ -3725,7 +3710,75 @@ window.addEventListener('load', async () => {
   // Onboarding decision happens AFTER identity is loaded so the consent
   // and identity checks have fresh data to work with.
   try { await maybeShowOnboarding(); } catch (e) { log('Onboarding error: ' + e.message, 'err'); }
+  // If we got here via a join URL (scanned QR from outside the app),
+  // kick off the auto-pair now that identity + libs are ready.
+  // Onboarding completed if it was needed; if the user is brand new
+  // they've just finished setup. autoJoinIfPending no-ops if there
+  // was no ?join=... param.
+  try { await autoJoinIfPending(); } catch (e) { log('Auto-join error: ' + e.message, 'err'); }
 });
+
+// Pair automatically if the page was opened with ?join={peerId}. Called
+// after init finishes (identity + libs ready, onboarding done if needed).
+// Called a SECOND time by finishOnboarding for users who had to set up
+// their identity first — that second call is the one that actually fires
+// the pairing, since the first call (during init) sees the onboarding
+// overlay still showing and bails out. No-op if there was no ?join=...
+// param or if it's already been consumed.
+async function autoJoinIfPending() {
+  if (!PENDING_JOIN_PEER_ID) return;
+  if (autoJoinConsumed) return;  // already paired (or attempted) — don't repeat
+  // If onboarding is still showing, defer. finishOnboarding() will call
+  // us again once the user is set up.
+  const onboardingShown = !document.getElementById('onboarding').classList.contains('hidden');
+  if (onboardingShown) return;
+  autoJoinConsumed = true;
+  if (typeof SessionTransfer === 'undefined') {
+    log('Cannot auto-join: library not loaded.', 'err');
+    return;
+  }
+  log(`Auto-joining peer "${PENDING_JOIN_PEER_ID}"…`, 'info');
+  // Set up sender mode + peerjs backend so the rest of the app behaves
+  // as if the user had walked through Send → scan-qr manually.
+  currentMode = 'send';
+  currentBackend = 'peerjs';
+  onBackendOrModeChanged();
+  // Identity should already exist (onboarding completed). Defensive
+  // check — if it somehow doesn't, bail; the user can still tap Send
+  // manually after onboarding.
+  if (!hasIdentity()) {
+    log('Cannot auto-join: no identity.', 'err');
+    return;
+  }
+  // Create the transfer and wire up the listeners. ensureSendTransfer
+  // also handles the wirePeerInfoListener registration which is what
+  // shows the connection bar on the 'connected' event.
+  await ensureSendTransfer();
+  // Show the connection bar immediately in "connecting" state so the
+  // user gets feedback while pairing happens in the background. The
+  // peer's nickname is still unknown — peer-info arrives after
+  // channel-open. Bar shows "… — connecting" until then.
+  showConnectionBar();
+  setConnectionBarStatus('connecting');
+  // Initiate the connection. Library fires 'connected' when the data
+  // channel opens; the wirePeerInfoListener-registered handler will
+  // set the bar to 'connected'.
+  try {
+    await activeTransfer.connect(PENDING_JOIN_PEER_ID);
+    // Pairing succeeded — go straight to the pick screen. The user
+    // skips the scan-qr step entirely since pairing already happened.
+    const pickIdx = activeFlow().indexOf('pick');
+    if (pickIdx !== -1) goToStep(pickIdx, 'forward');
+  } catch (err) {
+    log('Auto-join failed: ' + err.message, 'err');
+    // Hide the bar since we never actually paired. Stay on the start
+    // screen so the user can try again manually (or just see the app
+    // in its normal initial state). The error log line tells dev users
+    // what went wrong; for non-dev users the bar just disappears and
+    // they're at the start screen.
+    hideConnectionBar();
+  }
+}
 </script>
 
 </body>

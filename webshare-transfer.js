@@ -347,6 +347,16 @@
             this._handlePeerInfo(msg.info);
             return;
           }
+          if (msg && msg.type === 'bye') {
+            // The sender is closing the channel intentionally. Fire the
+            // disconnected event with a distinct reason so the app can
+            // tell apart "they pressed disconnect" from "the network
+            // ate the channel." Both are treated the same in the app
+            // for now, but the distinction is honest in the logs.
+            this._log('info', 'Peer said bye (intentional disconnect).');
+            this.emit('disconnected', { reason: 'peer-bye' });
+            return;
+          }
           if (msg && msg.type === 'payload') {
             this._status('transferring');
             this.emit('progress', { received: 100, total: 100 });
@@ -422,6 +432,11 @@
             this._handlePeerInfo(msg.info);
             return;
           }
+          if (msg.type === 'bye') {
+            this._log('info', 'Peer said bye (intentional disconnect).');
+            this.emit('disconnected', { reason: 'peer-bye' });
+            return;
+          }
           if (msg.type === 'header') {
             expectedSize = msg.size; receivedChunks = []; receivedSize = 0;
             this._status('transferring');
@@ -475,6 +490,11 @@
       this._conn.on('data', (msg) => {
         if (msg && msg.type === 'peer-info') {
           this._handlePeerInfo(msg.info);
+          return;
+        }
+        if (msg && msg.type === 'bye') {
+          this._log('info', 'Peer said bye (intentional disconnect).');
+          this.emit('disconnected', { reason: 'peer-bye' });
           return;
         }
         if (msg && msg.type === 'ack') {
@@ -629,6 +649,11 @@
             this._handlePeerInfo(msg.info);
             return;
           }
+          if (msg.type === 'bye') {
+            this._log('info', 'Peer said bye (intentional disconnect).');
+            this.emit('disconnected', { reason: 'peer-bye' });
+            return;
+          }
           if (msg.type === 'ack') {
             if (this.onAck) try { this.onAck(msg.response, msg.error); } catch (err) { console.error(err); }
             this._status('done');
@@ -651,6 +676,19 @@
 
     // ----- CLEANUP -----
     close() {
+      // Send a "bye" message to the peer if the channel is still open. This
+      // lets the remote side distinguish an intentional disconnect from a
+      // network blip — though for now both are treated the same in the
+      // app, this is useful information to surface. Best-effort: if the
+      // channel is already closed (or send throws for any reason) we just
+      // move on with the teardown.
+      try {
+        if (this._conn && this._conn.open) {
+          this._conn.send({ type: 'bye' });
+        } else if (this._channel && this._channel.readyState === 'open') {
+          this._channel.send(JSON.stringify({ type: 'bye' }));
+        }
+      } catch {}
       try { this._conn?.close(); } catch {}
       try { this._peer?.destroy(); } catch {}
       try { this._channel?.close(); } catch {}
