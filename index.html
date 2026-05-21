@@ -112,47 +112,136 @@
   }
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
 
-  /* ===== Connection bar ===== */
-  /* Thin single-line text indicator that shows who you're paired with
-     and the current connection status. Sits at the bottom of the screen,
-     just above the bottom nav. No animation, no SVG art — just words
-     and a small device icon.
-     Hidden entirely (display:none via .hidden) when there's no active
-     connection. */
+  /* ===== Connection bar (chat-style) ===== */
+  /* The bar lives at the bottom of the screen during a paired session.
+     Visually: light-gray surface, peer avatar on the left, a white speech
+     balloon (WhatsApp-style, with a top-left tail) holding the status.
+     The balloon-from-the-peer's-side framing makes the bar read like an
+     ambient chat surface; the peer's last "message" reflects what just
+     happened.
+
+     Two layout modes on the same .connection-bar host:
+       - default (paired):     [avatar] [balloon-with-status]
+       - .awaiting:            centered italic placeholder, no avatar/balloon
+                                 (used while the receiver shows their QR
+                                 and no one has scanned yet)
+
+     The "(N min ago)" stale-time logic runs the same in both modes —
+     a setInterval refreshes the timestamp once a minute has passed. */
   .connection-bar {
     flex-shrink: 0;
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 14px;
-    background: var(--bg);
+    background: #ECECEC;
     border-top: 1px solid rgba(0, 0, 0, 0.08);
-    font-size: 13px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
     color: var(--ink);
+    min-height: 56px;
     animation: connection-bar-in 0.2s ease-out;
   }
   @keyframes connection-bar-in {
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
   }
-  .conn-bar-icon { flex-shrink: 0; display: inline-flex; }
-  .conn-bar-icon svg { display: block; }
-  .conn-bar-text {
-    min-width: 0; flex: 1;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .conn-bar-peer  { font-weight: 600; }
-  .conn-bar-sep   { color: var(--dim); }
-  .conn-bar-status { color: var(--ink); }
-  .conn-bar-stale { color: var(--dim); margin-left: 4px; font-style: italic; }
 
-  /* When the peer has disconnected, dim the whole bar so the user gets
-     a passive visual cue alongside the "disconnected" word. No alarm
-     red, no animation — just a quieter version of the same bar. */
-  .connection-bar.disconnected { color: var(--dim); }
-  .connection-bar.disconnected .conn-bar-peer { color: var(--dim); font-weight: 500; }
-  .connection-bar.disconnected .conn-bar-icon svg { opacity: 0.5; }
+  /* Awaiting state — no peer yet. Centered italic placeholder. Hide the
+     avatar + balloon when in this mode, show the awaiting-msg instead. */
+  .connection-bar.awaiting { justify-content: center; }
+  .connection-bar.awaiting .conn-bar-avatar,
+  .connection-bar.awaiting .conn-bar-balloon { display: none; }
+  .connection-bar:not(.awaiting) .conn-bar-awaiting-msg { display: none; }
+  .conn-bar-awaiting-msg {
+    color: #777;
+    font-size: 13px;
+    font-style: italic;
+    text-align: center;
+  }
+
+  /* Avatar: 36px device-frame SVG with the peer's emoji inside. Reuses
+     renderDeviceSVG (same helper used elsewhere) — JS just plugs the
+     SVG string into the avatar container. */
+  .conn-bar-avatar {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+  }
+  .conn-bar-avatar svg { display: block; }
+
+  /* The speech balloon. WhatsApp incoming-message style:
+       - white background, soft drop shadow
+       - 8px rounded corners except top-left which is square (the tail eats
+         into that corner)
+       - small triangular notch on the top-left, created with a CSS
+         ::before pseudo-element borrowing the white fill + a faint shadow
+     The balloon flexes to fit content but truncates with ellipsis if
+     the status text is unusually long. */
+  .conn-bar-balloon {
+    position: relative;
+    background: #fff;
+    color: #111;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border-top-left-radius: 0;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.13);
+    font-size: 14px;
+    line-height: 1.3;
+    max-width: calc(100% - 50px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .conn-bar-balloon::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -8px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 8px 8px 0;
+    border-color: transparent #fff transparent transparent;
+    filter: drop-shadow(-1px 1px 0.5px rgba(0, 0, 0, 0.07));
+  }
+  /* The "(N min ago)" timestamp suffix — dim, smaller, separated by some
+     space from the main status text. Empty by default until 60s pass. */
+  .conn-bar-time {
+    color: #888;
+    font-size: 11px;
+    margin-left: 8px;
+  }
+
+  /* Typing-dots indicator — three bouncing dots, used during the
+     connecting state when there's no peer-info yet to display words.
+     Reads as "the peer is composing a message" which fits the chat
+     metaphor while channel handshake is in progress. */
+  .typing-dots {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    height: 18px;
+  }
+  .typing-dots span {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #999;
+    animation: typing-bounce 1.2s ease-in-out infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes typing-bounce {
+    0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-2px); }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .connection-bar { animation: none; }
+    .typing-dots span { animation: none; opacity: 0.7; }
   }
 
   /* ===== Screen container ===== */
@@ -359,27 +448,21 @@
     opacity: 0;
     animation: sent-text-in 0.4s ease-out 0.2s forwards;
   }
-  .sent-subline {
-    text-align: center; color: var(--dim); font-size: 14px;
-    margin-top: 6px;
-    opacity: 0;
-    animation: sent-text-in 0.4s ease-out 0.4s forwards;
-  }
   @keyframes sent-text-in {
     from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   /* Honor user preference for reduced motion: skip animations, show end state */
   @media (prefers-reduced-motion: reduce) {
-    .sent-headline, .sent-subline { animation: none; opacity: 1; transform: none; }
+    .sent-headline { animation: none; opacity: 1; transform: none; }
     .sent-actions-hidden { opacity: 1 !important; pointer-events: auto !important; }
   }
 
   /* Skip/error variants of the sent view. Color the headline differently
      so the user immediately reads "this isn't a success" vs the normal
      accent-deep blue for success. The connection bar at the bottom also
-     reflects the outcome (idle pastel for skip, fading device for error)
-     so the two indicators reinforce each other. */
+     reflects the outcome (its balloon shows the specific action), so
+     the two indicators reinforce each other. */
   .sent-skipped .sent-headline { color: var(--ink); }
   .sent-error   .sent-headline { color: var(--warn); }
 
@@ -1147,14 +1230,12 @@
       </div>
 
       <!-- Sent view (sender only, after status='done').
-           Pure text content + actions. The visual "transfer happened"
-           feedback lives in the connection bar at the bottom of the
-           screen (rainbow scroll for success). No standalone plane
-           animation in the content area — that would be duplicate
-           celebration. -->
+           Headline + two action buttons. The per-outcome detail
+           (Saved/Replaced/Merged/Skipped) lives in the connection bar's
+           balloon at the bottom of the screen — no subline here would
+           duplicate that. -->
       <div class="hidden" id="transfer-sent-view">
         <h2 class="sent-headline" id="sent-headline">Sent!</h2>
-        <p class="sent-subline" id="sent-subline">Your session has been delivered.</p>
         <!-- Two actions, revealed together via a short delayed reveal:
                - "Send another →" (primary): reuses the connection, returns
                  the user to the pick screen to choose another session.
@@ -1182,24 +1263,27 @@
   <div class="log" id="log"></div>
 </div>
 
-<!-- CONNECTION BAR — thin single-line text indicator at the bottom of the
-     screen, just above the bottom nav. Visible only when paired. Shows:
-       [device frame with peer's emoji]  peer-nickname — last-status  (X min ago)
-     Three pieces of dynamic content, populated by JS:
-       - .conn-bar-icon: 24px SVG of the peer's device frame + emoji
-       - .conn-bar-peer: the peer's nickname
-       - .conn-bar-status: short curated status word ("connected", "sending…",
-         "sent ✓", "not kept", "disconnected"). The relative timestamp
-         "(X min ago)" appends after 1 minute and refreshes live via a
-         setInterval started when the status is set.
-     No animation, no SVG art — just a sentence. -->
+<!-- CONNECTION BAR (chat-bubble style)
+     A persistent ambient strip at the bottom of every screen during a
+     paired session. Visually a light-gray surface with the peer's
+     avatar on the left and a white WhatsApp-style speech balloon to
+     the right holding the current status.
+
+     Two layout modes via the .awaiting class:
+       - default:       avatar + balloon visible (.conn-bar-awaiting-msg hidden)
+       - .awaiting:     centered italic placeholder visible
+                        (avatar + balloon hidden — no peer to display yet)
+
+     JS API: setConnectionBarStatus(state, ...args)  in connection-bar
+     section below. State keys are 'awaiting', 'connecting', 'connected',
+     'sending', 'receiving', 'created', 'replaced', 'merged', 'skipped',
+     'error', 'disconnected'. -->
 <div class="connection-bar hidden" id="connection-bar">
-  <span class="conn-bar-icon" id="conn-bar-icon" aria-hidden="true"></span>
-  <span class="conn-bar-text">
-    <span class="conn-bar-peer" id="conn-bar-peer">…</span>
-    <span class="conn-bar-sep"> — </span>
-    <span class="conn-bar-status" id="conn-bar-status">connecting</span>
-    <span class="conn-bar-stale" id="conn-bar-stale"></span>
+  <span class="conn-bar-awaiting-msg" id="conn-bar-awaiting-msg">Waiting for someone to scan your QR…</span>
+  <span class="conn-bar-avatar" id="conn-bar-avatar" aria-hidden="true"></span>
+  <span class="conn-bar-balloon" id="conn-bar-balloon">
+    <span class="conn-bar-balloon-text" id="conn-bar-balloon-text">connecting…</span>
+    <span class="conn-bar-time" id="conn-bar-time"></span>
   </span>
 </div>
 
@@ -1922,12 +2006,24 @@ async function setupShowQRScreen() {
     $('show-qr-subtitle').textContent = DEV_MODE
       ? 'On the sending device, scan this QR or type the ID below.'
       : 'On the sending device, scan this QR.';
+    // Show the awaiting bar — receiver is sitting here waiting for someone
+    // to scan. Once a sender connects, the library's 'connected' event
+    // fires and the bar transitions to the paired state.
+    // Only show when not already paired (otherwise we'd hide an active bar).
+    if (!remotePeerInfo) {
+      showConnectionBar();
+      setConnectionBarStatus('awaiting');
+    }
     // Start the transfer if not already
     await ensureReceiveTransfer();
     // The transfer's 'show-qr' event will fill in the QR
   } else if (currentMode === 'receive' && currentBackend === 'raw') {
     $('show-qr-title').textContent = 'Scan this with the sender';
     $('show-qr-subtitle').textContent = 'On the sending device, point its camera at this animated QR.';
+    if (!remotePeerInfo) {
+      showConnectionBar();
+      setConnectionBarStatus('awaiting');
+    }
     await ensureReceiveTransfer();
   } else if (currentMode === 'send' && currentBackend === 'raw') {
     // This is the 'answer QR' step
@@ -2153,52 +2249,33 @@ function showSentAnimation() {
   void actions.offsetWidth;  // force reflow so the animation restarts
   actions.classList.add('sent-actions-hidden');
 
-  // The visual "transfer happened" celebration lives in the connection bar
-  // at the bottom (rainbow scroll for success, idle pastel for skip,
-  // device fade for error). Here we set the words that go with it.
+  // The bar at the bottom carries the per-outcome detail (its balloon
+  // reports "Saved as a new session!" / "Replaced the session!" /
+  // "Merged the session!" / "Session skipped"). The sent view stays
+  // focused on the moment: a single headline + the two action buttons
+  // (Send another, Disconnect). No subline — that would duplicate the
+  // bar's message.
   //
-  // Three outcome categories drive headline + subline:
-  //   - success (created/replaced/merged): cheerful headline, outcome-
-  //     specific subline naming the receiver and what they did with it
-  //   - skipped: honest neutral copy, no celebration
-  //   - error: error headline + the actual error message
+  // Three outcome categories drive the headline:
+  //   - success (created/replaced/merged): cheerful "Sent! 🎉"
+  //   - skipped: honest "Not kept"
+  //   - error: "Not delivered"
   // The .sent-skipped / .sent-error classes are kept on the wrapper so
-  // CSS can tweak entrance animation timing per outcome (see styles).
+  // CSS can color the headline differently per outcome.
   const sentView = $('transfer-sent-view');
   sentView.classList.remove('sent-skipped', 'sent-error');
-  // Use the receiver's nickname when we know it; falls back to a generic
-  // phrase otherwise. Keeps the copy from saying "undefined merged…".
-  const who = (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname : 'The receiver';
   let headline = 'Sent! 🎉';
-  let subline  = 'Your session has been delivered.';
   if (receiverError) {
     sentView.classList.add('sent-error');
     headline = 'Not delivered';
-    subline  = `Something went wrong on the other device: ${receiverError}`;
   } else if (receiverAction === 'skipped') {
     sentView.classList.add('sent-skipped');
     headline = 'Not kept';
-    subline  = `${who} chose not to keep this session.`;
-  } else {
-    switch (receiverAction) {
-      case 'created':
-        headline = 'Sent! 🎉';
-        subline  = `${who} added it as a new session.`;
-        break;
-      case 'replaced':
-        headline = 'Sent! 🎉';
-        subline  = `${who} replaced their copy with yours.`;
-        break;
-      case 'merged':
-        headline = 'Sent! 🎉';
-        subline  = `${who} merged it into their session.`;
-        break;
-      // null / unknown — keep generic defaults
-    }
   }
+  // else: created/replaced/merged all get the same headline. The bar
+  // disambiguates which action happened.
   $('sent-headline').textContent = headline;
-  $('sent-subline').textContent = subline;
-  // Hide the screen header so the moment is just headline + subline + buttons
+  // Hide the screen header — the moment is just headline + buttons.
   $('transfer-header').classList.add('hidden');
 }
 
@@ -2348,29 +2425,43 @@ async function ensureSendTransfer() {
 }
 
 // =====================================================================
-// Connection bar — thin single-line text indicator at the bottom of the
-// screen. Shows the remote peer's identity + the current status. No
-// animation, no SVG art.
+// Connection bar — chat-bubble status surface at the bottom of every
+// screen during a paired session. Light-gray strip with peer avatar +
+// white speech balloon.
 // =====================================================================
 //
-// Visible only while paired. The bar's visibility is also the source of
-// truth for "are we paired?" — updateNavBar reads it to decide whether
-// the bottom-nav back button should say "← Back" or "Disconnect".
+// Visibility is the source of truth for "are we paired?":
+// updateNavBar() reads it to decide whether the bottom-nav back button
+// should say "← Back" or "Disconnect".
 //
-// Status text is set explicitly by callers via setConnectionBarStatus().
-// Examples:  'connecting', 'connected', 'sending…', 'receiving…',
-//            'sent ✓', 'not kept', 'disconnected'.
-// When set, we record the timestamp. A setInterval refreshes the bar
-// every 30s; once the status is more than 1 minute old, "(N min ago)"
-// is appended after the status word.
+// State model — callers use setConnectionBarStatus(stateKey). Each state
+// renders the right copy + layout:
+//
+//   awaiting        centered italic "Waiting for someone to scan…"
+//                   (receiver on show-QR, no peer connected yet)
+//   connecting      balloon with bouncing typing-dots, no text
+//   connected       balloon: "<nickname> connected"   (only state that
+//                   names the peer — the avatar identifies them after)
+//   outgoing        balloon: "Receiving session…"     (we send, they receive)
+//   incoming        balloon: "Sending session…"       (they send, we receive)
+//   created         balloon: "Saved as a new session!"
+//   replaced        balloon: "Replaced the session!"
+//   merged          balloon: "Merged the session!"
+//   skipped         balloon: "Session skipped"
+//   error           balloon: "Something went wrong"
+//   disconnected    balloon: "Bye!"
+//
+// Timestamp logic: each setConnectionBarStatus call records "now". An
+// interval refreshes the suffix every 30s; after 1 full minute has
+// passed since the last status change, "(N min ago)" appears next to
+// the balloon text.
 
 let connBarStatusSetAt = 0;       // ms timestamp of last setConnectionBarStatus
-let connBarStaleTimer = null;     // setInterval handle for refreshing "(X min ago)"
+let connBarStaleTimer = null;     // setInterval handle for the (X min ago) refresh
 
 function showConnectionBar() {
   const bar = $('connection-bar');
   bar.classList.remove('hidden');
-  bar.classList.remove('disconnected');
   // Force the entrance animation to restart by reflow so re-showing
   // (e.g. after a hide cycle) animates in again, not silently appearing.
   void bar.offsetWidth;
@@ -2379,55 +2470,100 @@ function showConnectionBar() {
   if (!connBarStaleTimer) {
     connBarStaleTimer = setInterval(refreshConnBarStale, 30 * 1000);
   }
-  // The Back button label depends on whether the bar is visible — refresh
-  // it so the nav transitions from "← Back" to "Disconnect".
+  // The Back button label depends on bar visibility — refresh.
   updateNavBar();
 }
 
 function hideConnectionBar() {
   const bar = $('connection-bar');
   bar.classList.add('hidden');
-  bar.classList.remove('disconnected');
+  bar.classList.remove('awaiting');
   if (connBarStaleTimer) { clearInterval(connBarStaleTimer); connBarStaleTimer = null; }
-  // Nav label reverts to "← Back"
   updateNavBar();
 }
 
-// Set the displayed status word and reset the "X min ago" timer.
-// Optional 'disconnectedStyle' flag dims the whole bar (no alarm, just
-// quieter) — used when the peer has gone away.
-function setConnectionBarStatus(text, { disconnected = false } = {}) {
-  $('conn-bar-status').textContent = text;
-  $('conn-bar-stale').textContent = '';
-  connBarStatusSetAt = Date.now();
+// Set the bar's current state. stateKey is one of the keys documented
+// at the top of this section. Each key maps to layout + copy; this is
+// the single source of truth for what each state looks like.
+function setConnectionBarStatus(stateKey) {
   const bar = $('connection-bar');
-  bar.classList.toggle('disconnected', disconnected);
+  const balloonText = $('conn-bar-balloon-text');
+
+  // Awaiting is the one mode that hides the avatar + balloon and shows
+  // the centered italic placeholder instead. Toggling .awaiting on the
+  // bar host flips the layout via CSS.
+  if (stateKey === 'awaiting') {
+    bar.classList.add('awaiting');
+    connBarStatusSetAt = 0;       // no "X min ago" while awaiting
+    $('conn-bar-time').textContent = '';
+    return;
+  }
+  bar.classList.remove('awaiting');
+
+  // Connecting: balloon shows bouncing typing dots, no words. Peer-info
+  // typically arrives within ms of channel open; once 'connected' state
+  // is set we'll overwrite this with the nickname.
+  if (stateKey === 'connecting') {
+    balloonText.innerHTML =
+      '<span class="typing-dots"><span></span><span></span><span></span></span>';
+    connBarStatusSetAt = 0;       // no "X min ago" while connecting
+    $('conn-bar-time').textContent = '';
+    return;
+  }
+
+  // For all other states we set a text string in the balloon and record
+  // the timestamp so the "X min ago" suffix can tick up.
+  balloonText.textContent = copyForState(stateKey);
+  connBarStatusSetAt = Date.now();
+  $('conn-bar-time').textContent = 'now';
+}
+
+// Map a stateKey to the user-facing copy that goes in the balloon.
+// Connected is the one state that names the peer (the welcome moment);
+// every other state stays name-free since the avatar identifies who.
+//
+// Direction states ('incoming' / 'outgoing') are named from the LOCAL
+// user's POV. The balloon copy is then phrased from the PEER's side
+// (matching the balloon-from-peer visual metaphor):
+//   - 'incoming' (we are receiving) → peer is sending → "Sending session…"
+//   - 'outgoing' (we are sending)   → peer is receiving → "Receiving session…"
+function copyForState(stateKey) {
+  switch (stateKey) {
+    case 'connected': {
+      const nick = (remotePeerInfo && remotePeerInfo.nickname) || 'peer';
+      return `${nick} connected`;
+    }
+    case 'outgoing':     return 'Receiving session…';
+    case 'incoming':     return 'Sending session…';
+    case 'created':      return 'Saved as a new session!';
+    case 'replaced':     return 'Replaced the session!';
+    case 'merged':       return 'Merged the session!';
+    case 'skipped':      return 'Session skipped';
+    case 'error':        return 'Something went wrong';
+    case 'disconnected': return 'Bye!';
+    default:             return stateKey;  // defensive fallback
+  }
 }
 
 // Refresh the "(X min ago)" suffix. Runs every 30s while the bar is up.
 function refreshConnBarStale() {
-  if (!connBarStatusSetAt) return;
+  if (!connBarStatusSetAt) return;          // awaiting or connecting — no timestamp yet
   const minutes = Math.floor((Date.now() - connBarStatusSetAt) / 60000);
-  // Only show the suffix once a full minute has passed
-  $('conn-bar-stale').textContent = minutes >= 1 ? `(${minutes} min ago)` : '';
+  $('conn-bar-time').textContent = minutes >= 1 ? `${minutes} min ago` : 'now';
 }
 
-// Render the peer name + device icon into the bar. Reads remotePeerInfo
-// (the remote peer's identity, populated by the library's peer-info
-// event). If peer-info hasn't arrived yet, shows a placeholder.
+// Render the avatar (peer's device frame + emoji). Reads remotePeerInfo;
+// shows a placeholder if peer-info hasn't arrived yet.
 function renderConnectionBarPeer() {
   const info = remotePeerInfo;
-  const peerEl = $('conn-bar-peer');
-  const iconEl = $('conn-bar-icon');
+  const avatar = $('conn-bar-avatar');
   if (info && info.nickname) {
-    peerEl.textContent = info.nickname;
-    iconEl.innerHTML = renderDeviceSVG(info.emoji || '?', {
-      size: 24,
+    avatar.innerHTML = renderDeviceSVG(info.emoji || '?', {
+      size: 36,
       type: info.device || 'laptop'
     });
   } else {
-    peerEl.textContent = '…';
-    iconEl.innerHTML = renderDeviceSVG('?', { size: 24, type: 'laptop' });
+    avatar.innerHTML = renderDeviceSVG('?', { size: 36, type: 'laptop' });
   }
 }
 
@@ -2439,37 +2575,40 @@ function wirePeerInfoListener(t) {
       const clockOffset = info.sentAt ? (Date.now() - info.sentAt) : null;
       log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
     }
-    // Update the bar with the now-known remote identity
+    // Refresh the avatar with the now-known peer identity. If the bar
+    // is currently in 'connected' state, also re-render the balloon
+    // text so it picks up the nickname we now have.
     renderConnectionBarPeer();
+    const balloonText = $('conn-bar-balloon-text').textContent;
+    if (balloonText && balloonText.endsWith(' connected')) {
+      // Re-resolve the connected copy with the now-known nickname.
+      $('conn-bar-balloon-text').textContent = copyForState('connected');
+    }
   });
-  // The library emits 'connected' the moment the data channel opens.
-  // That's also our cue to show the bar. The peer's identity will fill
-  // in immediately after via the peer-info event (typically ms later).
+  // 'connected' fires when the data channel opens. Show the bar and
+  // set the connected state. Peer-info usually arrives ms later and
+  // updates the nickname in place.
   t.on('connected', () => {
     showConnectionBar();
     setConnectionBarStatus('connected');
   });
-  // 'disconnected' fires when the channel closes — could be the peer's
-  // intentional close (bye message), a network drop, or a tab close.
-  // All treated the same: show the disconnected status briefly, then
-  // route the user to the start screen as if they'd hit Disconnect
-  // themselves. The status update happens on the way out so it's the
-  // last thing the bar shows before being hidden. handleRemoteDisconnect
-  // does the actual cleanup + navigation.
+  // 'disconnected' fires when the channel closes — peer-bye, channel
+  // close, network blip, all the same. Show the disconnect status
+  // (briefly visible before we route to start) then route.
   t.on('disconnected', () => {
-    setConnectionBarStatus('disconnected', { disconnected: true });
+    setConnectionBarStatus('disconnected');
     handleRemoteDisconnect();
   });
 }
 
 // The peer disconnected on us. Route to start the same way the user's
 // own Disconnect button does — closes activeTransfer (defensive; usually
-// already closed), navigates to start. The onEnterScreen('start') hook
-// hides the bar and resets state.
+// already closed), navigates to start. onEnterScreen('start') hides
+// the bar and resets state.
 function handleRemoteDisconnect() {
-  // Avoid a duplicate route if we're already heading to start (e.g. the
-  // local user pressed Disconnect, which closed the channel, which fired
-  // disconnected on this side too via the close event).
+  // Avoid a duplicate route if we're already heading to start (e.g.
+  // local user pressed Disconnect, which closed the channel, which
+  // fired disconnected on this side too).
   if (currentScreenId() === 'start') return;
   restartToStart();
 }
@@ -2507,29 +2646,31 @@ function wireTransferToReceiveUI(t) {
   });
   t.on('status', (s) => {
     if (s === 'transferring') {
-      setConnectionBarStatus('receiving…');
+      setConnectionBarStatus('incoming');
     }
     if (s === 'done') {
-      // Title and status reflect the terminal state. justTransferredDirection
-      // is set by handleIncomingSession only when a session was actually
-      // stored (created / replaced / merged). If it's null the receiver
-      // chose Skip, so we shouldn't pretend they "Received" anything.
-      const skipped = justTransferredDirection !== 'received';
+      // The receiver's choice (created / replaced / merged / skipped) was
+      // set inside handleIncomingSession. Map that to the right bar state
+      // so the balloon reports what happened.
+      const skipped = receiverAction === 'skipped';
       if (!skipped) {
         $('transfer-title').textContent = 'Received';
         setTransferStatus('Done.', 'ok');
-        setConnectionBarStatus('received ✓');
       } else {
         $('transfer-title').textContent = 'Skipped';
         setTransferStatus('Nothing was changed.', '');
-        setConnectionBarStatus('not kept');
       }
+      // Each receiver action has its own bar state. 'created' / 'replaced'
+      // / 'merged' / 'skipped' all live in copyForState. If for some
+      // reason the action is null (shouldn't happen on a successful
+      // receive), fall back to a generic 'created' message.
+      setConnectionBarStatus(receiverAction || 'created');
       revealPostTransferSessions();
     }
     if (s === 'error') {
       $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Error during receive.', 'err');
-      setConnectionBarStatus('error', { disconnected: true });
+      setConnectionBarStatus('error');
       showProgressRestartButton('Disconnect');
     }
   });
@@ -2578,7 +2719,7 @@ function wireTransferToSendUI(t) {
   });
   t.on('status', (s) => {
     if (s === 'transferring') {
-      setConnectionBarStatus('sending…');
+      setConnectionBarStatus('outgoing');
     }
     if (s === 'done') {
       // For the sender, the just-touched session is the one we picked.
@@ -2601,19 +2742,18 @@ function wireTransferToSendUI(t) {
           await putSession(s);
         })();
       }
-      // Bar status word picks the most accurate word for the outcome.
-      // receiverError + receiverAction were set by onAck which fired
-      // immediately before status='done' in the library.
-      if (receiverError)                       setConnectionBarStatus('error', { disconnected: true });
-      else if (receiverAction === 'skipped')   setConnectionBarStatus('not kept');
-      else                                     setConnectionBarStatus('sent ✓');
-      // Swap to the sent view (headline + subline + buttons).
+      // Bar reports the receiver's outcome. receiverError + receiverAction
+      // were set by onAck which fired immediately before status='done'.
+      if (receiverError)        setConnectionBarStatus('error');
+      else if (receiverAction)  setConnectionBarStatus(receiverAction);
+      else                      setConnectionBarStatus('created');  // defensive default
+      // Swap to the sent view (headline + buttons; bar carries the detail).
       showSentAnimation();
     }
     if (s === 'error') {
       $('transfer-title').textContent = 'Something went wrong';
       setTransferStatus('Error during send.', 'err');
-      setConnectionBarStatus('error', { disconnected: true });
+      setConnectionBarStatus('error');
       showProgressRestartButton('Disconnect');
     }
   });
@@ -2655,11 +2795,13 @@ async function handleIncomingSession(payload) {
     refreshSessionsCount();
     justTransferredId = incoming.id;
     justTransferredDirection = 'received';
+    receiverAction = 'created';
     return { ok: true, action: 'created' };
   }
   const choice = await showConflictModal(existing, incoming);
   if (choice === 'skip') {
     log('Skipped.', 'err');
+    receiverAction = 'skipped';
     return { ok: true, action: 'skipped' };
   }
   if (choice === 'replace') {
@@ -2673,6 +2815,7 @@ async function handleIncomingSession(payload) {
     refreshSessionsCount();
     justTransferredId = incoming.id;
     justTransferredDirection = 'received';
+    receiverAction = 'replaced';
     return { ok: true, action: 'replaced' };
   }
   // Merge using shape-aware helper. Returns null if shapes mismatch (object vs array).
@@ -2694,6 +2837,7 @@ async function handleIncomingSession(payload) {
   refreshSessionsCount();
   justTransferredId = existing.id;
   justTransferredDirection = 'received';
+  receiverAction = 'merged';
   return { ok: true, action: 'merged' };
 }
 
