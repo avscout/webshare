@@ -37,6 +37,7 @@
     --accent: var(--tud-cyan);
     --accent-deep: var(--tud-darkblue);
     --warn: #E03C31;
+    --warn-warm: #E07A2B;
     --ok: #009B77;
 
     --sans: Arial, 'Helvetica Neue', Helvetica, sans-serif;
@@ -112,33 +113,24 @@
   }
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
 
-  /* ===== Connection bar (chat-style) ===== */
-  /* The bar lives at the bottom of the screen during a paired session.
-     Visually: light-gray surface, peer avatar on the left, a white speech
-     balloon (WhatsApp-style, with a top-left tail) holding the status.
-     The balloon-from-the-peer's-side framing makes the bar read like an
-     ambient chat surface; the peer's last "message" reflects what just
-     happened.
-
-     Two layout modes on the same .connection-bar host:
-       - default (paired):     [avatar] [balloon-with-status]
-       - .awaiting:            centered italic placeholder, no avatar/balloon
-                                 (used while the receiver shows their QR
-                                 and no one has scanned yet)
-
-     The "(N min ago)" stale-time logic runs the same in both modes —
-     a setInterval refreshes the timestamp once a minute has passed. */
+  /* ===== Connection bar ===== */
+  /* A thin strip at the bottom of every paired screen.
+     The bar shows: peer avatar (24px device frame with emoji), peer
+     nickname, and a connection status label. Four live states:
+     'connecting', 'connected', 'error', 'disconnected'. Transfer-state
+     calls (incoming/outgoing/created/replaced/merged/skipped) are no-ops
+     since the transfer screen already surfaces that info on-screen. */
   .connection-bar {
     flex-shrink: 0;
     background: #ECECEC;
     border-top: 1px solid rgba(0, 0, 0, 0.08);
-    padding: 12px 14px;
+    padding: 8px 14px;
     display: flex;
     align-items: center;
     gap: 10px;
     font-size: 14px;
     color: var(--ink);
-    min-height: 56px;
+    min-height: 40px;
     animation: connection-bar-in 0.2s ease-out;
   }
   @keyframes connection-bar-in {
@@ -146,103 +138,30 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* Awaiting state — no peer yet. Centered italic placeholder. Hide the
-     avatar + balloon when in this mode, show the awaiting-msg instead. */
-  .connection-bar.awaiting { justify-content: center; }
-  .connection-bar.awaiting .conn-bar-avatar,
-  .connection-bar.awaiting .conn-bar-balloon { display: none; }
-  .connection-bar:not(.awaiting) .conn-bar-awaiting-msg { display: none; }
-  .conn-bar-awaiting-msg {
-    color: #777;
-    font-size: 13px;
-    font-style: italic;
-    text-align: center;
-  }
-
-  /* Avatar: 36px device-frame SVG with the peer's emoji inside. Reuses
-     renderDeviceSVG (same helper used elsewhere) — JS just plugs the
-     SVG string into the avatar container. */
   .conn-bar-avatar {
     display: inline-flex;
     flex-shrink: 0;
-    width: 36px;
-    height: 36px;
+    width: 24px;
+    height: 24px;
     align-items: center;
     justify-content: center;
   }
   .conn-bar-avatar svg { display: block; }
 
-  /* The speech balloon. WhatsApp incoming-message style:
-       - white background, soft drop shadow
-       - 8px rounded corners except top-left which is square (the tail eats
-         into that corner)
-       - small triangular notch on the top-left, created with a CSS
-         ::before pseudo-element borrowing the white fill + a faint shadow
-     The balloon flexes to fit content but truncates with ellipsis if
-     the status text is unusually long. */
-  .conn-bar-balloon {
-    position: relative;
-    background: #fff;
-    color: #111;
-    padding: 7px 12px;
-    border-radius: 8px;
-    border-top-left-radius: 0;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.13);
-    font-size: 14px;
-    line-height: 1.3;
-    max-width: calc(100% - 50px);
+  .conn-bar-nick {
+    font-weight: 600;
+    color: var(--ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .conn-bar-balloon::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -8px;
-    width: 0;
-    height: 0;
-    border-style: solid;
-    border-width: 0 8px 8px 0;
-    border-color: transparent #fff transparent transparent;
-    filter: drop-shadow(-1px 1px 0.5px rgba(0, 0, 0, 0.07));
+  .conn-bar-status {
+    color: #777;
+    font-size: 13px;
+    margin-left: auto;
+    flex-shrink: 0;
   }
-  /* The "(N min ago)" timestamp suffix — dim, smaller, separated by some
-     space from the main status text. Empty by default until 60s pass. */
-  .conn-bar-time {
-    color: #888;
-    font-size: 11px;
-    margin-left: 8px;
-  }
-
-  /* Typing-dots indicator — three bouncing dots, used during the
-     connecting state when there's no peer-info yet to display words.
-     Reads as "the peer is composing a message" which fits the chat
-     metaphor while channel handshake is in progress. */
-  .typing-dots {
-    display: inline-flex;
-    gap: 3px;
-    align-items: center;
-    height: 18px;
-  }
-  .typing-dots span {
-    display: inline-block;
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: #999;
-    animation: typing-bounce 1.2s ease-in-out infinite;
-  }
-  .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
-  .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
-  @keyframes typing-bounce {
-    0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-    30% { opacity: 1; transform: translateY(-2px); }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .connection-bar { animation: none; }
-    .typing-dots span { animation: none; opacity: 0.7; }
-  }
+  .conn-bar-status.err { color: #C0392B; }
 
   /* ===== Screen container ===== */
   .stage {
@@ -274,7 +193,6 @@
     font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
     color: var(--dim); font-weight: 700;
   }
-  .screen-eyebrow .num { color: var(--accent); }
   .screen-title {
     font-size: 22px; font-weight: 700; color: var(--ink); margin-top: 6px;
     line-height: 1.2; letter-spacing: -0.01em;
@@ -328,23 +246,23 @@
      no "active" state because tapping IS the action (commits and advances
      in one motion). Big label, small subtitle, generous tap target. */
   .direction-actions {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    display: grid; grid-template-columns: 1fr; gap: 14px;
     margin-bottom: 18px;
   }
   .direction-btn {
     background: var(--accent); color: #FFFFFF; border: none;
-    padding: 28px 16px; font-family: var(--sans);
+    padding: 38px 20px; font-family: var(--sans);
     cursor: pointer; transition: background 0.15s, transform 0.05s;
     text-align: center;
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
   }
   .direction-btn:hover { background: var(--tud-cyan-dark); }
   .direction-btn:active { transform: scale(0.985); }
   .direction-btn-label {
-    font-size: 22px; font-weight: 700; letter-spacing: -0.01em;
+    font-size: 30px; font-weight: 700; letter-spacing: -0.01em;
   }
   .direction-btn-sub {
-    font-size: 12px; opacity: 0.85; font-weight: 400;
+    font-size: 14px; opacity: 0.85; font-weight: 400;
   }
 
   /* QR area, big and centered for mobile */
@@ -402,20 +320,440 @@
     border: 1px solid var(--line); margin-bottom: 14px;
     max-height: 50vh; overflow-y: auto; background: var(--bg);
   }
-  .session-list:empty::before { content: 'No sessions yet.'; display: block; padding: 16px; color: var(--dim); font-style: italic; }
-  .session-row { display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; }
+  .session-list:empty::before { content: 'No reports yet.'; display: block; padding: 16px; color: var(--dim); font-style: italic; }
+  .session-row { display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; align-items: center; }
   .session-row:last-child { border-bottom: none; }
   .session-row:hover { background: var(--bg-subtle); }
   .session-row.selected { background: rgba(0, 166, 214, 0.08); border-left: 4px solid var(--accent); padding-left: 10px; }
+  /* Origin tile at the left — pastel circle with the creator/sender's
+     emoji. Tells the user at a glance who this report came from. */
+  .session-row-origin { flex-shrink: 0; }
+  .session-row-origin svg { display: block; }
   .session-row .info { flex: 1; min-width: 0; }
-  .session-row .name { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .session-row .meta { color: var(--dim); font-size: 11px; margin-top: 3px; }
-  .session-row .id { color: var(--accent-deep); font-size: 10px; font-family: var(--mono); }
-  .session-row .history-preview {
-    color: var(--accent-deep); font-size: 11px; margin-top: 3px;
+  /* Name line — wraps the report name plus an optional dev-mode ID
+     pill. The name shrinks before the pill (the pill is short, the
+     name can be long); both stay on one line, name truncates. */
+  .session-row .name-line {
+    display: flex; align-items: center; gap: 6px;
+    min-width: 0;
+  }
+  .session-row .name {
+    color: var(--ink); font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+  }
+  /* Dev-only "id pill" — tiny monospace badge next to the name so devs
+     can spot the underlying session ID without it crowding the meta row. */
+  .session-row .id-pill {
+    flex-shrink: 0;
+    display: inline-flex; align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--line);
+    font-family: var(--mono); font-size: 10px;
+    color: var(--accent-deep);
+    line-height: 1.4;
+  }
+  .session-row .meta {
+    color: var(--dim); font-size: 11px; margin-top: 3px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .session-row .history-preview.hidden { display: none; }
+  .session-row .meta .origin-label { color: var(--dim); }
+  .session-row .meta .origin-name { color: var(--ink-soft); font-weight: 600; }
+
+  /* Per-row action buttons — icon-only, ~32px square. The trash icon
+     gets a subtle red tint on hover; the others lean into the accent. */
+  .session-row-actions {
+    display: flex; gap: 2px; align-items: center;
+    flex-shrink: 0;
+  }
+  .session-row-action {
+    width: 32px; height: 32px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    padding: 0;
+  }
+  .session-row-action svg {
+    width: 16px; height: 16px;
+    display: block;
+  }
+  .session-row-action:hover {
+    background: var(--bg);
+    border-color: var(--line);
+    color: var(--accent);
+  }
+  .session-row-action.danger { color: var(--warn); }
+  .session-row-action.danger:hover {
+    background: var(--bg);
+    border-color: var(--warn);
+    color: var(--warn);
+  }
+  .session-row-action:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  /* Active state — the icon currently driving an open accordion panel.
+     Subtle filled background so the user can see which panel they're
+     looking at. */
+  .session-row-action.active {
+    background: var(--bg);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Inline accordion panel under a session row. Holds the Edit form
+     or the History list when the user taps the corresponding icon.
+     Only one panel open per list at a time (enforced in JS). */
+  .session-row-panel {
+    display: none;
+    padding: 12px 14px 16px;
+    background: var(--bg-subtle);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .session-row-panel.open { display: block; }
+  .session-row-panel .panel-head {
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dim); font-weight: 700; margin-bottom: 10px;
+  }
+  .session-row-panel .panel-field { margin-bottom: 10px; }
+  .session-row-panel .panel-field label {
+    display: block;
+    font-size: 12px; color: var(--ink-soft); margin-bottom: 4px;
+  }
+  .session-row-panel .panel-field input[type="text"],
+  .session-row-panel .panel-field textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    font-family: var(--sans); font-size: 14px;
+    color: var(--ink);
+    box-sizing: border-box;
+  }
+  .session-row-panel .panel-field textarea {
+    font-family: var(--mono); font-size: 12px;
+    min-height: 120px; resize: vertical;
+  }
+  .session-row-panel .panel-actions {
+    display: flex; gap: 8px; margin-top: 12px;
+  }
+  .session-row-panel .panel-actions button {
+    flex: 1;
+    padding: 8px 12px;
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .session-row-panel .panel-actions button:hover {
+    border-color: var(--accent); color: var(--accent);
+  }
+  .session-row-panel .panel-actions button.primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .session-row-panel .panel-actions button.primary:hover {
+    background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark);
+  }
+  /* History list inside the panel — simple vertical list. */
+  .session-row-panel .panel-history {
+    list-style: none; padding: 0; margin: 0;
+  }
+  .session-row-panel .panel-history li {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 13px; color: var(--ink-soft);
+  }
+  .session-row-panel .panel-history li:last-child { border-bottom: none; }
+  .session-row-panel .panel-history li .when {
+    font-size: 11px; color: var(--dim); display: block; margin-top: 2px;
+  }
+  .session-row-panel .panel-history.empty {
+    font-size: 13px; color: var(--dim); font-style: italic;
+  }
+
+  /* List-level action bar (above the list) for "New" and "Import" on
+     both the pick screen and the Sessions modal. */
+  .list-toolbar {
+    display: flex; gap: 8px;
+    margin-bottom: 8px;
+  }
+  .list-toolbar button {
+    flex: 1;
+    padding: 10px 14px;
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    border: 1px solid var(--line);
+    background: var(--bg); color: var(--ink-soft);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .list-toolbar button:hover {
+    border-color: var(--accent); color: var(--accent);
+  }
+  .list-toolbar button.primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .list-toolbar button.primary:hover {
+    background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark);
+  }
+
+  /* Items modal — full-screen modal that lists the items inside a
+     report, grouped by when they were created. Mirrors the My device
+     modal styling (full viewport, scrollable body). */
+  .items-modal { display: flex; flex-direction: column; }
+  .items-modal .modal-body { padding: 0; }
+  /* Custom header layout: pastel circle on the left, name + creator
+     subtitle in the middle, × on the right. Mirrors the session-row
+     pattern so the visual transition from list to detail is continuous. */
+  .items-modal-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px;
+  }
+  .items-modal-head h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .items-modal-origin { flex-shrink: 0; }
+  .items-modal-origin svg { display: block; }
+  .items-modal-title {
+    flex: 1; min-width: 0;
+  }
+  .items-modal-subtitle {
+    color: var(--dim); font-size: 12px; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .items-modal-subtitle .origin-label { color: var(--dim); }
+  .items-modal-subtitle .origin-name { color: var(--ink-soft); font-weight: 600; }
+  .items-modal-head .close { flex-shrink: 0; }
+  .items-group-head {
+    position: sticky; top: 0;
+    background: var(--bg);
+    padding: 12px 18px 8px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim);
+    border-bottom: 1px solid var(--line-soft);
+    z-index: 1;
+  }
+  .items-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .items-row:last-child { border-bottom: none; }
+  .items-row .item-info {
+    flex: 1; min-width: 0;
+  }
+  .items-row .item-title {
+    font-weight: 600;
+    color: var(--ink);
+    text-transform: capitalize;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .items-row .item-meta {
+    color: var(--dim); font-size: 12px; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .items-row .item-time {
+    font-size: 11px; color: var(--dim);
+    flex-shrink: 0;
+  }
+  /* Vertical status bar on the left of each row. Green when found,
+     red when missing, invisible when the item has no found state.
+     The bar is fixed-width so the columns align across rows
+     regardless of state. */
+  .items-row .item-status-bar {
+    flex-shrink: 0;
+    width: 3px;
+    height: 28px;
+    border-radius: 2px;
+    background: transparent;
+  }
+  .items-row .item-status-bar.found   { background: var(--ok); }
+  .items-row .item-status-bar.missing { background: var(--warn); }
+  /* ID pill — small outlined badge with the item's display number. */
+  .items-row .item-id-pill {
+    flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 28px;
+    padding: 2px 8px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    color: var(--accent-deep);
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    line-height: 1.4;
+  }
+  .items-empty {
+    padding: 32px 18px;
+    text-align: center;
+    color: var(--dim);
+    font-style: italic;
+  }
+
+  /* Segmented sort toolbar at the top of the items modal body. Three
+     buttons with a shared border; the active button takes the accent
+     color. Placed between the modal head and the scrollable body. */
+  .items-sort-toolbar {
+    display: flex;
+    margin: 0 18px 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 12px;
+    margin-bottom: 4px;
+    flex-shrink: 0;
+  }
+  .items-sort-toolbar .items-sort-btn {
+    flex: 1;
+    padding: 8px 12px;
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    background: transparent;
+    color: var(--ink-soft);
+    border: none;
+    border-right: 1px solid var(--line);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .items-sort-toolbar .items-sort-btn:last-child { border-right: none; }
+  .items-sort-toolbar .items-sort-btn:hover { background: var(--bg-subtle); }
+  .items-sort-toolbar .items-sort-btn.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* Search row below the sort toolbar. Magnifier icon on the left,
+     clear (×) button appears on the right when the input has a value.
+     The native <datalist> handles the dropdown suggestions. */
+  .items-search {
+    position: relative;
+    margin: 8px 18px 4px;
+    flex-shrink: 0;
+  }
+  .items-search-icon {
+    position: absolute;
+    left: 10px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px;
+    color: var(--dim);
+    pointer-events: none;
+  }
+  .items-search input[type="text"] {
+    width: 100%;
+    padding: 8px 36px;   /* leave room for icon + clear button */
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    font-family: var(--sans); font-size: 14px;
+    color: var(--ink);
+    box-sizing: border-box;
+  }
+  .items-search input[type="text"]::placeholder {
+    color: var(--dim);
+  }
+  .items-search input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0, 166, 214, 0.15);
+  }
+  .items-search-clear {
+    position: absolute;
+    right: 6px; top: 50%; transform: translateY(-50%);
+    width: 24px; height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--dim);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    padding: 0;
+  }
+  .items-search-clear:hover {
+    background: var(--bg-subtle);
+    color: var(--ink);
+  }
+  .items-search-clear.hidden { display: none; }
+
+  /* Group header: label on the left, count on the right. Updated from
+     the original "label · count" inline form to a small layout. */
+  .items-group-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px;
+  }
+  .items-group-head .items-group-count {
+    font-size: 10px; color: var(--dim);
+    background: var(--bg-subtle);
+    padding: 1px 6px; border-radius: 999px;
+    letter-spacing: 0;
+  }
+
+  /* Photo strip under a Room group header. Horizontal scroll if there
+     are many; thumbs are small square buttons. */
+  .room-photo-strip {
+    display: flex; gap: 6px;
+    padding: 10px 18px 14px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .room-photo-thumb {
+    flex-shrink: 0;
+    width: 56px; height: 56px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0;
+    overflow: hidden;
+    background: var(--bg-subtle);
+    cursor: pointer;
+    transition: border-color 0.12s;
+  }
+  .room-photo-thumb:hover { border-color: var(--accent); }
+  .room-photo-thumb img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Lightbox for a single photo. Sits on top of everything; tap
+     outside or × to close. */
+  .photo-lightbox {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+    padding: 24px;
+  }
+  .photo-lightbox img {
+    max-width: 100%; max-height: 100%;
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  .photo-lightbox .lightbox-close {
+    position: absolute; top: 16px; right: 16px;
+    width: 40px; height: 40px;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .photo-lightbox .lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
   /* "Just received" / "Just sent" badge — appears on the row that was the
      subject of the most recent transfer, alongside the cyan highlight. */
   .session-row .badge {
@@ -527,6 +865,19 @@
     from { opacity: 0; transform: translateY(8px); pointer-events: none; }
     to   { opacity: 1; transform: translateY(0); pointer-events: auto; }
   }
+
+  /* ===== Preboot ===== */
+  /* The main app and bottom nav are hidden until init resolves. Prevents
+     a flash of the start screen for first-time / QR-scan users. Removed
+     by revealApp() at the right point in each path:
+       - Returning user, no ?join=  → revealed once identity loads.
+       - First-time user            → revealed by finishOnboarding.
+       - ?join= path                → revealed once autoJoinIfPending has
+                                       routed (or bailed).
+     visibility (not display) preserves layout so size/scroll positions
+     don't jump on reveal. */
+  body.preboot .stage,
+  body.preboot .bottombar { visibility: hidden; }
 
   /* ===== Onboarding overlay (home → disclaimer → setup) ===== */
   /* The onboarding overlay sits above everything else at z-index 1000. The
@@ -653,25 +1004,6 @@
   #ob-setup-pick input.netid.error::-webkit-input-placeholder { color: var(--warn); }
   #ob-setup-pick input.netid.error::-moz-placeholder { color: var(--warn); opacity: 1; }
 
-  /* Setup confirmation step (Save → "Are you sure?") */
-  .ob-confirm-warn {
-    text-align: center; color: var(--warn); font-size: 13px;
-    margin: -16px 0 24px;
-  }
-  .ob-confirm-netid {
-    font-size: 16px; padding: 12px 14px;
-    margin-bottom: 22px;
-    border: 1px solid var(--line);
-    background: var(--bg-soft, #F7F8FA);
-    color: var(--ink);
-    font-family: var(--mono, monospace);
-  }
-  .ob-confirm-actions {
-    display: flex; gap: 10px;
-  }
-  .ob-confirm-actions .ob-btn {
-    flex: 1;
-  }
   @media (prefers-reduced-motion: reduce) {
     .ob-device-frame svg { transition: none; }
     .ob-device-frame svg:hover { transform: none; }
@@ -682,10 +1014,13 @@
      Sections separated by a thin divider for scannability. Identity section
      at the top mirrors the topbar badge but enlarged. */
   .mydev-modal { display: flex; flex-direction: column; }
+  /* Sections only carry vertical spacing; horizontal padding comes from
+     the modal body, so content sits flush with the modal head. */
   .mydev-section {
-    padding: 18px 18px;
+    padding: 18px 0;
     border-bottom: 1px solid var(--line-soft);
   }
+  .mydev-section:first-of-type { padding-top: 0; }
   .mydev-section:last-of-type { border-bottom: none; }
   .mydev-section-head {
     font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
@@ -695,7 +1030,6 @@
 
   .mydev-identity {
     display: flex; align-items: center; gap: 16px;
-    padding-top: 22px; padding-bottom: 22px;
   }
   .mydev-identity-svg svg { display: block; }
   .mydev-identity-name {
@@ -715,8 +1049,8 @@
     font-size: 14px; color: var(--ink-soft);
   }
   #mydev-session-count {
-    font-size: 22px; font-weight: 700; color: var(--ink);
-    margin-right: 6px;
+    font-weight: 700; color: var(--ink);
+    margin-right: 4px;
   }
   .mydev-sessions-label { color: var(--dim); }
   .mydev-browse-btn {
@@ -729,28 +1063,170 @@
     border-color: var(--accent); color: var(--accent);
   }
 
-  .mydev-storage-state {
+  /* Card shape used by Data safety header + Get the app. A 56px tile on
+     the left (logo or status icon), label + explainer on the right.
+     The Data safety card uses .ok / .at-risk modifiers to color the
+     left border + headline label. */
+  .mydev-card {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-left-width: 4px;
+    border-left-color: var(--line);
     margin-bottom: 14px;
   }
-  .mydev-storage-state.ok { margin-bottom: 0; }
-  .mydev-storage-label {
-    font-size: 15px; font-weight: 700; color: var(--ink);
+  .mydev-card.ok { border-left-color: var(--ok); }
+  .mydev-card.at-risk { border-left-color: var(--warn-warm); }
+  .mydev-card-tile {
+    flex-shrink: 0;
+    width: 56px; height: 56px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-subtle);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mydev-card-tile img {
+    width: 100%; height: 100%; display: block; object-fit: cover;
+  }
+  /* Status tile variant — a solid-colored circle holding a centered
+     SVG icon (check for Safe, exclamation for At risk). Lives on the
+     Data safety header card. */
+  .mydev-card-tile.status {
+    border-radius: 50%;
+    background: var(--line-soft);
+  }
+  .mydev-card.ok .mydev-card-tile.status { background: var(--ok); }
+  .mydev-card.at-risk .mydev-card-tile.status { background: var(--warn-warm); }
+  .mydev-card-tile.status svg {
+    width: 32px; height: 32px;
+    display: block;
+    color: #FFFFFF;
+  }
+  .mydev-card-text {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .mydev-card-label {
+    font-size: 16px; font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .mydev-card.ok .mydev-card-label { color: var(--ok); }
+  .mydev-card.at-risk .mydev-card-label { color: var(--warn-warm); }
+  .mydev-card-explain {
+    font-size: 13px; color: var(--ink-soft); line-height: 1.4;
+  }
+  .mydev-card-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .mydev-card-link:hover { text-decoration: underline; }
+
+  /* Checklist rows — each row is one safety check. A 20px status icon
+     on the left (filled colored circle with check / exclamation / cross),
+     then the label, then a chevron on the right. Tappable: clicking
+     toggles an inline expand panel underneath with more info. */
+  .mydev-safety-checks {
+    display: flex; flex-direction: column;
+    gap: 4px;
     margin-bottom: 4px;
   }
-  .mydev-storage-state.ok .mydev-storage-label { color: var(--ok); }
-  .mydev-storage-state p {
+  .mydev-safety-row {
+    width: 100%;
+    display: flex; align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    background: transparent; border: none;
+    font: inherit; color: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.12s;
+  }
+  .mydev-safety-row-label { flex: 1; min-width: 0; line-height: 1.4; }
+  .mydev-safety-row:hover { background: var(--bg-subtle); }
+  .mydev-safety-row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .mydev-safety-icon {
+    flex-shrink: 0;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mydev-safety-icon svg {
+    width: 14px; height: 14px;
+    color: #FFFFFF;
+    display: block;
+  }
+  .mydev-safety-row.ok    .mydev-safety-icon { background: var(--ok); }
+  .mydev-safety-row.warn  .mydev-safety-icon { background: var(--warn-warm); }
+  .mydev-safety-row.bad   .mydev-safety-icon { background: var(--warn); }
+  /* Info rows — yellow with a black exclamation. Used for ambient
+     caveats that aren't really checks (can't pass or fail), so the row
+     is non-interactive: no chevron, no expand, no hover/cursor. */
+  .mydev-safety-row.info  .mydev-safety-icon { background: #FFD93D; }
+  .mydev-safety-row.info  .mydev-safety-icon svg { color: #000; }
+  .mydev-safety-row.info {
+    cursor: default;
+  }
+  .mydev-safety-row.info:hover { background: transparent; }
+  .mydev-safety-chevron {
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+    color: var(--dim);
+    transition: transform 0.15s;
+  }
+  .mydev-safety-row.open .mydev-safety-chevron {
+    transform: rotate(90deg);
+  }
+
+  /* The expand panel that opens under a row when tapped. Body copy
+     style; sits flush left of the row content (not under the icon)
+     so it reads as belonging to that row. */
+  .mydev-safety-detail-panel {
+    display: none;
+    padding: 4px 10px 12px 40px;
     font-size: 13px; color: var(--ink-soft); line-height: 1.5;
-    margin: 0;
   }
-  .mydev-install-btn {
-    width: 100%; padding: 12px;
-    background: var(--accent); color: #FFFFFF; border: none;
-    font-family: var(--sans); font-size: 13px; font-weight: 700;
-    letter-spacing: 0.06em; text-transform: uppercase;
-    cursor: pointer; transition: background 0.15s;
-    margin-bottom: 8px;
+  .mydev-safety-detail-panel.open { display: block; }
+  .mydev-safety-detail-panel .mydev-safety-numbers {
+    margin-top: 6px;
+    font-size: 12px; color: var(--dim);
   }
-  .mydev-install-btn:hover { background: var(--tud-cyan-dark); }
+  .mydev-safety-detail-panel .mydev-safety-numbers strong {
+    color: var(--ink); font-weight: 700;
+  }
+  /* Inline link inside safety-detail copy that triggers the install
+     action. Styled like a body-text link in cyan; the JS handler treats
+     it the same as the main install button. */
+  .install-action {
+    color: var(--accent);
+    text-decoration: underline;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .install-action:hover { color: var(--tud-cyan-dark); }
+  @media (prefers-reduced-motion: reduce) {
+    .mydev-safety-row { transition: none; }
+    .mydev-safety-chevron { transition: none; }
+  }
+
+  /* Installed state for the Get-the-app button — disabled, green text,
+     check mark. Re-uses .ob-btn.primary's box; the rules below override
+     just the colors. */
+  .ob-btn.primary.installed,
+  .ob-btn.primary.installed:disabled {
+    background: var(--bg);
+    color: var(--ok);
+    border: 1px solid var(--ok);
+    opacity: 1;  /* the disabled style normally fades; here we keep it bright */
+    cursor: default;
+  }
   .mydev-install-hint {
     font-size: 12px; color: var(--dim); line-height: 1.45;
     margin: 0;
@@ -967,7 +1443,7 @@
   }
 </style>
 </head>
-<body>
+<body class="preboot">
 
 <!-- ONBOARDING OVERLAY (home → disclaimer → setup) -->
 <!-- Full-viewport overlay shown only on first run. Linear forward-only flow:
@@ -986,7 +1462,7 @@
         <path d="M 42 50 L 76 12 L 50 50 Z" fill="var(--tud-cyan-dark)"/>
       </svg>
       <h1 class="ob-title">P2P <em>Transfer</em></h1>
-      <p class="ob-tagline">Move sessions between devices,<br>directly and privately.</p>
+      <p class="ob-tagline">Move reports between devices,<br>directly and privately.</p>
       <button class="ob-btn primary" id="ob-home-btn">Get started</button>
     </div>
   </section>
@@ -998,7 +1474,7 @@
 
       <div class="ob-disc-section">
         <div class="ob-disc-heading">Local-first</div>
-        <p>Sessions and your identity are stored in this browser only. There's no account, no server-side storage, no cloud sync.</p>
+        <p>Reports and your identity are stored in this browser only. There's no account, no server-side storage, no cloud sync.</p>
       </div>
 
       <div class="ob-disc-section">
@@ -1013,7 +1489,7 @@
 
       <div class="ob-disc-section">
         <div class="ob-disc-heading">Stays on this device</div>
-        <p>Your identity and sessions are stored here only. They're removed if you clear browser data or uninstall this app. For longest-term storage, install this as an app.</p>
+        <p>Your identity and reports are stored here only. They're removed if you clear browser data or uninstall this app. For longest-term storage, install this as an app.</p>
       </div>
 
       <div class="ob-disc-section">
@@ -1030,37 +1506,19 @@
     </div>
   </section>
 
-  <!-- Setup screen: device frame + slot machine + NetID input -->
-  <!-- The setup view here is the same UI as the editable identity modal,
-       but rendered inline as part of onboarding (no modal backdrop). The
-       confirmation step is built into the same screen — when the user
-       hits Save with valid input, the screen swaps to a confirmation
-       view before committing. -->
+  <!-- Setup screen: identity circle + slot machine + name input -->
+  <!-- One screen — roll the circle, type a name, tap Save, done. No
+       separate confirmation step; the user sees the final emoji + color
+       sitting right above the Save button before they commit. -->
   <section class="ob-screen hidden" data-ob-screen="setup">
     <div class="ob-content ob-content-scroll">
-
-      <!-- Initial setup view -->
       <div id="ob-setup-pick">
         <div class="ob-device-frame" id="ob-setup-device"></div>
         <h2 class="ob-disc-title" id="ob-setup-title">Set up your device's identity</h2>
-        <div class="ob-field-label">Your NetID</div>
-        <input type="text" class="netid" id="ob-setup-netid" placeholder="" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="ob-field-label">Your name</div>
+        <input type="text" class="netid" id="ob-setup-netid" placeholder="e.g. jvanderlaan, sanne, or a nickname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
         <button class="ob-btn primary" id="ob-setup-save">Save</button>
       </div>
-
-      <!-- Confirmation view (shown after first Save click with valid input) -->
-      <div class="hidden" id="ob-setup-confirm">
-        <div class="ob-device-frame" id="ob-confirm-device"></div>
-        <h2 class="ob-disc-title">Save this as your identity?</h2>
-        <p class="ob-confirm-warn">This can't be changed later.</p>
-        <div class="ob-field-label">Your NetID</div>
-        <div class="ob-confirm-netid" id="ob-confirm-netid"></div>
-        <div class="ob-confirm-actions">
-          <button class="ob-btn secondary" id="ob-confirm-back">Go back</button>
-          <button class="ob-btn primary" id="ob-confirm-save">Yes, save</button>
-        </div>
-      </div>
-
     </div>
   </section>
 
@@ -1093,10 +1551,9 @@
   <!-- ============ START SCREEN ============ -->
   <section class="screen active" data-screen="start">
     <div class="screen-header">
-      <div class="screen-eyebrow"><span class="num">1</span> · OF 3</div>
       <h1 class="screen-title">What do you want to do?</h1>
       <p class="screen-subtitle dev-only">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
-      <p class="screen-subtitle user-only-paragraph">Send a session to another device, or receive one from another device.</p>
+      <p class="screen-subtitle user-only-paragraph">Send a report to another device, or receive one from another device.</p>
     </div>
     <div class="screen-content">
       <div class="dev-only">
@@ -1136,24 +1593,20 @@
   <!-- ============ PICK SESSION (SEND ONLY) ============ -->
   <section class="screen hidden" data-screen="pick">
     <div class="screen-header">
-      <div class="screen-eyebrow"><span class="num">2</span> · OF 3</div>
-      <h1 class="screen-title">Pick a session to send</h1>
-      <p class="screen-subtitle">Select an existing session, or create a new one.</p>
+      <h1 class="screen-title">Pick a report to send</h1>
+      <p class="screen-subtitle">Select an existing report, or create a new one.</p>
     </div>
     <div class="screen-content">
-      <div class="session-list" id="pick-session-list"></div>
-      <div class="btn-row">
-        <button class="primary" id="pick-new-btn">New</button>
-        <button id="pick-edit-btn" disabled>Edit</button>
-        <button class="danger" id="pick-delete-btn" disabled>Delete</button>
+      <div class="list-toolbar">
+        <button class="primary" id="pick-new-btn">New report</button>
       </div>
+      <div class="session-list" id="pick-session-list"></div>
     </div>
   </section>
 
   <!-- ============ SHOW QR (RECEIVE / RAW SEND) ============ -->
   <section class="screen hidden" data-screen="show-qr">
     <div class="screen-header">
-      <div class="screen-eyebrow"><span class="num" id="show-qr-num">2</span> · <span id="show-qr-of">OF 3</span></div>
       <h1 class="screen-title" id="show-qr-title">Show this to the other device</h1>
       <p class="screen-subtitle" id="show-qr-subtitle">The other device should scan this QR.</p>
     </div>
@@ -1167,7 +1620,6 @@
   <!-- ============ SCAN QR (SEND PEERJS / RAW BOTH) ============ -->
   <section class="screen hidden" data-screen="scan-qr">
     <div class="screen-header">
-      <div class="screen-eyebrow"><span class="num" id="scan-qr-num">2</span> · <span id="scan-qr-of">OF 3</span></div>
       <h1 class="screen-title" id="scan-qr-title">Scan the QR</h1>
       <p class="screen-subtitle" id="scan-qr-subtitle">Point your camera at the other device's QR code.</p>
     </div>
@@ -1188,7 +1640,6 @@
   <!-- ============ TRANSFERRING / DONE ============ -->
   <section class="screen hidden" data-screen="transfer">
     <div class="screen-header" id="transfer-header">
-      <div class="screen-eyebrow"><span class="num" id="transfer-num">3</span> · <span id="transfer-of">OF 3</span></div>
       <h1 class="screen-title" id="transfer-title">Transferring…</h1>
       <!-- Note: no static subtitle here. All dynamic status text lives below
            the progress bar in #transfer-status, so it's always co-located with
@@ -1217,7 +1668,7 @@
         <!-- Session list appears below the status line after a successful transfer.
              The just-touched session is highlighted with a "just received/sent" badge. -->
         <div class="hidden" id="transfer-sessions-panel" style="margin-top: 22px;">
-          <div class="screen-eyebrow" style="margin-bottom: 10px;">Sessions on this device · <span id="transfer-sessions-count">0</span></div>
+          <div class="screen-eyebrow" style="margin-bottom: 10px;">Reports on this device · <span id="transfer-sessions-count">0</span></div>
           <div class="session-list" id="transfer-session-list"></div>
         </div>
 
@@ -1263,28 +1714,19 @@
   <div class="log" id="log"></div>
 </div>
 
-<!-- CONNECTION BAR (chat-bubble style)
-     A persistent ambient strip at the bottom of every screen during a
-     paired session. Visually a light-gray surface with the peer's
-     avatar on the left and a white WhatsApp-style speech balloon to
-     the right holding the current status.
+<!-- CONNECTION BAR
+     A thin strip at the bottom of every paired screen showing the peer's
+     avatar, nickname, and a brief connection-status label.
 
-     Two layout modes via the .awaiting class:
-       - default:       avatar + balloon visible (.conn-bar-awaiting-msg hidden)
-       - .awaiting:     centered italic placeholder visible
-                        (avatar + balloon hidden — no peer to display yet)
-
-     JS API: setConnectionBarStatus(state, ...args)  in connection-bar
-     section below. State keys are 'awaiting', 'connecting', 'connected',
-     'sending', 'receiving', 'created', 'replaced', 'merged', 'skipped',
-     'error', 'disconnected'. -->
+     JS API: setConnectionBarStatus(state) in the connection-bar section
+     below. Live states: 'connecting', 'connected', 'error', 'disconnected'.
+     Transfer states ('incoming', 'outgoing', 'created', 'replaced',
+     'merged', 'skipped') are accepted but no-op — the transfer screen
+     surfaces that info itself; duplicating it in the bar adds noise. -->
 <div class="connection-bar hidden" id="connection-bar">
-  <span class="conn-bar-awaiting-msg" id="conn-bar-awaiting-msg">Waiting for someone to scan your QR…</span>
   <span class="conn-bar-avatar" id="conn-bar-avatar" aria-hidden="true"></span>
-  <span class="conn-bar-balloon" id="conn-bar-balloon">
-    <span class="conn-bar-balloon-text" id="conn-bar-balloon-text">connecting…</span>
-    <span class="conn-bar-time" id="conn-bar-time"></span>
-  </span>
+  <span class="conn-bar-nick" id="conn-bar-nick">peer</span>
+  <span class="conn-bar-status" id="conn-bar-status">connecting…</span>
 </div>
 
 <!-- BOTTOM NAV — hidden on the transfer screen since the action buttons
@@ -1403,13 +1845,33 @@ function getHistory(session) {
   // Return a defensive copy in reverse chronological order for display.
   return (session.history || []).slice().reverse();
 }
+// Pick the event to show in row-summary spots (pick list + sessions
+// modal preview line). Skips low-signal events like exports and
+// imports — the user already knows they made a backup or pulled a file
+// in; they want to see the "real" provenance (created / sent / received).
+// If the only history is an import, the report effectively *is* a
+// creation as far as the user is concerned, so we synthesize a
+// 'created-here' preview using that event's timestamp.
 function previewLatestEvent(session) {
   const h = session.history;
   if (!h || !h.length) return null;
+  for (let i = h.length - 1; i >= 0; i--) {
+    const ev = h[i];
+    if (ev.kind === 'exported' || ev.kind === 'imported') continue;
+    return ev;
+  }
+  // No meaningful event — but there might be an import. Use its
+  // timestamp as the "creation" moment for preview purposes.
+  const firstImport = h.find(ev => ev.kind === 'imported');
+  if (firstImport) return { kind: 'created-here', at: firstImport.at };
+  // Fallback: the most recent event (probably just an export by itself,
+  // which is an odd state but render something rather than nothing).
   return h[h.length - 1];
 }
 // Human-readable phrasing of a single event, e.g.
 //   "created on this device" / "received from 🐮 sannevdk" / "sent to 🦊 jvanderlaan"
+//   / "exported to file" / "imported from file (merged)"
+//   / "renamed to \"X\"" / "data edited"
 function describeEvent(ev) {
   if (!ev) return '';
   const peerLabel = ev.peer ? `${ev.peer.emoji || ''} ${ev.peer.nickname || 'unknown'}`.trim() : 'unknown';
@@ -1420,12 +1882,276 @@ function describeEvent(ev) {
       return `received from ${peerLabel}${action}`;
     }
     case 'sent': return `sent to ${peerLabel}`;
+    case 'exported': return 'exported to file';
+    case 'imported': {
+      const action = ev.action ? ` (${ev.action})` : '';
+      return `imported from file${action}`;
+    }
+    case 'renamed': return ev.to ? `renamed to "${ev.to}"` : 'renamed';
+    case 'edited': return 'data edited';
     default: return ev.kind || '';
   }
 }
 
+// =====================================================================
+// Origin: who's this report from, as far as this device knows
+// =====================================================================
+// Used at the front of session rows. Returns { emoji, nickname, color,
+// label } where `label` is the verb-prefix to show ("created by" /
+// "sent by"). "Most-recent receive wins": if the report was received
+// after being created locally (round-trip), we show the sender.
+// Locally-created with no subsequent receive → the current local
+// identity. Imported or legacy with no usable history → falls back to
+// the local identity since the report is on THIS device.
+function reportOrigin(session) {
+  const h = session.history || [];
+  // Scan in reverse, find the most recent received event (with a peer)
+  for (let i = h.length - 1; i >= 0; i--) {
+    const ev = h[i];
+    if (ev.kind === 'received' && ev.peer) {
+      return {
+        emoji: ev.peer.emoji || '',
+        nickname: ev.peer.nickname || 'unknown',
+        color: ev.peer.color || DEFAULT_IDENTITY_COLOR,
+        label: 'sent by',
+      };
+    }
+  }
+  // No received event found. If there's a created-here event, this
+  // device made it — show the current local identity.
+  const createdHere = h.find(ev => ev.kind === 'created-here');
+  if (createdHere && identity) {
+    return {
+      emoji: identity.emoji || '',
+      nickname: identity.nickname || 'me',
+      color: identity.color || DEFAULT_IDENTITY_COLOR,
+      label: 'created by',
+    };
+  }
+  // Fallback: legacy report with no history, or imported one. The
+  // report exists on this device, so attribute it to the local user
+  // as the most useful guess; "created by" reads better than nothing.
+  if (identity) {
+    return {
+      emoji: identity.emoji || '',
+      nickname: identity.nickname || 'me',
+      color: identity.color || DEFAULT_IDENTITY_COLOR,
+      label: 'created by',
+    };
+  }
+  // No identity at all (very early state). Return a quiet placeholder.
+  return { emoji: '', nickname: 'unknown', color: DEFAULT_IDENTITY_COLOR, label: '' };
+}
+
+// =====================================================================
+// Shared session-row renderer
+// =====================================================================
+// Used by both the pick screen and the Sessions modal. Builds a row
+// element with inline icon buttons (edit / export / history / delete)
+// and an accordion panel that opens under the row for Edit + History.
+// Export downloads immediately; Delete confirms then removes.
+//
+// Options:
+//   container       — the surrounding list element; used to enforce
+//                     "only one panel open at a time" across siblings.
+//   onAfterChange() — called after the row's data changes (saved edit,
+//                     deleted) so the parent can re-render. The parent
+//                     decides what re-render means in its context.
+//   onRowClick(s)   — fired when the row body (not an icon) is clicked.
+//                     Optional — used by the pick screen for selection.
+//                     If omitted, the row body is not clickable.
+//   selectedId      — id of the currently-selected row. Used to apply
+//                     the `.selected` class to the row.
+function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId }) {
+  const row = document.createElement('div');
+  row.className = 'session-row' + (selectedId === s.id ? ' selected' : '');
+  const origin = reportOrigin(s);
+  row.innerHTML = `
+    <div class="session-row-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
+    <div class="info">
+      <div class="name-line">
+        <span class="name"></span>
+        <span class="id-pill dev-only"><span class="id"></span></span>
+      </div>
+      <div class="meta">
+        <span class="count"></span>
+        <span class="origin-piece"> · <span class="origin-label"></span> <span class="origin-name"></span></span>
+      </div>
+    </div>
+    <div class="session-row-actions">
+      <button data-act="edit"    class="session-row-action" title="Edit"    aria-label="Edit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
+      <button data-act="exp"     class="session-row-action" title="Export"  aria-label="Export">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <button data-act="history" class="session-row-action" title="History" aria-label="History">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/><polyline points="12 7 12 12 15 14"/></svg>
+      </button>
+      <button data-act="del" class="session-row-action danger" title="Delete" aria-label="Delete">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+      </button>
+    </div>`;
+  row.querySelector('.name').textContent = s.name;
+  row.querySelector('.id').textContent = s.id;
+  const cnt = dataRecordCount(s.data);
+  row.querySelector('.count').textContent = `${cnt} item${cnt === 1 ? '' : 's'}`;
+  row.querySelector('.origin-label').textContent = origin.label;
+  row.querySelector('.origin-name').textContent = origin.nickname;
+
+  // Panel below the row, hidden by default. Re-built each time the
+  // user opens an action so it always reflects current data.
+  const panel = document.createElement('div');
+  panel.className = 'session-row-panel';
+
+  // Close any other open panel in the same container — keeps the
+  // accordion behavior consistent: only one open at a time.
+  const closeSiblings = () => {
+    if (!container) return;
+    container.querySelectorAll('.session-row-panel.open').forEach(p => {
+      if (p !== panel) p.classList.remove('open');
+    });
+    container.querySelectorAll('.session-row-action.active').forEach(a => {
+      if (!panel.contains(a) && a.closest('.session-row') !== row) a.classList.remove('active');
+    });
+  };
+  const closeOwn = () => {
+    panel.classList.remove('open');
+    row.querySelectorAll('.session-row-action.active').forEach(a => a.classList.remove('active'));
+  };
+  const openWith = (which, html) => {
+    closeSiblings();
+    closeOwn();
+    panel.innerHTML = html;
+    panel.classList.add('open');
+    row.querySelector(`[data-act="${which}"]`).classList.add('active');
+  };
+
+  // Row body click — selection (when caller provides handler). Ignore
+  // clicks on the icon buttons or the panel itself.
+  if (typeof onRowClick === 'function') {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.session-row-actions')) return;
+      onRowClick(s);
+    });
+  }
+
+  // EDIT — inline form. Name field always; data textarea only in dev mode.
+  row.querySelector('[data-act="edit"]').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    // Toggle: if already open showing Edit, close it.
+    if (panel.classList.contains('open') && row.querySelector('[data-act="edit"]').classList.contains('active')) {
+      closeOwn();
+      return;
+    }
+    const full = await getSession(s.id);
+    if (!full) return;
+    const dataField = DEV_MODE ? `
+      <div class="panel-field">
+        <label>Data (JSON object — keys are item IDs)</label>
+        <textarea data-field="data"></textarea>
+      </div>` : '';
+    openWith('edit', `
+      <div class="panel-head">Edit report</div>
+      <div class="panel-field">
+        <label>Name</label>
+        <input type="text" data-field="name">
+      </div>
+      ${dataField}
+      <div class="panel-actions">
+        <button data-pact="cancel">Cancel</button>
+        <button data-pact="save" class="primary">Save</button>
+      </div>`);
+    panel.querySelector('[data-field="name"]').value = full.name;
+    const dataEl = panel.querySelector('[data-field="data"]');
+    if (dataEl) dataEl.value = JSON.stringify(full.data, null, 2);
+    panel.querySelector('[data-pact="cancel"]').addEventListener('click', closeOwn);
+    panel.querySelector('[data-pact="save"]').addEventListener('click', async () => {
+      const newName = panel.querySelector('[data-field="name"]').value.trim();
+      if (!newName) { alert('Name is required.'); return; }
+      const updated = Object.assign({}, full, { name: newName, modifiedAt: new Date() });
+      let dataChanged = false;
+      if (dataEl) {
+        try {
+          const parsed = JSON.parse(dataEl.value);
+          // Compare against original via JSON.stringify; not perfect for
+          // objects with key-order differences, but good enough here —
+          // data textareas are JSON-stringified on render, so the
+          // round-trip preserves order.
+          dataChanged = JSON.stringify(parsed) !== JSON.stringify(full.data);
+          updated.data = parsed;
+        } catch (err) {
+          alert('Data is not valid JSON: ' + err.message);
+          return;
+        }
+      }
+      // Record the changes in history. Both can fire from the same Save.
+      if (newName !== full.name) {
+        appendHistoryEvent(updated, { kind: 'renamed', from: full.name, to: newName });
+      }
+      if (dataChanged) {
+        appendHistoryEvent(updated, { kind: 'edited' });
+      }
+      try {
+        await putSession(updated);
+        log(`Saved "${updated.name}".`, 'ok');
+        closeOwn();
+        if (typeof onAfterChange === 'function') onAfterChange();
+      } catch (err) {
+        log('Save failed: ' + err.message, 'err');
+      }
+    });
+  });
+
+  // EXPORT — immediate download (no panel).
+  row.querySelector('[data-act="exp"]').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const full = await getSession(s.id);
+    if (!full) return;
+    await exportReport(full);
+    if (typeof onAfterChange === 'function') onAfterChange();
+  });
+
+  // HISTORY — inline list of audit events. Read-only.
+  row.querySelector('[data-act="history"]').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (panel.classList.contains('open') && row.querySelector('[data-act="history"]').classList.contains('active')) {
+      closeOwn();
+      return;
+    }
+    const full = await getSession(s.id);
+    if (!full) return;
+    const events = getHistory(full);   // reverse-chronological
+    const listHTML = events.length === 0
+      ? `<div class="panel-history empty">No history yet.</div>`
+      : `<ul class="panel-history">
+           ${events.map(ev => `
+             <li>
+               ${describeEvent(ev)}
+               <span class="when">${formatRelative(ev.at)}</span>
+             </li>`).join('')}
+         </ul>`;
+    openWith('history', `<div class="panel-head">History</div>${listHTML}`);
+  });
+
+  // DELETE — confirm then remove.
+  row.querySelector('[data-act="del"]').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Delete "${s.name}"?`)) return;
+    await deleteSession(s.id);
+    log('Deleted.', 'ok');
+    if (typeof onAfterChange === 'function') onAfterChange();
+  });
+
+  // Caller gets a fragment containing the row + its panel.
+  const frag = document.createDocumentFragment();
+  frag.appendChild(row);
+  frag.appendChild(panel);
+  return frag;
+}
+
 // ---------- IndexedDB (preferences) ----------
-// Stores device identity (emoji + nickname/NetID), dev-mode flag, and any
+// Stores device identity (emoji + nickname), dev-mode flag, and any
 // other per-device settings. Single-key store; values are JSON objects.
 // Kept in a separate database from sessions because the lifecycles differ —
 // sessions are payloads, preferences are settings.
@@ -1550,26 +2276,131 @@ const IDENTITY_EMOJIS = [
   '❤️'
 ];
 
+// Pastel palette used as the background for the identity circle. Each
+// person rolls one of these during onboarding and it's stored in the
+// identity object alongside emoji/nickname/device. Peers exchange the
+// chosen color in peer-info so both sides render the same circle.
+// Default color (for callers that don't have one yet) is a neutral light
+// gray — see renderDeviceSVG.
+const IDENTITY_COLORS = [
+  '#F8C8D0', // pink
+  '#FAD4A6', // peach
+  '#FAF2C2', // butter
+  '#D9EFB7', // lime
+  '#C6E8C8', // mint
+  '#B8E3DE', // aqua
+  '#C2DDF0', // sky
+  '#C7CCEC', // periwinkle
+  '#D4C8E8', // lavender
+  '#EBC8E0', // orchid
+  '#F4C2C2', // rose
+  '#DCD1F0', // lilac
+];
+const DEFAULT_IDENTITY_COLOR = '#E5E5E5';
+
 function suggestSessionName() {
   const d = new Date();
   const month = d.toLocaleString('en', { month: 'short' }).toLowerCase();
-  return `session-${month}-${d.getDate()}`;
+  return `report-${month}-${d.getDate()}`;
 }
 function exampleData() {
   const rooms = ['101','102','103','201','202','203'];
   const cats = ['monitor','laptop','chair','projector','whiteboard','phone'];
   const out = {};
-  for (let i = 1; i <= 4; i++) {
-    const id = `asset_${String(i).padStart(3,'0')}`;
+  // Spread items across the last ~6 weeks so the date-grouped view in
+  // the items modal has examples in every bucket (today, yesterday,
+  // this week, last week, this month, earlier). Offsets are in days
+  // back from "now", with a bit of jitter so items aren't all at
+  // midnight. Real apps would have these timestamps set when the scout
+  // actually adds each item; this demo seeds them so the slider/group
+  // headers have data to show.
+  const dayOffsets = [
+    0, 0,                  // today (2)
+    1, 1,                  // yesterday (2)
+    3, 4, 5,               // this week (3)
+    9, 10,                 // last week (2)
+    18,                    // this month (1)
+    32, 47,                // earlier (2)
+  ];
+  const now = Date.now();
+  for (let i = 0; i < dayOffsets.length; i++) {
+    const id = `asset_${String(i + 1).padStart(3,'0')}`;
+    // Random hour-of-day jitter so timestamps look natural.
+    const hour = Math.floor(Math.random() * 10) + 8;   // 08:00–17:59
+    const min = Math.floor(Math.random() * 60);
+    const created = new Date(now - dayOffsets[i] * 86400000);
+    created.setHours(hour, min, 0, 0);
     out[id] = {
       category: cats[Math.floor(Math.random()*cats.length)],
       room: rooms[Math.floor(Math.random()*rooms.length)],
       serial: `SN-${Math.floor(Math.random()*90000)+10000}`,
       found: Math.random() > 0.3,
-      notes: ''
+      notes: '',
+      createdAt: created.toISOString(),
     };
   }
   return out;
+}
+
+// Generate sample rooms with placeholder photos. In the real app a
+// scout would attach actual phone-camera shots; for the demo each
+// photo is a small inline SVG data URI showing the room number on a
+// gradient. Photos are capped at 6 per room (this matches the items
+// modal's display limit).
+//
+// Returns an object: { '101': { photos: [<data uri>, ...] }, ... }
+// keyed by room number string. Rooms with no items get no entry —
+// only rooms actually referenced by items end up with photos.
+function exampleRooms(usedRoomNumbers) {
+  const rooms = {};
+  // A few accent colors to vary the photo gradients per room.
+  const palette = [
+    ['#00B7D4', '#003F76'],   // tu-cyan → tu-deep
+    ['#E07A2B', '#9C4A12'],   // warm orange
+    ['#009B77', '#005F47'],   // green
+    ['#8A6FBD', '#3F2E73'],   // purple
+    ['#E03C31', '#7A1B14'],   // red
+    ['#D4A800', '#7A6100'],   // gold
+  ];
+  let pidx = 0;
+  // Use a sorted, deduped list so room ordering is stable across runs.
+  const uniqueRooms = Array.from(new Set(usedRoomNumbers)).sort();
+  for (const room of uniqueRooms) {
+    const [c1, c2] = palette[pidx % palette.length];
+    pidx++;
+    // Random photo count 0–6, weighted slightly so most rooms have a
+    // few rather than zero. Bias: floor(rand() * 7) gives 0–6 evenly.
+    const count = Math.min(6, Math.floor(Math.random() * 7));
+    const photos = [];
+    for (let i = 0; i < count; i++) {
+      photos.push(makePhotoSVG(room, c1, c2, i + 1));
+    }
+    rooms[room] = { photos };
+  }
+  return rooms;
+}
+
+// Build a small placeholder photo as a data URI. Mimics a phone snapshot
+// at 4:3 with the room number watermarked. Compact (~400 bytes) so
+// example reports stay light to transfer. Real photos would replace
+// these data URIs with base64-encoded JPEG/PNG (much larger).
+function makePhotoSVG(roomNumber, color1, color2, idx) {
+  // Subtle vignette + a "photo number" in the corner so different
+  // photos of the same room are visibly distinct.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${color1}"/>
+        <stop offset="100%" stop-color="${color2}"/>
+      </linearGradient>
+    </defs>
+    <rect width="400" height="300" fill="url(#g)"/>
+    <text x="200" y="170" font-family="Arial, sans-serif" font-size="80" font-weight="700"
+          fill="#fff" text-anchor="middle" opacity="0.9">${roomNumber}</text>
+    <text x="380" y="290" font-family="Arial, sans-serif" font-size="14" font-weight="600"
+          fill="#fff" text-anchor="end" opacity="0.6">#${idx}</text>
+  </svg>`;
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
 // ---------- Data-shape helpers ----------
@@ -1635,6 +2466,57 @@ function formatRelative(date) {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return d.toLocaleDateString();
+}
+
+// Merge two rooms objects from local + incoming during a 'merged'
+// receive. Photo arrays are unioned per room with no dedup (we don't
+// have a stable photo identity yet). Rooms not in one side are kept
+// as-is from the other. Photos are capped at 6 per room — the demo's
+// display limit — to keep payloads bounded if many merges chain.
+function mergeRooms(localRooms, incomingRooms) {
+  const a = localRooms || {};
+  const b = incomingRooms || {};
+  const out = {};
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const room of keys) {
+    const photosA = (a[room] && a[room].photos) || [];
+    const photosB = (b[room] && b[room].photos) || [];
+    out[room] = { photos: [...photosA, ...photosB].slice(0, 6) };
+  }
+  return out;
+}
+
+// Map a timestamp to a date-group bucket. Used by the items modal to
+// group items under headers like "Today", "Yesterday", etc.
+//
+// Returns { key, label, order } where key is a stable string for the
+// bucket, label is what we render, and order is the sort priority
+// (lower = closer to now, so newer groups come first).
+//
+// "This week" means within the last 7 days, *excluding* today and
+// yesterday which have their own buckets. "Last week" is the 7 days
+// before that. "This month" catches everything in the current calendar
+// month not already grouped. "Earlier" is the catch-all for older
+// items. The boundaries are inclusive of "today" reset to midnight so
+// items added later in the same day still bucket as Today.
+function dateBucket(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  // Start-of-day for "now"; subtracting this from item's start-of-day
+  // gives whole-day differences regardless of time-of-day.
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const itemStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const daysAgo = Math.round((todayStart - itemStart) / 86400000);
+
+  if (daysAgo <= 0)  return { key: 'today',     label: 'Today',     order: 0 };
+  if (daysAgo === 1) return { key: 'yesterday', label: 'Yesterday', order: 1 };
+  if (daysAgo <= 7)  return { key: 'this-week', label: 'This week', order: 2 };
+  if (daysAgo <= 14) return { key: 'last-week', label: 'Last week', order: 3 };
+  // Anything else in the current calendar month → "This month"
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
+    return { key: 'this-month', label: 'This month', order: 4 };
+  }
+  return { key: 'earlier', label: 'Earlier', order: 5 };
 }
 
 // ---------- Network ID (ipify, raw mode only) ----------
@@ -1772,7 +2654,6 @@ let receiverError = null;
 
 function activeFlow() { return FLOWS[`${currentMode}-${currentBackend}`]; }
 function currentScreenId() { return activeFlow()[currentStep]; }
-function totalSteps() { return activeFlow().length; }
 
 function showScreen(screenId, direction = 'forward') {
   const screens = document.querySelectorAll('.screen');
@@ -1851,7 +2732,7 @@ function updateNavBar() {
   if (screenId === 'pick') {
     nextBtn.disabled = !selectedSessionId;
   } else if (screenId === 'show-qr') {
-    nextBtn.textContent = 'Waiting for peer…';
+    nextBtn.textContent = 'Waiting for scan…';
     nextBtn.disabled = true;
   } else if (screenId === 'scan-qr') {
     nextBtn.textContent = 'Scanning…';
@@ -1938,92 +2819,57 @@ async function refreshPickList() {
   list.innerHTML = '';
   const sessions = await listSessions();
   for (const s of sessions) {
-    const row = document.createElement('div');
-    row.className = 'session-row' + (s.id === selectedSessionId ? ' selected' : '');
-    row.innerHTML = `<div class="info"><div class="name"></div><div class="meta"><span class="id-piece dev-only"><span class="id"></span> · </span><span class="count"></span> · <span class="mod"></span></div><div class="history-preview hidden"></div></div>`;
-    row.querySelector('.name').textContent = s.name;
-    row.querySelector('.id').textContent = s.id;
-    const cnt = dataRecordCount(s.data);
-    row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
-    row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
-    // Latest history event as a quiet second meta line. Hidden when the
-    // session has no history yet (legacy sessions or just-imported ones
-    // without recorded provenance).
-    const latest = previewLatestEvent(s);
-    if (latest) {
-      const histEl = row.querySelector('.history-preview');
-      histEl.textContent = describeEvent(latest) + ', ' + formatRelative(latest.at);
-      histEl.classList.remove('hidden');
-    }
-    row.addEventListener('click', () => {
-      selectedSessionId = s.id;
-      refreshPickList();
-      $('pick-edit-btn').disabled = false;
-      $('pick-delete-btn').disabled = false;
-      updateNavBar();
+    const frag = renderSessionRow(s, {
+      container: list,
+      selectedId: selectedSessionId,
+      onRowClick: (sel) => {
+        // Selection drives the bottom-bar "Send" affordance. Re-render
+        // to apply the .selected class to the freshly-picked row.
+        selectedSessionId = sel.id;
+        refreshPickList();
+        updateNavBar();
+      },
+      onAfterChange: () => {
+        // After edit/delete/export from inline icons, refresh. If the
+        // deleted row was the selected one, drop the selection.
+        listSessions().then(remaining => {
+          if (!remaining.some(r => r.id === selectedSessionId)) selectedSessionId = null;
+          refreshPickList();
+        });
+        refreshSessionsCount();
+      },
     });
-    list.appendChild(row);
+    list.appendChild(frag);
   }
   if (sessions.length === 0) {
     selectedSessionId = null;
-    $('pick-edit-btn').disabled = true;
-    $('pick-delete-btn').disabled = true;
   }
   updateNavBar();
 }
 $('pick-new-btn').addEventListener('click', () => showSessionModal(null, 'pick'));
-$('pick-edit-btn').addEventListener('click', async () => {
-  if (!selectedSessionId) return;
-  const s = await getSession(selectedSessionId);
-  if (s) showSessionModal(s, 'pick');
-});
-$('pick-delete-btn').addEventListener('click', async () => {
-  if (!selectedSessionId) return;
-  const s = await getSession(selectedSessionId);
-  if (!s) return;
-  if (!confirm(`Delete "${s.name}"?`)) return;
-  await deleteSession(selectedSessionId);
-  selectedSessionId = null; log('Deleted.', 'ok');
-  refreshPickList();
-});
 
 // =====================================================================
 // Screen: SHOW QR
 // =====================================================================
 async function setupShowQRScreen() {
-  // Configure title + step number based on flow position
   const flow = activeFlow();
-  $('show-qr-num').textContent = currentStep + 1;
-  $('show-qr-of').textContent = `OF ${totalSteps()}`;
   $('show-qr-peerid').classList.add('hidden');
 
   // What we're showing depends on (mode, backend, position)
   if (currentMode === 'receive' && currentBackend === 'peerjs') {
     // Show peer ID for sender to scan
     $('show-qr-title').textContent = 'Share with the sender';
-    // The "type the ID" affordance only exists in dev mode; in user mode
-    // there's no peer-ID display at all, so the subtitle adjusts.
-    $('show-qr-subtitle').textContent = DEV_MODE
-      ? 'On the sending device, scan this QR or type the ID below.'
-      : 'On the sending device, scan this QR.';
-    // Show the awaiting bar — receiver is sitting here waiting for someone
-    // to scan. Once a sender connects, the library's 'connected' event
-    // fires and the bar transitions to the paired state.
-    // Only show when not already paired (otherwise we'd hide an active bar).
-    if (!remotePeerInfo) {
-      showConnectionBar();
-      setConnectionBarStatus('awaiting');
-    }
+    $('show-qr-subtitle').textContent = 'On the sending device, scan this QR.';
+    // Connection bar stays hidden on show-qr. The QR + title already
+    // communicate "waiting for someone to scan". When pairing starts,
+    // the library's 'connected' event reveals the bar with the peer.
     // Start the transfer if not already
     await ensureReceiveTransfer();
     // The transfer's 'show-qr' event will fill in the QR
   } else if (currentMode === 'receive' && currentBackend === 'raw') {
     $('show-qr-title').textContent = 'Scan this with the sender';
     $('show-qr-subtitle').textContent = 'On the sending device, point its camera at this animated QR.';
-    if (!remotePeerInfo) {
-      showConnectionBar();
-      setConnectionBarStatus('awaiting');
-    }
+    // Bar stays hidden until 'connected'.
     await ensureReceiveTransfer();
   } else if (currentMode === 'send' && currentBackend === 'raw') {
     // This is the 'answer QR' step
@@ -2037,9 +2883,6 @@ async function setupShowQRScreen() {
 // Screen: SCAN QR
 // =====================================================================
 async function setupScanQRScreen() {
-  $('scan-qr-num').textContent = currentStep + 1;
-  $('scan-qr-of').textContent = `OF ${totalSteps()}`;
-
   const isPeerJSSender = currentMode === 'send' && currentBackend === 'peerjs';
   const isRawSender    = currentMode === 'send' && currentBackend === 'raw';
   const isRawReceiver  = currentMode === 'receive' && currentBackend === 'raw';
@@ -2170,8 +3013,6 @@ $('scan-manual-input').addEventListener('keydown', async (e) => {
 // Screen: TRANSFER (progress + status)
 // =====================================================================
 function setupTransferScreen() {
-  $('transfer-num').textContent = currentStep + 1;
-  $('transfer-of').textContent = `OF ${totalSteps()}`;
   $('transfer-progress').style.width = '0';
   // Reset to the in-progress view by default
   $('transfer-progress-view').classList.remove('hidden');
@@ -2197,7 +3038,7 @@ function setupTransferScreen() {
   // anymore — the previous "Please wait while the data is moved" was stale
   // and never reflected actual state.
   if (currentMode === 'send') {
-    $('transfer-title').textContent = 'Sending session';
+    $('transfer-title').textContent = 'Sending report';
     setTransferStatus('Sending…');
     // Trigger the actual send. The connection is already open (we paired
     // on the scan-qr screen). The library's `send()` can be called
@@ -2249,12 +3090,9 @@ function showSentAnimation() {
   void actions.offsetWidth;  // force reflow so the animation restarts
   actions.classList.add('sent-actions-hidden');
 
-  // The bar at the bottom carries the per-outcome detail (its balloon
-  // reports "Saved as a new session!" / "Replaced the session!" /
-  // "Merged the session!" / "Session skipped"). The sent view stays
-  // focused on the moment: a single headline + the two action buttons
-  // (Send another, Disconnect). No subline — that would duplicate the
-  // bar's message.
+  // The sent view stays focused on the moment: a single headline + the
+  // two action buttons (Send another, Disconnect). No subline; the
+  // headline alone carries the outcome.
   //
   // Three outcome categories drive the headline:
   //   - success (created/replaced/merged): cheerful "Sent! 🎉"
@@ -2309,11 +3147,11 @@ async function revealPostTransferSessions() {
     banner.classList.remove('hidden');
     if (remotePeerInfo && remotePeerInfo.emoji && remotePeerInfo.nickname) {
       fromBlock.classList.remove('unknown');
-      deviceEl.innerHTML = renderDeviceSVG(remotePeerInfo.emoji, { size: 48, type: remotePeerInfo.device || 'laptop' });
+      deviceEl.innerHTML = renderDeviceSVG(remotePeerInfo.emoji, { size: 48, color: remotePeerInfo.color });
       nameEl.textContent = remotePeerInfo.nickname;
     } else {
       fromBlock.classList.add('unknown');
-      deviceEl.innerHTML = renderDeviceSVG('?', { size: 48, type: 'laptop' });
+      deviceEl.innerHTML = renderDeviceSVG('?', { size: 48 });
       nameEl.textContent = 'an unknown device';
     }
   } else {
@@ -2337,23 +3175,26 @@ async function revealPostTransferSessions() {
     const badgeText = isJust
       ? (justTransferredDirection === 'sent' ? '✓ just sent' : '✓ just received')
       : '';
-    row.innerHTML = `<div class="info">
-      <div class="name"></div>
-      <div class="meta"><span class="id-piece dev-only"><span class="id"></span> · </span><span class="count"></span> · <span class="mod"></span></div>
-      <div class="history-preview hidden"></div>
-      ${badgeText ? `<span class="badge"></span>` : ''}
-    </div>`;
+    const origin = reportOrigin(s);
+    row.innerHTML = `
+      <div class="session-row-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
+      <div class="info">
+        <div class="name-line">
+          <span class="name"></span>
+          <span class="id-pill dev-only"><span class="id"></span></span>
+        </div>
+        <div class="meta">
+          <span class="count"></span>
+          <span class="origin-piece"> · <span class="origin-label"></span> <span class="origin-name"></span></span>
+        </div>
+        ${badgeText ? `<span class="badge"></span>` : ''}
+      </div>`;
     row.querySelector('.name').textContent = s.name;
     row.querySelector('.id').textContent = s.id;
     const cnt = dataRecordCount(s.data);
-    row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
-    row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
-    const latest = previewLatestEvent(s);
-    if (latest) {
-      const histEl = row.querySelector('.history-preview');
-      histEl.textContent = describeEvent(latest) + ', ' + formatRelative(latest.at);
-      histEl.classList.remove('hidden');
-    }
+    row.querySelector('.count').textContent = `${cnt} item${cnt === 1 ? '' : 's'}`;
+    row.querySelector('.origin-label').textContent = origin.label;
+    row.querySelector('.origin-name').textContent = origin.nickname;
     if (badgeText) row.querySelector('.badge').textContent = badgeText;
     // Tapping a row opens the edit modal (consistent with other places)
     row.addEventListener('click', async () => {
@@ -2388,6 +3229,7 @@ function buildLocalPeerInfo() {
     device: identity.device,
     nickname: identity.nickname,
     emoji: identity.emoji,
+    color: identity.color,
     browser, os,
     sentAt: Date.now(),  // remote uses (Date.now() - sentAt) for clockOffset
   };
@@ -2425,39 +3267,25 @@ async function ensureSendTransfer() {
 }
 
 // =====================================================================
-// Connection bar — chat-bubble status surface at the bottom of every
-// screen during a paired session. Light-gray strip with peer avatar +
-// white speech balloon.
+// Connection bar — thin status strip at the bottom of every paired
+// screen. Shows peer avatar + nickname + a brief connection-status label.
 // =====================================================================
 //
 // Visibility is the source of truth for "are we paired?":
 // updateNavBar() reads it to decide whether the bottom-nav back button
 // should say "← Back" or "Disconnect".
 //
-// State model — callers use setConnectionBarStatus(stateKey). Each state
-// renders the right copy + layout:
+// Live states (rendered with status text):
 //
-//   awaiting        centered italic "Waiting for someone to scan…"
-//                   (receiver on show-QR, no peer connected yet)
-//   connecting      balloon with bouncing typing-dots, no text
-//   connected       balloon: "<nickname> connected"   (only state that
-//                   names the peer — the avatar identifies them after)
-//   outgoing        balloon: "Receiving session…"     (we send, they receive)
-//   incoming        balloon: "Sending session…"       (they send, we receive)
-//   created         balloon: "Saved as a new session!"
-//   replaced        balloon: "Replaced the session!"
-//   merged          balloon: "Merged the session!"
-//   skipped         balloon: "Session skipped"
-//   error           balloon: "Something went wrong"
-//   disconnected    balloon: "Bye!"
+//   connecting      "connecting…"  — dimmed, while channel handshake runs
+//   connected       "connected"    — paired and idle
+//   error           "error"        — channel failed (red)
+//   disconnected    "disconnected" — peer gone (brief, before we route away)
 //
-// Timestamp logic: each setConnectionBarStatus call records "now". An
-// interval refreshes the suffix every 30s; after 1 full minute has
-// passed since the last status change, "(N min ago)" appears next to
-// the balloon text.
-
-let connBarStatusSetAt = 0;       // ms timestamp of last setConnectionBarStatus
-let connBarStaleTimer = null;     // setInterval handle for the (X min ago) refresh
+// Other state keys (incoming, outgoing, created, replaced, merged,
+// skipped) are accepted but no-op: those events are surfaced on the
+// transfer screen itself (progress bar, title, status line, sent view),
+// and duplicating them in the bar adds noise without information.
 
 function showConnectionBar() {
   const bar = $('connection-bar');
@@ -2466,10 +3294,6 @@ function showConnectionBar() {
   // (e.g. after a hide cycle) animates in again, not silently appearing.
   void bar.offsetWidth;
   renderConnectionBarPeer();
-  // Start the stale-time refresh loop if not already running
-  if (!connBarStaleTimer) {
-    connBarStaleTimer = setInterval(refreshConnBarStale, 30 * 1000);
-  }
   // The Back button label depends on bar visibility — refresh.
   updateNavBar();
 }
@@ -2477,93 +3301,52 @@ function showConnectionBar() {
 function hideConnectionBar() {
   const bar = $('connection-bar');
   bar.classList.add('hidden');
-  bar.classList.remove('awaiting');
-  if (connBarStaleTimer) { clearInterval(connBarStaleTimer); connBarStaleTimer = null; }
   updateNavBar();
 }
 
-// Set the bar's current state. stateKey is one of the keys documented
-// at the top of this section. Each key maps to layout + copy; this is
-// the single source of truth for what each state looks like.
+// Set the bar's current state. Only the four live states actually update
+// the status text; everything else is silently ignored so callers don't
+// need to know which states the bar cares about.
 function setConnectionBarStatus(stateKey) {
-  const bar = $('connection-bar');
-  const balloonText = $('conn-bar-balloon-text');
-
-  // Awaiting is the one mode that hides the avatar + balloon and shows
-  // the centered italic placeholder instead. Toggling .awaiting on the
-  // bar host flips the layout via CSS.
-  if (stateKey === 'awaiting') {
-    bar.classList.add('awaiting');
-    connBarStatusSetAt = 0;       // no "X min ago" while awaiting
-    $('conn-bar-time').textContent = '';
-    return;
-  }
-  bar.classList.remove('awaiting');
-
-  // Connecting: balloon shows bouncing typing dots, no words. Peer-info
-  // typically arrives within ms of channel open; once 'connected' state
-  // is set we'll overwrite this with the nickname.
-  if (stateKey === 'connecting') {
-    balloonText.innerHTML =
-      '<span class="typing-dots"><span></span><span></span><span></span></span>';
-    connBarStatusSetAt = 0;       // no "X min ago" while connecting
-    $('conn-bar-time').textContent = '';
-    return;
-  }
-
-  // For all other states we set a text string in the balloon and record
-  // the timestamp so the "X min ago" suffix can tick up.
-  balloonText.textContent = copyForState(stateKey);
-  connBarStatusSetAt = Date.now();
-  $('conn-bar-time').textContent = 'now';
-}
-
-// Map a stateKey to the user-facing copy that goes in the balloon.
-// Connected is the one state that names the peer (the welcome moment);
-// every other state stays name-free since the avatar identifies who.
-//
-// Direction states ('incoming' / 'outgoing') are named from the LOCAL
-// user's POV. The balloon copy is then phrased from the PEER's side
-// (matching the balloon-from-peer visual metaphor):
-//   - 'incoming' (we are receiving) → peer is sending → "Sending session…"
-//   - 'outgoing' (we are sending)   → peer is receiving → "Receiving session…"
-function copyForState(stateKey) {
+  const status = $('conn-bar-status');
+  status.classList.remove('err');
   switch (stateKey) {
-    case 'connected': {
-      const nick = (remotePeerInfo && remotePeerInfo.nickname) || 'peer';
-      return `${nick} connected`;
-    }
-    case 'outgoing':     return 'Receiving session…';
-    case 'incoming':     return 'Sending session…';
-    case 'created':      return 'Saved as a new session!';
-    case 'replaced':     return 'Replaced the session!';
-    case 'merged':       return 'Merged the session!';
-    case 'skipped':      return 'Session skipped';
-    case 'error':        return 'Something went wrong';
-    case 'disconnected': return 'Bye!';
-    default:             return stateKey;  // defensive fallback
+    case 'connecting':
+      status.textContent = 'connecting…';
+      return;
+    case 'connected':
+      status.textContent = 'connected';
+      return;
+    case 'error':
+      status.textContent = 'error';
+      status.classList.add('err');
+      return;
+    case 'disconnected':
+      status.textContent = 'disconnected';
+      return;
+    default:
+      // No-op: transfer-state messages (incoming/outgoing/created/
+      // replaced/merged/skipped) are surfaced on the transfer screen,
+      // not duplicated here.
+      return;
   }
 }
 
-// Refresh the "(X min ago)" suffix. Runs every 30s while the bar is up.
-function refreshConnBarStale() {
-  if (!connBarStatusSetAt) return;          // awaiting or connecting — no timestamp yet
-  const minutes = Math.floor((Date.now() - connBarStatusSetAt) / 60000);
-  $('conn-bar-time').textContent = minutes >= 1 ? `${minutes} min ago` : 'now';
-}
-
-// Render the avatar (peer's device frame + emoji). Reads remotePeerInfo;
-// shows a placeholder if peer-info hasn't arrived yet.
+// Render the avatar + nickname for the current peer. Reads remotePeerInfo;
+// falls back to placeholders if peer-info hasn't arrived yet.
 function renderConnectionBarPeer() {
   const info = remotePeerInfo;
   const avatar = $('conn-bar-avatar');
+  const nick = $('conn-bar-nick');
   if (info && info.nickname) {
     avatar.innerHTML = renderDeviceSVG(info.emoji || '?', {
-      size: 36,
-      type: info.device || 'laptop'
+      size: 24,
+      color: info.color
     });
+    nick.textContent = info.nickname;
   } else {
-    avatar.innerHTML = renderDeviceSVG('?', { size: 36, type: 'laptop' });
+    avatar.innerHTML = renderDeviceSVG('?', { size: 24 });
+    nick.textContent = 'peer';
   }
 }
 
@@ -2575,19 +3358,12 @@ function wirePeerInfoListener(t) {
       const clockOffset = info.sentAt ? (Date.now() - info.sentAt) : null;
       log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
     }
-    // Refresh the avatar with the now-known peer identity. If the bar
-    // is currently in 'connected' state, also re-render the balloon
-    // text so it picks up the nickname we now have.
+    // Refresh the avatar + nickname now that peer identity is known.
     renderConnectionBarPeer();
-    const balloonText = $('conn-bar-balloon-text').textContent;
-    if (balloonText && balloonText.endsWith(' connected')) {
-      // Re-resolve the connected copy with the now-known nickname.
-      $('conn-bar-balloon-text').textContent = copyForState('connected');
-    }
   });
-  // 'connected' fires when the data channel opens. Show the bar and
-  // set the connected state. Peer-info usually arrives ms later and
-  // updates the nickname in place.
+  // 'connected' fires when the data channel opens. Show the bar in the
+  // connected state. Peer-info usually arrives ms later and updates the
+  // nickname in place via the listener above.
   t.on('connected', () => {
     showConnectionBar();
     setConnectionBarStatus('connected');
@@ -2660,11 +3436,10 @@ function wireTransferToReceiveUI(t) {
         $('transfer-title').textContent = 'Skipped';
         setTransferStatus('Nothing was changed.', '');
       }
-      // Each receiver action has its own bar state. 'created' / 'replaced'
-      // / 'merged' / 'skipped' all live in copyForState. If for some
-      // reason the action is null (shouldn't happen on a successful
-      // receive), fall back to a generic 'created' message.
-      setConnectionBarStatus(receiverAction || 'created');
+      // The transfer screen already surfaces the receiver's outcome
+      // (title + status line + session-list highlight), so this is a
+      // no-op in the bar — kept for symmetry / future re-enable.
+      setConnectionBarStatus(receiverAction);
       revealPostTransferSessions();
     }
     if (s === 'error') {
@@ -2737,17 +3512,17 @@ function wireTransferToSendUI(t) {
             emoji: remotePeerInfo.emoji,
             nickname: remotePeerInfo.nickname,
             device: remotePeerInfo.device,
+            color: remotePeerInfo.color,
           } : null;
           appendHistoryEvent(s, { kind: 'sent', peer });
           await putSession(s);
         })();
       }
-      // Bar reports the receiver's outcome. receiverError + receiverAction
-      // were set by onAck which fired immediately before status='done'.
-      if (receiverError)        setConnectionBarStatus('error');
-      else if (receiverAction)  setConnectionBarStatus(receiverAction);
-      else                      setConnectionBarStatus('created');  // defensive default
-      // Swap to the sent view (headline + buttons; bar carries the detail).
+      // On receiver error, surface "error" in the bar. The receiver's
+      // success outcomes (created/replaced/merged/skipped) are already
+      // shown on the sent view itself, so no bar update is needed.
+      if (receiverError) setConnectionBarStatus('error');
+      // Swap to the sent view (headline + buttons).
       showSentAnimation();
     }
     if (s === 'error') {
@@ -2785,13 +3560,14 @@ async function handleIncomingSession(payload) {
     emoji: remotePeerInfo.emoji,
     nickname: remotePeerInfo.nickname,
     device: remotePeerInfo.device,
+    color: remotePeerInfo.color,
   } : null;
 
   const existing = await getSession(incoming.id);
   if (!existing) {
     appendHistoryEvent(incoming, { kind: 'received', action: 'created', peer: senderPeer });
     await putSession(incoming);
-    log(`Stored new session "${incoming.name}".`, 'ok');
+    log(`Stored new report "${incoming.name}".`, 'ok');
     refreshSessionsCount();
     justTransferredId = incoming.id;
     justTransferredDirection = 'received';
@@ -2829,6 +3605,10 @@ async function handleIncomingSession(payload) {
     createdAt: new Date(existing.createdAt) < new Date(incoming.createdAt) ? existing.createdAt : incoming.createdAt,
     modifiedAt: new Date(),
     data: result.merged,
+    // Merge rooms naively: union photo arrays per room. Per-room dedup
+    // would need a stable photo identity (hash/url) we don't enforce
+    // yet; the simple union is fine for now.
+    rooms: mergeRooms(existing.rooms, incoming.rooms),
     history: (existing.history || []).slice()
   };
   appendHistoryEvent(merged, { kind: 'received', action: 'merged', peer: senderPeer });
@@ -2852,7 +3632,7 @@ function showConflictModal(existing, incoming) {
     const shapeMismatch = existingShape !== incomingShape;
     backdrop.innerHTML = `
       <div class="modal conflict">
-        <div class="modal-head"><h3>Session already exists</h3></div>
+        <div class="modal-head"><h3>Report already exists</h3></div>
         <div class="modal-body">
           <p style="margin-bottom:14px; color:var(--dim); font-size:13px;">Both copies share ID <code class="inline-code">${existing.id}</code>. How do you want to handle this?</p>
           <div class="conflict-side">
@@ -2876,14 +3656,81 @@ function showConflictModal(existing, incoming) {
     document.body.appendChild(backdrop);
     const sides = backdrop.querySelectorAll('.conflict-side');
     sides[0].querySelector('.name').textContent = existing.name;
-    sides[0].querySelector('.meta').textContent = `${existingCount} record${existingCount === 1 ? '' : 's'} (${existingShape}) · modified ${formatRelative(existing.modifiedAt)}`;
+    sides[0].querySelector('.meta').textContent = `${existingCount} item${existingCount === 1 ? '' : 's'} (${existingShape}) · modified ${formatRelative(existing.modifiedAt)}`;
     sides[1].querySelector('.name').textContent = incoming.name;
-    sides[1].querySelector('.meta').textContent = `${incomingCount} record${incomingCount === 1 ? '' : 's'} (${incomingShape}) · modified ${formatRelative(incoming.modifiedAt)}`;
+    sides[1].querySelector('.meta').textContent = `${incomingCount} item${incomingCount === 1 ? '' : 's'} (${incomingShape}) · modified ${formatRelative(incoming.modifiedAt)}`;
     const finish = (choice) => { backdrop.remove(); resolve(choice); };
     backdrop.querySelector('#c-skip').addEventListener('click', () => finish('skip'));
     backdrop.querySelector('#c-merge').addEventListener('click', (e) => { if (!e.currentTarget.disabled) finish('merge'); });
     backdrop.querySelector('#c-replace').addEventListener('click', () => finish('replace'));
   });
+}
+
+// =====================================================================
+// Export / Import (manual backup escape hatch)
+// =====================================================================
+// Reports normally move device-to-device via the peer-to-peer transfer
+// channel; export/import is the manual fallback for when there's no
+// second device handy, or when the user wants a file backup against
+// browser-data clearing (which the install path can't prevent).
+//
+// File format: a small envelope around the report. Keeping it versioned
+// + typed means a future change to the schema can be handled without
+// breaking older exports.
+//
+//   { version: 1, type: 'p2p-transfer-report', report: <session> }
+//
+// The report inside is the same shape as the IDB session record:
+// { id, name, createdAt, modifiedAt, data, history }.
+
+const EXPORT_TYPE = 'p2p-transfer-report';
+const EXPORT_VERSION = 1;
+
+// Pretty-printed JSON so the user can read / diff the file in any text
+// editor if they're curious. The size penalty is negligible at our scale.
+function exportEnvelope(report) {
+  return JSON.stringify({
+    version: EXPORT_VERSION,
+    type: EXPORT_TYPE,
+    report,
+  }, null, 2);
+}
+
+// Filename = sanitized report name + .json. Strip filesystem-unfriendly
+// characters and collapse whitespace. If the name ends up empty after
+// sanitizing, fall back to the report id.
+function exportFilename(report) {
+  const safe = (report.name || '')
+    .replace(/[\/\\?%*:|"<>]+/g, '')   // characters disallowed on common filesystems
+    .replace(/\s+/g, ' ')
+    .trim();
+  const base = safe || report.id || 'report';
+  return `${base}.json`;
+}
+
+async function exportReport(session) {
+  // Stamp the export in the history so the audit trail records the
+  // backup. Mutates the in-memory copy then writes back; the on-disk
+  // session keeps its history aligned.
+  appendHistoryEvent(session, { kind: 'exported' });
+  try { await putSession(session); } catch (e) { log('Export history write failed: ' + e.message, 'err'); }
+
+  const json = exportEnvelope(session);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  // Synthetic anchor — works across all browsers including iOS Safari
+  // (when not in standalone, where it'll fall back to opening the JSON
+  // in a new tab, which is also fine).
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = exportFilename(session);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Release the blob URL after a tick — most browsers have already
+  // started the download by then.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  log(`Exported "${session.name}".`, 'ok');
 }
 
 // =====================================================================
@@ -2908,60 +3755,38 @@ async function showSessionsModal() {
   backdrop.innerHTML = `
     <div class="modal">
       <div class="modal-head">
-        <h3>Sessions on this device</h3>
+        <h3>Reports on this device</h3>
         <button class="close" id="sm-close">×</button>
       </div>
       <div class="modal-body">
         <div class="session-list" id="sm-list"></div>
       </div>
       <div class="modal-footer">
-        <button class="primary" id="sm-new" style="background:var(--accent);color:#fff;border-color:var(--accent);">New session</button>
+        <button class="primary" id="sm-new" style="background:var(--accent);color:#fff;border-color:var(--accent);">New report</button>
       </div>
     </div>`;
   document.body.appendChild(backdrop);
 
-  let smSelectedId = null;
   async function render() {
     const list = backdrop.querySelector('#sm-list');
     list.innerHTML = '';
     const sessions = await listSessions();
     for (const s of sessions) {
-      const row = document.createElement('div');
-      row.className = 'session-row';
-      row.innerHTML = `
-        <div class="info">
-          <div class="name"></div>
-          <div class="meta"><span class="id-piece dev-only"><span class="id"></span> · </span><span class="count"></span> · <span class="mod"></span></div>
-          <div class="history-preview hidden"></div>
-        </div>
-        <div style="display:flex; gap:4px; align-items:start;">
-          <button data-act="edit" style="padding:4px 8px; font-size:10px; background:var(--bg); border:1px solid var(--line); color:var(--ink-soft); cursor:pointer;">Edit</button>
-          <button data-act="del"  style="padding:4px 8px; font-size:10px; background:var(--bg); border:1px solid var(--line); color:var(--warn); cursor:pointer;">Del</button>
-        </div>`;
-      row.querySelector('.name').textContent = s.name;
-      row.querySelector('.id').textContent = s.id;
-      const cnt = dataRecordCount(s.data);
-      row.querySelector('.count').textContent = `${cnt} record${cnt === 1 ? '' : 's'}`;
-      row.querySelector('.mod').textContent = `mod ${formatRelative(s.modifiedAt)}`;
-      const latest = previewLatestEvent(s);
-      if (latest) {
-        const histEl = row.querySelector('.history-preview');
-        histEl.textContent = describeEvent(latest) + ', ' + formatRelative(latest.at);
-        histEl.classList.remove('hidden');
-      }
-      row.querySelector('[data-act="edit"]').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const full = await getSession(s.id);
-        if (full) { backdrop.remove(); showSessionModal(full, 'modal'); }
+      const frag = renderSessionRow(s, {
+        container: list,
+        onAfterChange: async () => {
+          await refreshSessionsCount();
+          render();
+        },
+        onRowClick: async (sel) => {
+          // Tap-to-browse: open the items modal for this report. The
+          // sessions modal stays open behind it; closing the items
+          // modal returns the user here.
+          const full = await getSession(sel.id);
+          if (full) showItemsModal(full);
+        },
       });
-      row.querySelector('[data-act="del"]').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!confirm(`Delete "${s.name}"?`)) return;
-        await deleteSession(s.id); log('Deleted.', 'ok');
-        await refreshSessionsCount();
-        render();
-      });
-      list.appendChild(row);
+      list.appendChild(frag);
     }
   }
   await render();
@@ -2973,9 +3798,344 @@ async function showSessionsModal() {
   });
 }
 
+// =====================================================================
+// Items modal (browse what's inside a single report)
+// =====================================================================
+// Full-screen modal listing every item in the report. The user can
+// switch between three sort modes via a segmented toolbar:
+//
+//   Room (default) — items grouped by room number. Each room header
+//                    shows a thumbnail strip of that room's photos
+//                    (up to 6) so the user can see context at a glance.
+//   Time           — grouped by date-bucket (today / yesterday / this
+//                    week / ...). Newest-first within each bucket.
+//   Object         — grouped alphabetically by category (chair, laptop,
+//                    monitor, ...).
+//
+// The modal handles its own dismissal; no flow-state changes, so it
+// can be opened from any context (pick screen, sessions modal) and on
+// close the user returns to whatever was open behind.
+function showItemsModal(session) {
+  const data = session.data || {};
+  const rooms = session.rooms || {};
+  // Normalize to a flat array of { id, displayNum, item } pairs. Data
+  // can be either an object keyed by id or an array; both shapes are
+  // valid (see dataIsArray / dataRecordCount). The displayNum is the
+  // user-visible row number: parsed from trailing digits in the id
+  // when possible (e.g. "asset_001" → 1), or just the index+1 as a
+  // stable fallback. Stable means it doesn't change when the user
+  // re-sorts, so "item 5" refers to one specific item.
+  const flat = dataIsArray(data)
+    ? data.map((item, i) => ({ id: String(i), displayNum: i + 1, item }))
+    : Object.keys(data).map((id, i) => ({ id, displayNum: parseDisplayNum(id, i), item: data[id] }));
+
+  let sortMode = 'room';   // 'room' | 'time' | 'object'
+
+  // Header context: the emoji circle + creator/sender attribution
+  // mirror the session-row pattern, so jumping from the report list
+  // into a report's items feels visually continuous. Counts shown in
+  // the subtitle are totals for the whole report — they don't change
+  // when the active search filter narrows the visible list.
+  const origin = reportOrigin(session);
+  const totalItems = flat.length;
+  const subtitleStats = `${totalItems} item${totalItems === 1 ? '' : 's'}`;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal items-modal">
+      <div class="modal-head items-modal-head">
+        <div class="items-modal-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
+        <div class="items-modal-title">
+          <h3>${escapeHTML(session.name)}</h3>
+          <div class="items-modal-subtitle">
+            <span class="origin-label">${escapeHTML(origin.label)}</span>
+            <span class="origin-name">${escapeHTML(origin.nickname)}</span>
+            <span> · </span>
+            <span class="items-modal-count">${escapeHTML(subtitleStats)}</span>
+          </div>
+        </div>
+        <button class="close" id="items-close" aria-label="Close">×</button>
+      </div>
+      <div class="items-search">
+        <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="items-search-input"
+               placeholder=""
+               autocomplete="off"
+               aria-label="Filter items">
+        <button class="items-search-clear hidden" id="items-search-clear" type="button" aria-label="Clear search">×</button>
+      </div>
+      <div class="items-sort-toolbar">
+        <button class="items-sort-btn" data-sort="room">Room</button>
+        <button class="items-sort-btn" data-sort="time">Date</button>
+        <button class="items-sort-btn" data-sort="object">Object</button>
+      </div>
+      <div class="modal-body" id="items-body"></div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('#items-close').addEventListener('click', () => backdrop.remove());
+
+  const bodyEl = backdrop.querySelector('#items-body');
+  const searchInput = backdrop.querySelector('#items-search-input');
+  const searchClear = backdrop.querySelector('#items-search-clear');
+
+  let searchTerm = '';   // normalized lowercase substring; '' = no filter
+
+  // Universal substring match: returns true if the item has the term
+  // anywhere in room, category, serial, or notes. Case-insensitive.
+  // An empty term matches everything (filter off).
+  function itemMatches(item) {
+    if (!searchTerm) return true;
+    const haystack = [
+      item.room, item.category, item.serial, item.notes
+    ].filter(Boolean).join(' ').toLowerCase();
+    // Also test against the item's date-bucket label so "yesterday"
+    // filters items whose createdAt → Yesterday, even though items
+    // don't carry the bucket name directly on the object.
+    if (item.createdAt) {
+      const bucket = dateBucket(item.createdAt);
+      if (bucket.label.toLowerCase().includes(searchTerm)) return true;
+    }
+    return haystack.includes(searchTerm);
+  }
+
+  // Render the body based on current sort + search. Groups with no
+  // matching items are hidden so the user only sees relevant sections.
+  function rerender() {
+    backdrop.querySelectorAll('.items-sort-btn').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-sort') === sortMode);
+    });
+    searchClear.classList.toggle('hidden', !searchTerm);
+    if (flat.length === 0) {
+      bodyEl.innerHTML = `<div class="items-empty">No items in this report yet.</div>`;
+      return;
+    }
+    const groups = buildGroups(flat, sortMode);
+    // Filter items within each group; drop groups that end up empty.
+    const filtered = groups
+      .map(g => Object.assign({}, g, { items: g.items.filter(e => itemMatches(e.item)) }))
+      .filter(g => g.items.length > 0);
+    if (filtered.length === 0) {
+      bodyEl.innerHTML = `<div class="items-empty">No items match “${escapeHTML(searchTerm)}”.</div>`;
+      return;
+    }
+    bodyEl.innerHTML = filtered.map(g => {
+      const itemCount = g.items.length;
+      return `
+        <div class="items-group-head">
+          <span class="items-group-label">${escapeHTML(g.label)}</span>
+          <span class="items-group-count">${itemCount} item${itemCount === 1 ? '' : 's'}</span>
+        </div>
+        ${sortMode === 'room' ? roomPhotosHTML(rooms[g.roomKey]) : ''}
+        ${g.items.map(e => itemRowHTML(e, sortMode)).join('')}
+      `;
+    }).join('');
+  }
+
+  // Toolbar buttons swap the sort mode. The search term stays so a
+  // "monitor" query keeps filtering when you switch from Object to Room.
+  backdrop.querySelectorAll('.items-sort-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      sortMode = b.getAttribute('data-sort');
+      rerender();
+    });
+  });
+
+  // Live filter as the user types. Trim + lowercase up-front so the
+  // matcher can do plain includes() checks.
+  searchInput.addEventListener('input', () => {
+    searchTerm = searchInput.value.trim().toLowerCase();
+    rerender();
+  });
+
+  // Clear button: reset the input + filter, give focus back so the
+  // user can immediately type something new.
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    searchTerm = '';
+    searchInput.focus();
+    rerender();
+  });
+
+  rerender();
+}
+
+// Build the grouped item list for a given sort mode. Returns an array
+// of { key, label, order, items, roomKey? } where roomKey is set only
+// for the 'room' sort mode (used to look up photos for the header).
+function buildGroups(flat, sortMode) {
+  if (sortMode === 'time') {
+    // Sort flat list newest-first, then bucket by date group.
+    const sorted = flat.slice().sort((a, b) => {
+      const ta = a.item.createdAt ? new Date(a.item.createdAt).getTime() : 0;
+      const tb = b.item.createdAt ? new Date(b.item.createdAt).getTime() : 0;
+      return tb - ta;
+    });
+    const groups = new Map();
+    for (const entry of sorted) {
+      if (!entry.item.createdAt) continue;
+      const bucket = dateBucket(entry.item.createdAt);
+      if (!groups.has(bucket.key)) {
+        groups.set(bucket.key, { key: bucket.key, label: bucket.label, order: bucket.order, items: [] });
+      }
+      groups.get(bucket.key).items.push(entry);
+    }
+    const undated = sorted.filter(e => !e.item.createdAt);
+    if (undated.length) {
+      groups.set('undated', { key: 'undated', label: 'Undated', order: 99, items: undated });
+    }
+    return Array.from(groups.values()).sort((a, b) => a.order - b.order);
+  }
+  if (sortMode === 'object') {
+    // Group by category, alphabetical. Within a category, sort newest-first.
+    const groups = new Map();
+    for (const entry of flat) {
+      const cat = entry.item.category || '(uncategorized)';
+      if (!groups.has(cat)) groups.set(cat, { key: cat, label: cat, items: [] });
+      groups.get(cat).items.push(entry);
+    }
+    for (const g of groups.values()) {
+      // Capitalize for display
+      g.label = g.label.charAt(0).toUpperCase() + g.label.slice(1);
+      g.items.sort((a, b) => {
+        const ta = a.item.createdAt ? new Date(a.item.createdAt).getTime() : 0;
+        const tb = b.item.createdAt ? new Date(b.item.createdAt).getTime() : 0;
+        return tb - ta;
+      });
+    }
+    return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }
+  // sortMode === 'room' (default)
+  // Group by room number; within a room, sort newest-first.
+  const groups = new Map();
+  for (const entry of flat) {
+    const room = entry.item.room || '(no room)';
+    if (!groups.has(room)) groups.set(room, { key: `room-${room}`, roomKey: room, label: `Room ${room}`, items: [] });
+    groups.get(room).items.push(entry);
+  }
+  for (const g of groups.values()) {
+    g.items.sort((a, b) => {
+      const ta = a.item.createdAt ? new Date(a.item.createdAt).getTime() : 0;
+      const tb = b.item.createdAt ? new Date(b.item.createdAt).getTime() : 0;
+      return tb - ta;
+    });
+  }
+  // Natural sort by room key (so "101" < "102" < "201")
+  return Array.from(groups.values()).sort((a, b) => {
+    const na = parseInt(a.roomKey, 10);
+    const nb = parseInt(b.roomKey, 10);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return String(a.roomKey).localeCompare(String(b.roomKey));
+  });
+}
+
+// Render the photo strip for a room's group header. Hidden if the room
+// has no photos. Photos are clickable thumbnails — tapping opens a
+// lightbox. Capped at 6 (the per-room limit) so a single overzealous
+// scout doesn't blow up the layout.
+function roomPhotosHTML(room) {
+  if (!room || !room.photos || room.photos.length === 0) return '';
+  const thumbs = room.photos.slice(0, 6).map((src, i) => `
+    <button class="room-photo-thumb" data-photo-src="${escapeHTML(src)}" aria-label="Photo ${i + 1}">
+      <img src="${escapeHTML(src)}" alt="Photo ${i + 1}">
+    </button>
+  `).join('');
+  return `<div class="room-photo-strip">${thumbs}</div>`;
+}
+
+// Lightbox handler: any room-photo-thumb click opens the photo
+// large-format. Single global delegated handler attached when the
+// items modal mounts (rebound is fine since each modal instance gets
+// its own backdrop element).
+document.addEventListener('click', (e) => {
+  const thumb = e.target.closest('.room-photo-thumb');
+  if (!thumb) return;
+  const src = thumb.getAttribute('data-photo-src');
+  if (!src) return;
+  const lb = document.createElement('div');
+  lb.className = 'photo-lightbox';
+  lb.innerHTML = `<img src="${src}" alt="Photo"><button class="lightbox-close" aria-label="Close">×</button>`;
+  document.body.appendChild(lb);
+  const close = () => lb.remove();
+  lb.querySelector('.lightbox-close').addEventListener('click', close);
+  lb.addEventListener('click', (ev) => { if (ev.target === lb) close(); });
+});
+
+// Build the HTML for one item row. Takes the full entry (id +
+// displayNum + item) so the row can show its stable display number in
+// the leading pill. The current sort mode tells us which field is
+// already known from the group header (don't repeat "Room 101" on
+// every item when the header says "Room 101").
+//
+// Layout: a slim colored vertical bar on the left (green = found,
+// red = missing), then an outlined cyan ID pill with the number, then
+// the item info (title + meta), then optionally a relative time on
+// the right. The bar replaces the old colored dot — feels more like
+// a left-edge status indicator than a bullet point.
+function itemRowHTML(entry, sortMode) {
+  const item = entry.item;
+  const title = item.category || 'item';
+  const metaParts = [];
+  if (sortMode !== 'room' && item.room) metaParts.push(`Room ${item.room}`);
+  if (item.serial) metaParts.push(item.serial);
+  const meta = metaParts.join(' · ');
+  // Found bar: green when found is truthy, red when explicitly false.
+  // When the field is missing entirely, no bar — the item shape may
+  // not have a found/missing concept.
+  let statusClass = '';
+  if (item.found === true) statusClass = 'found';
+  else if (item.found === false) statusClass = 'missing';
+  // Relative timestamp on the right — only when not grouped by time.
+  const when = (sortMode !== 'time' && item.createdAt) ? formatRelative(item.createdAt) : '';
+  return `
+    <div class="items-row">
+      <span class="item-status-bar ${statusClass}" aria-hidden="true"></span>
+      <span class="item-id-pill">${entry.displayNum}</span>
+      <div class="item-info">
+        <div class="item-title">${escapeHTML(String(title))}</div>
+        ${meta ? `<div class="item-meta">${escapeHTML(meta)}</div>` : ''}
+      </div>
+      ${when ? `<div class="item-time">${escapeHTML(when)}</div>` : ''}
+    </div>`;
+}
+
+// Tiny HTML-escape helper for user-controlled item fields. Items can
+// carry arbitrary string values via the dev-mode JSON editor or via a
+// future scout-adds-items UI, so we don't want to splat unescaped
+// strings into innerHTML.
+function escapeHTML(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Derive a user-visible number for an item from its underlying id.
+// The example data uses ids like "asset_001" / "asset_012"; we parse
+// the trailing digits so the row shows just "1" / "12". If the id
+// doesn't end in digits (arbitrary string ids from other data sources),
+// fall back to the iteration index + 1 so every row still has a number.
+function parseDisplayNum(id, fallbackIndex) {
+  const m = String(id).match(/(\d+)\s*$/);
+  if (m) return parseInt(m[1], 10);
+  return fallbackIndex + 1;
+}
+
 function showSessionModal(existing, returnTo) {
   const isNew = !existing;
-  const session = existing || { name: suggestSessionName(), data: exampleData() };
+  let session;
+  if (existing) {
+    session = existing;
+  } else {
+    // Fresh session: generate items, then collect the rooms they
+    // reference and seed those rooms with placeholder photos. Rooms
+    // travel as a sibling field to data; receivers ship it along too.
+    const data = exampleData();
+    const roomNumbers = Object.values(data).map(item => item.room).filter(Boolean);
+    session = { name: suggestSessionName(), data, rooms: exampleRooms(roomNumbers) };
+  }
   // Render the history section. For new sessions there's nothing yet, so we
   // skip it entirely. For existing sessions, we show events in reverse
   // chronological order.
@@ -2997,15 +4157,15 @@ function showSessionModal(existing, returnTo) {
   backdrop.innerHTML = `
     <div class="modal">
       <div class="modal-head">
-        <h3>${isNew ? 'New session' : 'Edit session'}</h3>
+        <h3>${isNew ? 'New report' : 'Edit report'}</h3>
         <button class="close" id="m-cancel">×</button>
       </div>
       <div class="modal-body">
-        ${isNew ? '<p class="dev-only" style="color:var(--dim); font-size:12px; margin-bottom:14px;">Session ID is auto-generated when you create.</p>'
+        ${isNew ? '<p class="dev-only" style="color:var(--dim); font-size:12px; margin-bottom:14px;">Report ID is auto-generated when you create.</p>'
                 : `<p class="dev-only" style="color:var(--dim); font-size:12px; margin-bottom:14px;">ID: <code class="inline-code">${session.id}</code></p>`}
         ${historyHTML}
         <label class="field"><span>Name</span><input type="text" id="m-name"></label>
-        <label class="field dev-only"><span>Data (JSON object — keys are record IDs)</span><textarea id="m-data"></textarea></label>
+        <label class="field dev-only"><span>Data (JSON object — keys are item IDs)</span><textarea id="m-data"></textarea></label>
       </div>
       <div class="modal-footer">
         <button id="m-cancel-2">Cancel</button>
@@ -3029,14 +4189,26 @@ function showSessionModal(existing, returnTo) {
     const now = new Date();
     if (isNew) {
       const id = (typeof generateFriendlyId === 'function') ? generateFriendlyId() : ('s-' + Math.random().toString(36).slice(2, 10));
-      const fresh = { id, name, createdAt: now, modifiedAt: now, data };
+      const fresh = { id, name, createdAt: now, modifiedAt: now, data, rooms: session.rooms || {} };
       appendHistoryEvent(fresh, { kind: 'created-here' });
       await putSession(fresh);
       log(`Created "${fresh.name}".`, 'ok');
       if (returnTo === 'pick') selectedSessionId = fresh.id;
     } else {
-      // Edit preserves history; just updates name/data/modifiedAt.
-      await putSession({ ...session, name, data, modifiedAt: now });
+      // Edit preserves history; logs what actually changed (rename and/or
+      // data edit) so the audit log shows the cause, not just the time.
+      const updated = { ...session, name, data, modifiedAt: now };
+      let dataChanged = false;
+      try {
+        dataChanged = JSON.stringify(data) !== JSON.stringify(session.data);
+      } catch { dataChanged = true; }  // fall back to "edited" if comparison fails
+      if (name !== session.name) {
+        appendHistoryEvent(updated, { kind: 'renamed', from: session.name, to: name });
+      }
+      if (dataChanged) {
+        appendHistoryEvent(updated, { kind: 'edited' });
+      }
+      await putSession(updated);
       log(`Updated "${name}".`, 'ok');
     }
     close();
@@ -3046,17 +4218,16 @@ function showSessionModal(existing, returnTo) {
 }
 
 // =====================================================================
-// Identity modal (first-use setup + edit-via-settings)
+// Identity modal (edit-via-settings; first-use lives in onboarding)
 // =====================================================================
-// Per past design decisions: required, not skippable; slot-machine emoji
-// picker; "Save" button; NetID validation requires ≥3 chars; on Save
-// click with <3 chars the typed value is wiped and the placeholder
-// becomes "Please enter your NetID here" in red. Live error clears as
-// soon as the user types any character.
+// Two-reel slot machine picks an emoji and a pastel color in parallel.
+// The user types a name and taps Save. Validation: any non-empty trimmed
+// input passes; empty input wipes the field and shows a red placeholder
+// hint. The error clears as soon as the user types any character.
 
 // Cache: in-memory copy of the identity to avoid hitting IDB constantly.
 // Loaded once at startup, kept in sync on save.
-let identity = null;  // { emoji, nickname, device } or null if not set yet
+let identity = null;  // { emoji, nickname, device, color } or null if not set yet
 
 async function loadIdentity() {
   identity = await getPref('identity');
@@ -3068,62 +4239,64 @@ function hasIdentity() {
 }
 
 // Render or re-render the identity badge in the topbar. Called whenever
-// the identity changes (initial load, save, edit). The badge always shows
-// the device shape; emoji and name only appear if identity is set.
+// the identity changes (initial load, save, edit). The circle always
+// renders; emoji, name, and color only fill in if identity is set.
 function updateIdentityBadge() {
   const svgEl = document.getElementById('topbar-identity-svg');
   const nameEl = document.getElementById('topbar-identity-name');
   if (!svgEl) return;
   const emoji = identity?.emoji || '';
-  // Smaller size for the topbar — 32px square for laptop/tablet, 28px for
-  // phone since phone shape is taller and needs less width.
-  const size = DEVICE_TYPE === 'phone' ? 28 : 32;
-  svgEl.innerHTML = renderDeviceSVG(emoji, { size });
+  // The badge is a circle now; no per-device-shape sizing needed.
+  svgEl.innerHTML = renderDeviceSVG(emoji, { size: 32, color: identity?.color });
   nameEl.textContent = identity?.nickname || '';
 }
 
-// SVG device-frame template. The shape depends on the device type detected
-// at page load. Emoji sits inside the "screen" area. Returns the SVG markup
-// as a string (the caller injects it into the DOM).
+// Renders the identity badge: a filled pastel circle with the emoji
+// centered on top. The function name and signature are unchanged from
+// the previous device-frame version so every caller keeps working.
+//
+// opts:
+//   size   px display size; viewBox stays 80x80 so size just scales
+//   id     optional id for the <svg> element
+//   color  hex string for the circle fill; falls back to DEFAULT_IDENTITY_COLOR
+//   type   accepted but ignored — device type is no longer part of the
+//          visual, only kept in the identity object internally
 function renderDeviceSVG(emoji, opts = {}) {
   const size = opts.size || 80;
   const id = opts.id || '';
-  const type = opts.type || DEVICE_TYPE;
-  // viewBox is always 80x80; size scales display. Emoji size varies by
-  // device shape: phone screen is tall+narrow, tablet is square-ish,
-  // laptop has a wider but shorter screen area.
-  let frame, emojiSize, emojiY;
-  if (type === 'phone') {
-    frame = `<rect x="24" y="8" width="32" height="64" rx="4" fill="none" stroke="var(--accent)" stroke-width="2"/>
-             <line x1="34" y1="66" x2="46" y2="66" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
-    emojiSize = 24; emojiY = 48;
-  } else if (type === 'tablet') {
-    frame = `<rect x="12" y="12" width="56" height="56" rx="4" fill="none" stroke="var(--accent)" stroke-width="2"/>
-             <line x1="34" y1="62" x2="46" y2="62" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
-    emojiSize = 32; emojiY = 38;
-  } else {
-    frame = `<rect x="16" y="14" width="48" height="34" rx="2" fill="none" stroke="var(--accent)" stroke-width="2"/>
-             <path d="M 6 54 L 74 54 L 68 60 L 12 60 Z" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
-    emojiSize = 22; emojiY = 32;
-  }
+  const color = opts.color || DEFAULT_IDENTITY_COLOR;
+  // Emoji size is generous — the circle is the whole visual now, so the
+  // emoji should fill it. ~54 against an 80 viewBox feels right (about
+  // two-thirds the diameter, leaves a small color halo around the glyph).
+  const emojiSize = 54;
+  // Text Y for vertical centering. dominant-baseline=middle puts the
+  // glyph baseline at this Y. 44 (slightly below 40) compensates for the
+  // optical weight bias of most emoji glyphs.
+  const emojiY = 44;
   return `<svg viewBox="0 0 80 80" width="${size}" height="${size}"${id ? ` id="${id}"` : ''}>
-    ${frame}
+    <circle class="identity-circle" cx="40" cy="40" r="38" fill="${color}"/>
     <text class="identity-emoji" x="40" y="${emojiY}" text-anchor="middle" font-size="${emojiSize}" dominant-baseline="middle">${emoji || ''}</text>
   </svg>`;
 }
 
-// Slot-machine animation. Cycles emojis with decelerating intervals over
-// `duration` ms, landing on a random emoji different from `current`.
-// Calls `onLand` with the final emoji.
-function rollSlotMachine(textEl, current, duration, onLand) {
+// Generic slot-machine animation. Cycles through `values` with decelerating
+// intervals over `duration` ms, landing on a random value different from
+// `current`. Each tick calls `apply(el, value)` to update the DOM; on
+// landing, `onLand(finalValue)` fires.
+//
+// Two adapters are provided below — rollEmojiSlot (text content) and
+// rollColorSlot (SVG circle fill). The bounce-on-landing is only used by
+// the emoji adapter; color uses a no-op since "bouncing a fill" doesn't
+// read as a slot landing.
+function rollSlot(el, values, current, duration, apply, onLand, onFinalTick) {
   const start = performance.now();
   const intervalCurve = [50, 60, 75, 95, 120, 160, 220, 320];
   let cur = current;
 
   function pickDifferent() {
     let next;
-    do { next = IDENTITY_EMOJIS[Math.floor(Math.random() * IDENTITY_EMOJIS.length)]; }
-    while (next === cur && IDENTITY_EMOJIS.length > 1);
+    do { next = values[Math.floor(Math.random() * values.length)]; }
+    while (next === cur && values.length > 1);
     return next;
   }
 
@@ -3131,25 +4304,53 @@ function rollSlotMachine(textEl, current, duration, onLand) {
     const elapsed = performance.now() - start;
     if (elapsed >= duration) {
       cur = pickDifferent();
-      textEl.textContent = cur;
-      // Bounce on landing
-      textEl.style.transform = 'scale(1.18)';
-      textEl.style.transformOrigin = '40px 48px';
-      setTimeout(() => {
-        textEl.style.transition = 'transform 0.2s ease-out';
-        textEl.style.transform = 'scale(1)';
-      }, 30);
-      setTimeout(() => { textEl.style.transition = ''; }, 280);
+      apply(el, cur);
+      if (onFinalTick) onFinalTick(el, cur);
       onLand(cur);
       return;
     }
     const progress = elapsed / duration;
     const intervalIdx = Math.min(Math.floor(progress * intervalCurve.length), intervalCurve.length - 1);
     cur = pickDifferent();
-    textEl.textContent = cur;
+    apply(el, cur);
     setTimeout(tick, intervalCurve[intervalIdx]);
   }
   tick();
+}
+
+// Emoji reel: cycles IDENTITY_EMOJIS, mutates textContent, bounces on land.
+function rollEmojiSlot(textEl, current, duration, onLand) {
+  rollSlot(
+    textEl,
+    IDENTITY_EMOJIS,
+    current,
+    duration,
+    (el, v) => { el.textContent = v; },
+    onLand,
+    (el) => {
+      // Bounce the emoji on landing for a satisfying "click" of the reel.
+      el.style.transform = 'scale(1.18)';
+      el.style.transformOrigin = '40px 48px';
+      setTimeout(() => {
+        el.style.transition = 'transform 0.2s ease-out';
+        el.style.transform = 'scale(1)';
+      }, 30);
+      setTimeout(() => { el.style.transition = ''; }, 280);
+    }
+  );
+}
+
+// Color reel: cycles IDENTITY_COLORS, mutates the SVG circle's fill.
+// No landing animation — the fill change itself is the visible cue.
+function rollColorSlot(circleEl, current, duration, onLand) {
+  rollSlot(
+    circleEl,
+    IDENTITY_COLORS,
+    current,
+    duration,
+    (el, v) => { el.setAttribute('fill', v); },
+    onLand
+  );
 }
 
 // Show the identity modal. Used for both first-use setup and editing via
@@ -3162,6 +4363,11 @@ function showIdentityModal(isEditing = false) {
     // a random emoji that the slot machine will replace on first roll.
     const startEmoji = (isEditing && identity?.emoji) || IDENTITY_EMOJIS[0];
     const startNickname = (isEditing && identity?.nickname) || '';
+    // For editing users, start at their existing color so the modal opens
+    // with their familiar circle for the brief moment before the reel
+    // kicks in. The reel always rolls — `currentColor = startColor` makes
+    // sure the first roll picks something different from what they had.
+    const startColor = (isEditing && identity?.color) || DEFAULT_IDENTITY_COLOR;
     let currentEmoji = startEmoji;
     let isRolling = false;
 
@@ -3175,10 +4381,10 @@ function showIdentityModal(isEditing = false) {
         </div>
         <div class="modal-body" style="display:flex; flex-direction:column; justify-content:center;">
           <div style="margin-bottom: 24px;">
-            ${renderDeviceSVG(currentEmoji, { size: 96, id: 'id-frame' })}
+            ${renderDeviceSVG(currentEmoji, { size: 96, id: 'id-frame', color: startColor })}
           </div>
-          <div class="field-label">Your NetID</div>
-          <input type="text" class="netid" id="id-netid" value="${startNickname}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <div class="field-label">Your name</div>
+          <input type="text" class="netid" id="id-netid" value="${startNickname}" placeholder="e.g. jvanderlaan, sanne, or a nickname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
           <button class="save-btn" id="id-save">Save</button>
         </div>
       </div>`;
@@ -3189,28 +4395,35 @@ function showIdentityModal(isEditing = false) {
     const frameEl = backdrop.querySelector('#id-frame');
     frameEl.classList.add('identity-frame');
     const emojiEl = frameEl.querySelector('.identity-emoji');
+    const circleEl = frameEl.querySelector('.identity-circle');
     const inputEl = backdrop.querySelector('#id-netid');
     const saveBtn = backdrop.querySelector('#id-save');
 
-    // Kick off the initial slot animation 200ms after mount, so the user
-    // sees the modal arrive then the emoji start cycling. Without this
-    // delay the cycle starts during the modal's fade-in and feels rushed.
-    setTimeout(() => {
+    // Two reels (emoji + color) roll in parallel on each kick. They share
+    // a single duration, so the `isRolling` guard flips back to false only
+    // once BOTH have landed. inflight counts in-flight reels.
+    let currentColor = startColor;
+    let inflight = 0;
+    function rollBoth(duration) {
       if (isRolling) return;
       isRolling = true;
-      rollSlotMachine(emojiEl, currentEmoji, 1200, (final) => {
-        currentEmoji = final; isRolling = false;
+      inflight = 2;
+      const done = () => { if (--inflight === 0) isRolling = false; };
+      rollEmojiSlot(emojiEl, currentEmoji, duration, (final) => {
+        currentEmoji = final; done();
       });
-    }, 200);
+      rollColorSlot(circleEl, currentColor, duration, (final) => {
+        currentColor = final; done();
+      });
+    }
+
+    // Kick off the initial slot animation 200ms after mount, so the user
+    // sees the modal arrive then the reels start cycling. Without this
+    // delay the cycle starts during the modal's fade-in and feels rushed.
+    setTimeout(() => rollBoth(1200), 200);
 
     // Tap device to reroll — no on-screen hint, this is the easter egg.
-    frameEl.addEventListener('click', () => {
-      if (isRolling) return;
-      isRolling = true;
-      rollSlotMachine(emojiEl, currentEmoji, 700, (final) => {
-        currentEmoji = final; isRolling = false;
-      });
-    });
+    frameEl.addEventListener('click', () => rollBoth(700));
 
     // Validation: option 3 from the design conversation. On Save click
     // with <3 trimmed chars, wipe the field and show the red placeholder.
@@ -3218,29 +4431,33 @@ function showIdentityModal(isEditing = false) {
       // Guard: don't save while slot is still rolling — see initOnboardingSetup
       // for the same fix in the onboarding setup view.
       if (isRolling) return;
-      if (inputEl.value.trim().length >= 3) {
-        // Use the DOM's text content as the source of truth for the emoji
-        const newIdentity = {
-          emoji: emojiEl.textContent,
-          nickname: inputEl.value.trim(),
-          device: DEVICE_TYPE
-        };
-        setPref('identity', newIdentity).then(() => {
-          identity = newIdentity;
-          updateIdentityBadge();
-          saveBtn.textContent = 'Saved ✓';
-          saveBtn.classList.add('saved');
-          setTimeout(() => {
-            backdrop.remove();
-            resolve(newIdentity);
-          }, 700);
-        });
-      } else {
+      const value = inputEl.value.trim();
+      if (value.length === 0) {
         inputEl.value = '';
-        inputEl.placeholder = 'Please enter your NetID here';
+        inputEl.placeholder = 'Please enter your name here';
         inputEl.classList.add('error');
         inputEl.focus();
+        return;
       }
+      // Use the DOM as the source of truth for both emoji and color —
+      // the slot machine writes to it on every tick but only updates
+      // the JS closure variable on landing.
+      const newIdentity = {
+        emoji: emojiEl.textContent,
+        nickname: value,
+        device: DEVICE_TYPE,
+        color: circleEl.getAttribute('fill') || DEFAULT_IDENTITY_COLOR
+      };
+      setPref('identity', newIdentity).then(() => {
+        identity = newIdentity;
+        updateIdentityBadge();
+        saveBtn.textContent = 'Saved ✓';
+        saveBtn.classList.add('saved');
+        setTimeout(() => {
+          backdrop.remove();
+          resolve(newIdentity);
+        }, 700);
+      });
     }
     saveBtn.addEventListener('click', attemptSave);
     inputEl.addEventListener('keydown', (e) => {
@@ -3323,6 +4540,18 @@ function detectIOSSafari() {
   // browser hits the same ITP limits
   return isIOS && !detectStandalone();
 }
+function detectChromium() {
+  // Chrome / Edge / Opera / Brave all expose the Chromium runtime.
+  // navigator.userAgentData is the modern, structured signal; the UA
+  // string check is the fallback for older browsers. We only need this
+  // accurate enough to gate the Chromium-incognito heuristic.
+  if (navigator.userAgentData && Array.isArray(navigator.userAgentData.brands)) {
+    return navigator.userAgentData.brands.some(b =>
+      /Chromium|Google Chrome|Microsoft Edge/.test(b.brand));
+  }
+  const ua = navigator.userAgent;
+  return /Chrome|CriOS|Edg|EdgA|EdgiOS|OPR/.test(ua) && !/Firefox|FxiOS/.test(ua);
+}
 
 // =====================================================================
 // My device panel (opened by tapping the identity badge in the topbar)
@@ -3349,30 +4578,92 @@ async function showMyDevicePanel() {
     try { persistedGranted = await navigator.storage.persisted(); }
     catch (e) { /* ignore */ }
   }
-  const safelyStored = isAlreadyInstalled || persistedGranted;
-
-  // Storage section content depends on state:
-  //   - Installed → calm "Saved safely" message, no install button
-  //   - Not installed but persistent → moderate "Saved for now" but with
-  //     install offered as an upgrade
-  //   - Not installed and not persistent → loudest "Running in the browser"
-  //     with install front and center
-  let storageHTML;
-  if (isAlreadyInstalled) {
-    storageHTML = `
-      <div class="mydev-storage-state ok">
-        <div class="mydev-storage-label">✓ Installed as an app</div>
-        <p>Your identity and sessions are safe here.</p>
-      </div>`;
-  } else {
-    storageHTML = `
-      <div class="mydev-storage-state">
-        <div class="mydev-storage-label">Running in the browser</div>
-        <p>Your identity and sessions are stored here. The browser may clear them.</p>
-      </div>
-      <button class="mydev-install-btn" id="mydev-install-btn">Add to home screen</button>
-      <p class="mydev-install-hint">Installs this as an app for longest-term storage of your identity and sessions.</p>`;
+  // Storage estimate — drives the Free space check. Falls back to null
+  // if the API isn't available; the row hides itself in that case.
+  let storageEstimate = null;
+  if (navigator.storage && navigator.storage.estimate) {
+    try { storageEstimate = await navigator.storage.estimate(); }
+    catch (e) { /* ignore */ }
   }
+
+  // Build the data-safety checklist. Each check is one row in the panel;
+  // the worst level across all checks drives the overall status pill.
+  // Three permanent checks; two conditional warnings that only appear
+  // when they actually apply (private browsing, iOS Safari 7-day rule).
+  const checks = computeSafetyChecks({
+    isAlreadyInstalled,
+    persistedGranted,
+    storageEstimate,
+    iosSafariNoStandalone,
+  });
+  const worstLevel = checks.reduce((w, c) => {
+    if (c.level === 'bad') return 'bad';
+    if (c.level === 'warn' && w !== 'bad') return 'warn';
+    return w;
+  }, 'ok');
+  // Header card mirrors the previous design: 56px status tile (green
+  // check for Safe, amber exclamation for At risk), big label, short
+  // explainer. State is binary here (Safe vs At risk) — both warn and
+  // bad collapse to "At risk" in the headline. The section header above
+  // names the concept ("Local storage safety") so the card itself can
+  // stay tight: status + label + short explainer.
+  const headerStateClass = worstLevel === 'ok' ? 'ok' : 'at-risk';
+  const headerLabel = worstLevel === 'ok' ? 'Safe' : 'At risk';
+  const headerExplain = worstLevel === 'ok'
+    ? 'Your reports are protected on this device.'
+    : 'Tap a row below to see why and what to do.';
+  const headerIconSVG = worstLevel === 'ok'
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12.5 10 18.5 20 6.5"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="14"/><line x1="12" y1="19" x2="12" y2="19.5"/></svg>`;
+  // Chevron used on each tappable row, rotates 90° when expanded.
+  const chevronSVG = `<svg class="mydev-safety-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>`;
+  const dataSafetyHTML = `
+      <div class="mydev-card ${headerStateClass}">
+        <div class="mydev-card-tile status" aria-hidden="true">${headerIconSVG}</div>
+        <div class="mydev-card-text">
+          <div class="mydev-card-label">${headerLabel}</div>
+          <div class="mydev-card-explain">${headerExplain}</div>
+        </div>
+      </div>
+      <div class="mydev-safety-checks" id="mydev-safety-checks">
+        ${checks.map((c, i) => c.level === 'info'
+          ? `<div class="mydev-safety-row info" data-check-key="${c.key}">
+               <div class="mydev-safety-icon" aria-hidden="true">${rowIconSVG(c.level)}</div>
+               <span class="mydev-safety-row-label">${c.text}</span>
+             </div>`
+          : `<button type="button" class="mydev-safety-row ${c.level}" data-check-key="${c.key}" aria-expanded="false" aria-controls="mydev-safety-detail-${i}">
+               <div class="mydev-safety-icon" aria-hidden="true">${rowIconSVG(c.level)}</div>
+               <span class="mydev-safety-row-label">${c.text}</span>
+               ${chevronSVG}
+             </button>
+             <div class="mydev-safety-detail-panel" id="mydev-safety-detail-${i}" role="region">
+               ${safetyDetailHTML(c, { storageEstimate, isAlreadyInstalled })}
+             </div>`
+        ).join('')}
+      </div>`;
+
+  // The Get-the-app section sits below as its own concern. It always
+  // shows the app logo + safety-improving copy + an install button. When
+  // already installed the button reads "✓ Installed" and is disabled.
+  //
+  // Install button label depends on which install path we'd hit:
+  //   - Chromium with deferred prompt → native install dialog → "Install P2P Transfer as App"
+  //   - iOS Safari → instructions screen → "Add to home screen"
+  //   - Other → generic hint → "Install P2P Transfer as App"
+  const installLabel = iosSafariNoStandalone && !deferredInstallPrompt
+    ? 'Add to home screen'
+    : 'Install P2P Transfer as App';
+  const getAppHTML = `
+      <div class="mydev-card">
+        <div class="mydev-card-tile"><img src="icon192.png" alt="" aria-hidden="true"></div>
+        <div class="mydev-card-text">
+          <div class="mydev-card-label">Stay safer with the app</div>
+          <div class="mydev-card-explain">Installing P2P Transfer protects your reports from automatic cleanup when your device runs low on space.</div>
+        </div>
+      </div>
+      ${isAlreadyInstalled
+        ? `<button class="ob-btn primary installed" id="mydev-install-btn" disabled>✓ Installed</button>`
+        : `<button class="ob-btn primary" id="mydev-install-btn" style="margin-bottom: 8px;">${installLabel}</button>`}`;
 
   const sessionsCount = mostRecentSessionCount || 0;
 
@@ -3388,7 +4679,7 @@ async function showMyDevicePanel() {
       <div class="modal-body">
 
         <div class="mydev-section mydev-identity">
-          <div class="mydev-identity-svg">${renderDeviceSVG(identity.emoji, { size: 60 })}</div>
+          <div class="mydev-identity-svg">${renderDeviceSVG(identity.emoji, { size: 60, color: identity.color })}</div>
           <div class="mydev-identity-text">
             <div class="mydev-identity-name">${identity.nickname}</div>
             <div class="mydev-identity-device">${identity.device}</div>
@@ -3396,19 +4687,24 @@ async function showMyDevicePanel() {
         </div>
 
         <div class="mydev-section">
-          <div class="mydev-section-head">My sessions</div>
+          <div class="mydev-section-head">Reports</div>
           <div class="mydev-sessions-row">
             <div class="mydev-sessions-count">
               <span id="mydev-session-count">${sessionsCount}</span>
-              <span class="mydev-sessions-label">${sessionsCount === 1 ? 'session' : 'sessions'} on this device</span>
+              <span class="mydev-sessions-label">${sessionsCount === 1 ? 'report' : 'reports'} on this device</span>
             </div>
             <button class="mydev-browse-btn" id="mydev-browse-btn">Browse →</button>
           </div>
         </div>
 
         <div class="mydev-section">
-          <div class="mydev-section-head">Storage</div>
-          ${storageHTML}
+          <div class="mydev-section-head">Local storage safety</div>
+          ${dataSafetyHTML}
+        </div>
+
+        <div class="mydev-section">
+          <div class="mydev-section-head">Get the app</div>
+          ${getAppHTML}
         </div>
 
         ${DEV_MODE ? `
@@ -3427,6 +4723,38 @@ async function showMyDevicePanel() {
 
   backdrop.querySelector('#mydev-close').addEventListener('click', () => backdrop.remove());
 
+  // Safety check rows: tap a row to open its detail panel. Only one
+  // panel can be open at a time — tapping a different row closes the
+  // currently-open one. Tapping the same row again closes it.
+  const checksContainer = backdrop.querySelector('#mydev-safety-checks');
+  if (checksContainer) {
+    checksContainer.addEventListener('click', (e) => {
+      const row = e.target.closest('.mydev-safety-row');
+      if (!row || !checksContainer.contains(row)) return;
+      // Info rows are non-interactive — no detail panel, just ambient
+      // info. Skip so clicking them doesn't accidentally close another
+      // row the user just opened.
+      if (row.classList.contains('info')) return;
+      const panelId = row.getAttribute('aria-controls');
+      const panel = document.getElementById(panelId);
+      const wasOpen = row.classList.contains('open');
+      // Close any currently open row + panel
+      checksContainer.querySelectorAll('.mydev-safety-row.open').forEach(r => {
+        r.classList.remove('open');
+        r.setAttribute('aria-expanded', 'false');
+      });
+      checksContainer.querySelectorAll('.mydev-safety-detail-panel.open').forEach(p => {
+        p.classList.remove('open');
+      });
+      // Open the tapped row's panel (unless it was the one we just closed)
+      if (!wasOpen && panel) {
+        row.classList.add('open');
+        row.setAttribute('aria-expanded', 'true');
+        panel.classList.add('open');
+      }
+    });
+  }
+
   // Browse → opens existing Sessions modal. The old top-right Sessions
   // button is gone; this is the new entry point.
   backdrop.querySelector('#mydev-browse-btn').addEventListener('click', () => {
@@ -3434,27 +4762,44 @@ async function showMyDevicePanel() {
     showSessionsModal();
   });
 
-  // Install button — only present when not installed
-  const installBtn = backdrop.querySelector('#mydev-install-btn');
-  if (installBtn) {
-    installBtn.addEventListener('click', async () => {
-      if (deferredInstallPrompt) {
-        // Chromium path: trigger the native install prompt
-        deferredInstallPrompt.prompt();
-        const choice = await deferredInstallPrompt.userChoice;
-        if (choice.outcome === 'accepted') {
-          deferredInstallPrompt = null;
-          // appinstalled event will refresh the panel
-        }
-      } else if (iosSafariNoStandalone) {
-        // iOS Safari path: show instructions
-        showIOSInstallInstructions(backdrop);
-      } else {
-        // Some other browser without the API. Show a generic hint.
-        showGenericInstallInstructions(backdrop);
+  // The install action — fired by both the Get-the-app button and the
+  // inline "Install P2P Transfer as App" links in the safety-check
+  // expand panels. No-op when already installed.
+  async function triggerInstall() {
+    if (isAlreadyInstalled) return;
+    if (deferredInstallPrompt) {
+      // Chromium path: trigger the native install prompt
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice.outcome === 'accepted') {
+        deferredInstallPrompt = null;
+        // appinstalled event will refresh the panel
       }
-    });
+    } else if (iosSafariNoStandalone) {
+      // iOS Safari path: show instructions
+      showIOSInstallInstructions(backdrop);
+    } else {
+      // Some other browser without the API. Show a generic hint.
+      showGenericInstallInstructions(backdrop);
+    }
   }
+
+  // Install button — present in both states. Disabled when already
+  // installed (shows "✓ Installed"); active otherwise. Skip wiring in
+  // the disabled case to avoid attaching a no-op handler.
+  const installBtn = backdrop.querySelector('#mydev-install-btn');
+  if (installBtn && !installBtn.disabled) {
+    installBtn.addEventListener('click', triggerInstall);
+  }
+
+  // Inline install links inside the safety-check expand panels. Use
+  // event delegation since the panels are built from a template string.
+  backdrop.addEventListener('click', (e) => {
+    const link = e.target.closest('.install-action');
+    if (!link || !backdrop.contains(link)) return;
+    e.preventDefault();
+    triggerInstall();
+  });
 
   // Developer section buttons (only present when DEV_MODE is on).
   // Edit identity → opens the identity modal in edit mode (cancellable).
@@ -3473,7 +4818,7 @@ async function showMyDevicePanel() {
   const resetBtn = backdrop.querySelector('#mydev-reset-data');
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
-      const ok = confirm('Reset everything? This deletes your identity, all sessions, and the consent flag. The app will reload.');
+      const ok = confirm('Reset everything? This deletes your identity, all reports, and the consent flag. The app will reload.');
       if (!ok) return;
       try {
         // Wipe both IDBs and the dev-mode flag. Onboarding will run again.
@@ -3542,6 +4887,146 @@ async function showMyDevicePanel() {
   }
 }
 
+// Format a byte count for human display. Uses binary units (KB = 1024)
+// since that's what disk-space dialogs use everywhere. Picks the largest
+// unit that gives a readable number (no "1234 KB"; we'd show "1.2 MB").
+//
+// 0 → "0 KB" rather than "0 B" — at our scale (TU Delft reports are
+// 1–50 KB each) a value below 1 KB shouldn't happen in practice; if it
+// does, "<1 KB" is friendlier than "987 B".
+function formatBytes(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (n < 1024) return '<1 KB';
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  // Trim decimal: 12.0 → 12; 1.4 → 1.4; 14.78 → 15
+  const formatted = v >= 100 ? Math.round(v).toString()
+                   : v >= 10  ? v.toFixed(0)
+                   : v.toFixed(1);
+  return `${formatted} ${units[i]}`;
+}
+
+// Build the Data-safety checklist. Returns an array of checks, each
+// shaped { key, level, text, detail? } where level is 'ok' | 'warn' |
+// 'bad'. Order matters — these are rendered in array order.
+//
+// Two permanent checks always shown:
+//   - persisted       : navigator.storage.persisted() granted?
+//   - free-space      : device has reasonable headroom (>= 200 MB free)?
+//
+// Two conditional checks, only included when the warning applies:
+//   - private         : Chromium incognito heuristic (small quota cap)
+//   - ios-7day        : iOS Safari (uninstalled) — site eviction after 7 days
+//
+// Note: there's deliberately NO "app installed" check. Installing as a
+// PWA on Chromium/Android shares storage with the browser — clearing
+// browsing data still wipes the reports. The genuine protections
+// installation grants (eviction priority, ios-7day immunity, automatic
+// persistence) show up via the other rows. A "you cleared browsing data"
+// outcome can't be prevented by the install path, so it's surfaced as
+// a footer caveat rather than as a check.
+function computeSafetyChecks({ isAlreadyInstalled, persistedGranted, storageEstimate, iosSafariNoStandalone }) {
+  const checks = [];
+  // 1. Persistent storage
+  checks.push(persistedGranted
+    ? { key: 'persisted', level: 'ok',   text: 'Storage is persisted' }
+    : { key: 'persisted', level: 'warn', text: 'Storage may be cleared automatically' });
+  // 2. Free space — only meaningful if estimate API returned data
+  if (storageEstimate && storageEstimate.quota != null && storageEstimate.usage != null) {
+    const free = Math.max(0, storageEstimate.quota - storageEstimate.usage);
+    const LOW_THRESHOLD = 200 * 1024 * 1024;  // 200 MB
+    const detail = `${formatBytes(storageEstimate.usage)} used · ~${formatBytes(free)} free`;
+    checks.push(free >= LOW_THRESHOLD
+      ? { key: 'free', level: 'ok',   text: 'Plenty of room',  detail }
+      : { key: 'free', level: 'warn', text: 'Device storage is low', detail });
+  }
+  // 3. Chromium-only private-browsing heuristic. Incognito Chromium
+  // caps the per-origin quota dramatically (around 120 MB on disk-rich
+  // devices); checking quota < 200 MB on Chromium is a reasonable
+  // signal. Only added as a row when the heuristic fires.
+  if (detectChromium() && storageEstimate && storageEstimate.quota != null && storageEstimate.quota < 200 * 1024 * 1024) {
+    checks.push({ key: 'private', level: 'bad', text: 'Private browsing — data won\'t be kept' });
+  }
+  // 4. iOS Safari 7-day rule. Only when on iOS Safari AND not installed
+  // — installing as a home-screen web app exempts the site from this.
+  if (iosSafariNoStandalone) {
+    checks.push({ key: 'ios-7day', level: 'warn', text: 'Safari deletes data from unused sites' });
+  }
+  // 5. Permanent caveat — clearing browsing data nukes the reports
+  // regardless of installation. Not a passable check, so rendered as
+  // an 'info' row (yellow exclamation, non-interactive, no expand).
+  checks.push({
+    key: 'browsing-data-warning',
+    level: 'info',
+    text: 'Manually clearing your browsing data will always remove your reports, even when P2P Transfer is installed as an App.',
+  });
+  return checks;
+}
+
+// Render the small status icon for a checklist row. Same shape as the
+// pill icon, sized for 20px rows. 'ok' = check, 'warn' = exclamation,
+// 'bad' = cross. All white-on-color (color comes from the parent .icon).
+function rowIconSVG(level) {
+  if (level === 'ok') {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12.5 10 18.5 20 6.5"/></svg>`;
+  }
+  if (level === 'warn' || level === 'info') {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="14"/><line x1="12" y1="19" x2="12" y2="19.5"/></svg>`;
+  }
+  // bad
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+}
+
+// Build the body of the expand panel for a given check. Each check
+// has its own explainer copy. The free-space row also gets the
+// numeric usage/quota details appended. Some panels carry an inline
+// "Install P2P Transfer as App" link that fires the same install
+// handler as the main button; suppressed when the user is already
+// installed, since the advice doesn't apply.
+function safetyDetailHTML(check, { storageEstimate, isAlreadyInstalled }) {
+  // Reusable inline link to the install action. Use a real <a> so it's
+  // keyboard-focusable; the click handler is wired in showMyDevicePanel
+  // via event delegation.
+  const installLink = `<a href="#" class="install-action">Install P2P Transfer as App</a>`;
+  switch (check.key) {
+    case 'persisted':
+      if (check.level === 'ok') {
+        return `The browser has marked your data as persistent. It won't be cleared automatically under storage pressure.`;
+      }
+      // Not persisted. If already installed, persistence really should
+      // have been granted automatically — fall back to a plain
+      // explanation without the install nudge.
+      return isAlreadyInstalled
+        ? `Your data isn't marked as persistent. The browser may still evict it under heavy storage pressure, though installation makes this much less likely.`
+        : `Your data isn't marked as persistent — under storage pressure, the browser is free to evict it. ${installLink} for the most reliable persistent storage.`;
+    case 'free': {
+      const numbers = storageEstimate && storageEstimate.quota != null
+        ? `<div class="mydev-safety-numbers"><strong>${formatBytes(storageEstimate.usage)}</strong> used &middot; about <strong>${formatBytes(Math.max(0, storageEstimate.quota - storageEstimate.usage))}</strong> free on this device</div>`
+        : '';
+      let body;
+      if (check.level === 'ok') {
+        body = `Your device has enough free space that browser eviction is unlikely. "Free space" is the physical room on your device — the same space holding your photos, downloads, and other files.`;
+      } else if (isAlreadyInstalled) {
+        // Already installed → "install" advice is wrong; just point at
+        // freeing up device space.
+        body = `Your device is running low on free space. Even installed apps can be affected when storage gets very tight, so freeing up room on the device is the surest fix.`;
+      } else {
+        body = `Your device is running low on free space. Browsers evict website data when space is tight to keep the rest of the device usable. Free up room on the device, or ${installLink} for stronger protection.`;
+      }
+      return body + numbers;
+    }
+    case 'private':
+      return `Private (or Incognito) windows discard their data when you close them. Anything you store here will be gone at the end of the session. Open this in a regular browser window if you want to keep your reports.`;
+    case 'ios-7day':
+      return `Safari deletes data related to unused sites after 7 days. To prevent this, ${installLink} — your reports will stay until you remove the app.`;
+    default:
+      return '';
+  }
+}
+
+
 // Show iOS-specific Add to Home Screen instructions. Inline overlay
 // inside the modal — replaces the storage section with step-by-step.
 function showIOSInstallInstructions(backdrop) {
@@ -3554,7 +5039,7 @@ function showIOSInstallInstructions(backdrop) {
         <li>Scroll down and tap <strong>"Add to Home Screen"</strong>.</li>
         <li>Tap <strong>Add</strong> in the top-right.</li>
       </ol>
-      <p class="mydev-install-hint">After installing, open the app from your home screen to get long-term storage of your identity and sessions.</p>
+      <p class="mydev-install-hint">After installing, open the app from your home screen. Your data is no longer in the browser, so it can't be cleared by accident.</p>
       <button class="mydev-back-btn" id="mydev-ios-back">← Back</button>
     </div>`;
   body.querySelector('#mydev-ios-back').addEventListener('click', () => {
@@ -3616,102 +5101,94 @@ function setupTitleForDevice() {
 function initOnboardingSetup() {
   document.getElementById('ob-setup-title').textContent = setupTitleForDevice();
 
-  // Render the device frame at a larger size for the onboarding view —
+  // Render the identity circle at a larger size for the onboarding view —
   // 110px instead of the identity-modal default of 96px. Gives the slot
   // machine real presence on its own dedicated screen.
   const frame = document.getElementById('ob-setup-device');
-  frame.innerHTML = renderDeviceSVG(IDENTITY_EMOJIS[0], { size: 110, id: 'ob-setup-svg' });
+  frame.innerHTML = renderDeviceSVG(IDENTITY_EMOJIS[0], { size: 110, id: 'ob-setup-svg', color: DEFAULT_IDENTITY_COLOR });
   const svgEl = document.getElementById('ob-setup-svg');
   const emojiEl = svgEl.querySelector('.identity-emoji');
+  const circleEl = svgEl.querySelector('.identity-circle');
   let currentEmoji = IDENTITY_EMOJIS[0];
+  let currentColor = DEFAULT_IDENTITY_COLOR;
   let isRolling = false;
+  let inflight = 0;
 
-  // Kick off the initial slot animation 200ms after the setup screen
-  // becomes visible. Same easing as the modal-based version.
-  setTimeout(() => {
+  // Two reels (emoji + color) roll in parallel on each kick. `isRolling`
+  // flips back to false only when both have landed — see identity-modal
+  // version for the same pattern.
+  function rollBoth(duration) {
     if (isRolling) return;
     isRolling = true;
-    rollSlotMachine(emojiEl, currentEmoji, 1200, (final) => {
-      currentEmoji = final; isRolling = false;
+    inflight = 2;
+    const done = () => { if (--inflight === 0) isRolling = false; };
+    rollEmojiSlot(emojiEl, currentEmoji, duration, (final) => {
+      currentEmoji = final; done();
     });
-  }, 200);
+    rollColorSlot(circleEl, currentColor, duration, (final) => {
+      currentColor = final; done();
+    });
+  }
+
+  // Kick off the initial roll 200ms after the setup screen becomes visible.
+  setTimeout(() => rollBoth(1200), 200);
 
   // Tap device to reroll — the easter egg, no on-screen hint.
-  svgEl.addEventListener('click', () => {
-    if (isRolling) return;
-    isRolling = true;
-    rollSlotMachine(emojiEl, currentEmoji, 700, (final) => {
-      currentEmoji = final; isRolling = false;
-    });
-  });
+  svgEl.addEventListener('click', () => rollBoth(700));
 
   const inputEl = document.getElementById('ob-setup-netid');
   const saveBtn = document.getElementById('ob-setup-save');
 
-  // Save → goes to confirmation step, NOT direct commit. Validation per
-  // earlier decision: ≥3 trimmed chars, otherwise wipe + red placeholder.
-  function attemptSave() {
+  // Save → directly commits the identity. No separate confirmation step:
+  // the user sees the rolled circle + their typed name right there and
+  // taps Save to commit. Validation: any non-empty trimmed input passes;
+  // empty input gets a red placeholder hint.
+  async function attemptSave() {
     // Guard: if the slot machine is still rolling, do nothing. The user
-    // probably tapped Save before the emoji landed; let the animation
+    // probably tapped Save before the reels landed; let the animation
     // finish so they're committing to what they actually see.
     if (isRolling) return;
     const value = inputEl.value.trim();
-    if (value.length >= 3) {
-      // Capture the emoji from the DOM (not from the closure variable),
-      // because the slot machine updates textEl.textContent on every tick
-      // but only updates the JS closure on landing. The DOM is the source
-      // of truth for what the user sees.
-      const committedEmoji = emojiEl.textContent;
-      // Show confirmation view, hide the pick view
-      document.getElementById('ob-setup-pick').classList.add('hidden');
-      document.getElementById('ob-setup-confirm').classList.remove('hidden');
-      // Render the SAME device + emoji in the confirmation view so the
-      // user sees exactly what they're committing to
-      document.getElementById('ob-confirm-device').innerHTML = renderDeviceSVG(committedEmoji, { size: 110 });
-      document.getElementById('ob-confirm-netid').textContent = value;
-      // Wire up the confirmation buttons
-      document.getElementById('ob-confirm-back').onclick = () => {
-        document.getElementById('ob-setup-confirm').classList.add('hidden');
-        document.getElementById('ob-setup-pick').classList.remove('hidden');
-        inputEl.focus();
-      };
-      document.getElementById('ob-confirm-save').onclick = async () => {
-        const saveBtn = document.getElementById('ob-confirm-save');
-        saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving…';
-        const newIdentity = {
-          emoji: committedEmoji,
-          nickname: value,
-          device: DEVICE_TYPE
-        };
-        await setPref('identity', newIdentity);
-        identity = newIdentity;
-        // Mark consent at the same moment — by completing setup the user
-        // has implicitly walked through the disclaimer. Storing it here
-        // means a returning user with identity but no consent flag (e.g.
-        // from before this code existed) won't see the disclaimer again
-        // unless they also lose identity.
-        await setPref('consentAgreed', true);
-        updateIdentityBadge();
-        // Quietly request persistent storage. Don't block on it, don't
-        // surface failure to the user — they'll see the "Running in the
-        // browser" state in My device if it didn't take.
-        if (navigator.storage && navigator.storage.persist) {
-          try {
-            const granted = await navigator.storage.persist();
-            log(`Persistent storage: ${granted ? 'granted' : 'best-effort'}.`, granted ? 'ok' : 'info');
-          } catch (e) {
-            log('Persistent storage request failed: ' + e.message, 'info');
-          }
-        }
-        finishOnboarding();
-      };
-    } else {
+    if (value.length === 0) {
       inputEl.value = '';
-      inputEl.placeholder = 'Please enter your NetID here';
+      inputEl.placeholder = 'Please enter your name here';
       inputEl.classList.add('error');
       inputEl.focus();
+      return;
     }
+    // Read emoji + color from the DOM (the slot machine writes there on
+    // every tick; closures only update on landing).
+    const committedEmoji = emojiEl.textContent;
+    const committedColor = circleEl.getAttribute('fill') || DEFAULT_IDENTITY_COLOR;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    const newIdentity = {
+      emoji: committedEmoji,
+      nickname: value,
+      device: DEVICE_TYPE,
+      color: committedColor
+    };
+    await setPref('identity', newIdentity);
+    identity = newIdentity;
+    // Mark consent at the same moment — by completing setup the user
+    // has implicitly walked through the disclaimer. Storing it here
+    // means a returning user with identity but no consent flag (e.g.
+    // from before this code existed) won't see the disclaimer again
+    // unless they also lose identity.
+    await setPref('consentAgreed', true);
+    updateIdentityBadge();
+    // Quietly request persistent storage. Don't block on it, don't
+    // surface failure to the user — they'll see the "Running in the
+    // browser" state in My device if it didn't take.
+    if (navigator.storage && navigator.storage.persist) {
+      try {
+        const granted = await navigator.storage.persist();
+        log(`Persistent storage: ${granted ? 'granted' : 'best-effort'}.`, granted ? 'ok' : 'info');
+      } catch (e) {
+        log('Persistent storage request failed: ' + e.message, 'info');
+      }
+    }
+    finishOnboarding();
   }
   saveBtn.addEventListener('click', attemptSave);
   inputEl.addEventListener('keydown', (e) => {
@@ -3728,10 +5205,22 @@ function initOnboardingSetup() {
 function finishOnboarding() {
   const root = document.getElementById('onboarding');
   root.classList.add('hidden');
+  // Onboarding done — the main app should now be visible underneath.
+  // For pending-join users this just means the start screen is briefly
+  // visible before autoJoinIfPending routes them onward.
+  revealApp();
   // If the user landed here via a join URL but had to do onboarding
   // first, fire the auto-pair now that identity is set up. autoJoinIfPending
   // no-ops if there was no pending join.
   autoJoinIfPending().catch(e => log('Auto-join error: ' + e.message, 'err'));
+}
+
+// Reveal the main app + bottom nav. They're hidden during preboot (see
+// body.preboot in CSS) so first-time and QR-scan users don't see a flash
+// of the start screen before the onboarding overlay or auto-pair takes
+// over. Safe to call repeatedly — second call is a no-op.
+function revealApp() {
+  document.body.classList.remove('preboot');
 }
 
 // Decide whether to show onboarding at startup. Called once at load.
@@ -3851,9 +5340,16 @@ window.addEventListener('load', async () => {
   // Always set the nav bar to its correct state for the start screen,
   // regardless of whether libs or IDB succeeded.
   updateNavBar();
-  // Onboarding decision happens AFTER identity is loaded so the consent
-  // and identity checks have fresh data to work with.
-  try { await maybeShowOnboarding(); } catch (e) { log('Onboarding error: ' + e.message, 'err'); }
+  // Decide what to show first. The main app + nav are still hidden
+  // (body.preboot, see CSS). Each branch reveals at the right moment:
+  //   - Onboarding shown      → revealed by finishOnboarding when user saves
+  //   - Pending join          → revealed by autoJoinIfPending after routing
+  //   - Returning user, no ?join= → revealed right here
+  let onboardingShown = false;
+  try { onboardingShown = await maybeShowOnboarding(); } catch (e) { log('Onboarding error: ' + e.message, 'err'); }
+  if (!onboardingShown && !PENDING_JOIN_PEER_ID) {
+    revealApp();
+  }
   // If we got here via a join URL (scanned QR from outside the app),
   // kick off the auto-pair now that identity + libs are ready.
   // Onboarding completed if it was needed; if the user is brand new
@@ -3877,6 +5373,9 @@ async function autoJoinIfPending() {
   const onboardingShown = !document.getElementById('onboarding').classList.contains('hidden');
   if (onboardingShown) return;
   autoJoinConsumed = true;
+  // Past the early bails — we're committing to either auto-pairing or
+  // showing an error state. Either way the main app needs to be visible.
+  revealApp();
   if (typeof SessionTransfer === 'undefined') {
     log('Cannot auto-join: library not loaded.', 'err');
     return;
