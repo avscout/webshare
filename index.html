@@ -579,15 +579,18 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     min-width: 0;
   }
-  /* Display ID as a faint subscript-style suffix to the title. Tiny,
+  /* Display ID as a faint superscript suffix to the title. Tiny,
      dim, monospace so it reads as "metadata, ignore unless you need
-     it." Doesn't compete with the title for ellipsis. */
+     it." Raised relative to the title baseline like a real superscript;
+     doesn't compete with the title for ellipsis. */
   .items-row .item-id-suffix {
     flex-shrink: 0;
     font-family: var(--mono);
     font-size: 10px;
     color: var(--dim);
     font-weight: 400;
+    align-self: flex-start;
+    margin-top: -2px;
   }
   .items-row .item-meta {
     color: var(--dim); font-size: 12px; margin-top: 2px;
@@ -1669,24 +1672,27 @@
         <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
         <div class="status-line" id="transfer-status">Waiting for connection…</div>
 
-        <!-- "Received from X" banner (receiver only, shown after done). Sits
-             above the session list so the user has both the sender identity
-             and the resulting session list in one frame. -->
-        <div class="hidden" id="transfer-from-banner" style="margin-top: 28px;">
-          <div class="received-from">
-            <div class="received-from-device" id="transfer-from-device"></div>
-            <div class="received-from-text">
-              <div class="received-from-eyebrow">received from</div>
-              <div class="received-from-name" id="transfer-from-name"></div>
-            </div>
-          </div>
+        <!-- Just-transferred row (receiver or sender). Shows the single
+             row of the report that was just received/sent, with the
+             "just received/sent" badge and the sender's identity tile.
+             This replaces the earlier separate "received from X" banner
+             — the row already carries the same attribution. -->
+        <div class="hidden" id="transfer-just-panel" style="margin-top: 28px;">
+          <div class="session-list" id="transfer-just-list"></div>
         </div>
 
-        <!-- Session list appears below the status line after a successful transfer.
-             The just-touched session is highlighted with a "just received/sent" badge. -->
+        <!-- Compact "N reports on this device · [Browse →]" row, mirrors
+             the My device panel's pattern. Replaces the previous full
+             list of every report — Browse opens the sessions modal
+             where the user can manage them all. -->
         <div class="hidden" id="transfer-sessions-panel" style="margin-top: 22px;">
-          <div class="screen-eyebrow" style="margin-bottom: 10px;">Reports on this device · <span id="transfer-sessions-count">0</span></div>
-          <div class="session-list" id="transfer-session-list"></div>
+          <div class="mydev-sessions-row">
+            <div class="mydev-sessions-count">
+              <span id="transfer-sessions-count">0</span>
+              <span class="mydev-sessions-label" id="transfer-sessions-label">reports on this device</span>
+            </div>
+            <button class="mydev-browse-btn" id="transfer-browse-btn">Browse →</button>
+          </div>
         </div>
 
         <!-- Inline action area: only rendered when a terminal state is reached
@@ -3036,13 +3042,13 @@ function setupTransferScreen() {
   $('transfer-sent-view').classList.add('hidden');
   // Restore the screen header (may have been hidden by a previous sender flow)
   $('transfer-header').classList.remove('hidden');
-  // Hide post-transfer session list and inline action buttons until a
-  // terminal state fires (done or error). Also hide the received-from
-  // banner (only the receiver shows it, and only on done).
+  // Hide post-transfer panels and inline action buttons until a
+  // terminal state fires (done or error). The just-panel shows the
+  // single touched report; the sessions-panel shows the total + Browse.
+  $('transfer-just-panel').classList.add('hidden');
+  $('transfer-just-list').innerHTML = '';
   $('transfer-sessions-panel').classList.add('hidden');
-  $('transfer-session-list').innerHTML = '';
   $('transfer-progress-actions').classList.add('hidden');
-  $('transfer-from-banner').classList.add('hidden');
   // Reset per-send state that's left over from any previous send on
   // the same connection. (justTransferredId / Direction stay set across
   // sends so the LAST highlight survives the next session-list refresh,
@@ -3142,84 +3148,70 @@ function setTransferStatus(text, kind = '') {
 
 // Render the post-transfer session list with the just-touched session highlighted.
 // Called after status === 'done'. Reads justTransferredId/justTransferredDirection
-// to know which row to flag.
+// to know which row to show and how to label it.
+//
+// Layout: just the single row that was touched by this transfer, with a
+// "just received / just sent" badge. Below that, a compact "N reports
+// on this device · Browse →" row that mirrors the My device pattern —
+// no full list inline. The user opens Browse to manage all reports;
+// keeping the done screen focused on what just happened.
 async function revealPostTransferSessions() {
-  const panel = $('transfer-sessions-panel');
-  const list  = $('transfer-session-list');
-  panel.classList.remove('hidden');
-  list.innerHTML = '';
+  const justPanel = $('transfer-just-panel');
+  const justList  = $('transfer-just-list');
+  const sumPanel  = $('transfer-sessions-panel');
+  justList.innerHTML = '';
   // Reveal the inline action button — the receiver's terminal state should
   // give them a way to start over without the bottom nav.
   showProgressRestartButton('Disconnect');
 
-  // Populate the "received from" banner — but only if a session was
-  // actually received. If justTransferredDirection is null we're in the
-  // skip case: the receiver chose Skip on a conflict, so nothing was
-  // stored or modified. Showing a "received from X" banner would lie.
-  const banner = $('transfer-from-banner');
-  if (justTransferredDirection === 'received') {
-    const deviceEl = $('transfer-from-device');
-    const nameEl = $('transfer-from-name');
-    const fromBlock = banner.querySelector('.received-from');
-    banner.classList.remove('hidden');
-    if (remotePeerInfo && remotePeerInfo.emoji && remotePeerInfo.nickname) {
-      fromBlock.classList.remove('unknown');
-      deviceEl.innerHTML = renderDeviceSVG(remotePeerInfo.emoji, { size: 48, color: remotePeerInfo.color });
-      nameEl.textContent = remotePeerInfo.nickname;
-    } else {
-      fromBlock.classList.add('unknown');
-      deviceEl.innerHTML = renderDeviceSVG('?', { size: 48 });
-      nameEl.textContent = 'an unknown device';
-    }
-  } else {
-    banner.classList.add('hidden');
-  }
-
   const sessions = await listSessions();
-  $('transfer-sessions-count').textContent = sessions.length;
+  const total = sessions.length;
+  $('transfer-sessions-count').textContent = total;
+  $('transfer-sessions-label').textContent = (total === 1 ? 'report' : 'reports') + ' on this device';
+  sumPanel.classList.remove('hidden');
 
-  // Sort: the just-transferred one comes first if present, then by recency.
-  sessions.sort((a, b) => {
-    if (a.id === justTransferredId) return -1;
-    if (b.id === justTransferredId) return 1;
-    return new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime();
-  });
-
-  for (const s of sessions) {
-    const row = document.createElement('div');
-    const isJust = (s.id === justTransferredId);
-    row.className = 'session-row' + (isJust ? ' just-transferred' : '');
-    const badgeText = isJust
-      ? (justTransferredDirection === 'sent' ? '✓ just sent' : '✓ just received')
-      : '';
-    const origin = reportOrigin(s);
-    row.innerHTML = `
-      <div class="session-row-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
-      <div class="info">
-        <div class="name-line">
-          <span class="name"></span>
-          <span class="id-pill dev-only"><span class="id"></span></span>
-        </div>
-        <div class="meta">
-          <span class="count"></span>
-          <span class="origin-piece"> · <span class="origin-label"></span> <span class="origin-name"></span></span>
-        </div>
-        ${badgeText ? `<span class="badge"></span>` : ''}
-      </div>`;
-    row.querySelector('.name').textContent = s.name;
-    row.querySelector('.id').textContent = s.id;
-    const cnt = dataRecordCount(s.data);
-    row.querySelector('.count').textContent = `${cnt} item${cnt === 1 ? '' : 's'}`;
-    row.querySelector('.origin-label').textContent = origin.label;
-    row.querySelector('.origin-name').textContent = origin.nickname;
-    if (badgeText) row.querySelector('.badge').textContent = badgeText;
-    // Tapping a row opens the edit modal (consistent with other places)
-    row.addEventListener('click', async () => {
-      const full = await getSession(s.id);
-      if (full) showSessionModal(full, 'modal');
-    });
-    list.appendChild(row);
+  // The just-transferred row only makes sense when there's actually a
+  // transferred session (skip path leaves justTransferredId set in some
+  // cases — guard explicitly on the direction).
+  if (!justTransferredId || !justTransferredDirection) {
+    justPanel.classList.add('hidden');
+    return;
   }
+  const justSession = sessions.find(s => s.id === justTransferredId);
+  if (!justSession) {
+    justPanel.classList.add('hidden');
+    return;
+  }
+
+  justPanel.classList.remove('hidden');
+
+  const badgeText = justTransferredDirection === 'sent' ? '✓ just sent' : '✓ just received';
+  const origin = reportOrigin(justSession);
+  const row = document.createElement('div');
+  row.className = 'session-row just-transferred';
+  row.innerHTML = `
+    <div class="session-row-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
+    <div class="info">
+      <div class="name-line">
+        <span class="name"></span>
+        <span class="id-pill dev-only"><span class="id"></span></span>
+      </div>
+      <div class="meta">
+        <span class="count"></span>
+        <span class="origin-piece"> · <span class="origin-label"></span> <span class="origin-name"></span></span>
+      </div>
+      <span class="badge"></span>
+    </div>`;
+  row.querySelector('.name').textContent = justSession.name;
+  row.querySelector('.id').textContent = justSession.id;
+  const cnt = dataRecordCount(justSession.data);
+  row.querySelector('.count').textContent = `${cnt} item${cnt === 1 ? '' : 's'}`;
+  row.querySelector('.origin-label').textContent = origin.label;
+  row.querySelector('.origin-name').textContent = origin.nickname;
+  row.querySelector('.badge').textContent = badgeText;
+  // Tapping the row opens the items view, consistent with other places.
+  row.addEventListener('click', () => showItemsModal(justSession));
+  justList.appendChild(row);
 }
 
 // Build the peerInfo object we send to the other side on connection.
@@ -5310,6 +5302,10 @@ $('nav-next').addEventListener('click', async () => {
 });
 $('progress-restart-btn').addEventListener('click', restartToStart);
 $('sent-disconnect-btn').addEventListener('click', restartToStart);
+// Browse from the post-transfer summary row opens the standard sessions
+// modal so the user can manage all reports. Same affordance as the
+// "Browse →" button on the My device panel — consistent destination.
+$('transfer-browse-btn').addEventListener('click', () => showSessionsModal());
 
 // "Send another" — reuse the open connection. Returns to the pick screen
 // so the user can choose another session to send to the same peer.
