@@ -1,0 +1,101 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <title>Walkie-talkie P2P app logo - WhatsApp-style two-color version</title>
+  <defs>
+    <!-- Background gradient: more light cyan, smoother transition to royal blue -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#80D3EB"/>
+      <stop offset="100%" stop-color="#0076C2"/>
+    </linearGradient>
+    <!-- Display gradient: inverted direction, more subdued light end -->
+    <linearGradient id="display-grad" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#76c2dc"/>
+      <stop offset="100%" stop-color="#4ba8d8"/>
+    </linearGradient>
+    <filter id="walkie-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="6" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.18"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Gradient background fills the rounded badge -->
+  <rect x="0" y="0" width="1024" height="1024" rx="195" fill="url(#bg-grad)"/>
+
+  <!-- Signal waves: thicker, evenly spaced (stroke = gap), excluded from the device area via mask -->
+  <defs>
+    <clipPath id="badge-clip">
+      <rect x="0" y="0" width="1024" height="1024" rx="195"/>
+    </clipPath>
+    <mask id="device-mask">
+      <!-- White = visible, black = hidden -->
+      <rect x="0" y="0" width="1024" height="1024" fill="white"/>
+      <!-- Hide where the device is. Use the transformed device shape, expanded slightly. -->
+      <g transform="translate(460 452) rotate(-30) scale(1.25) translate(-512 -512)">
+        <path d="M 360,386 L 383,358 L 469,358 L 492,386 L 641,386 L 664,415 L 664,494 L 652,508 L 652,625 L 664,639 L 664,830 L 641,860 L 388,860 L 360,830 L 360,639 L 372,625 L 372,508 L 360,494 L 360,415 Z" fill="black"/>
+      </g>
+    </mask>
+  </defs>
+  <!-- Ripple effect: each ring is ~1.4x the previous; gap = previous stroke -->
+  <g clip-path="url(#badge-clip)" mask="url(#device-mask)" fill="none" stroke="#ffffff" opacity="0.1">
+    <circle cx="180" cy="180" r="62" stroke-width="22"/>
+    <circle cx="180" cy="180" r="110" stroke-width="31"/>
+    <circle cx="180" cy="180" r="178" stroke-width="43"/>
+    <circle cx="180" cy="180" r="273" stroke-width="60"/>
+    <circle cx="180" cy="180" r="405" stroke-width="84"/>
+    <circle cx="180" cy="180" r="589" stroke-width="117"/>
+    <circle cx="180" cy="180" r="847" stroke-width="164"/>
+  </g>
+
+  <!-- Walkie group: solid white silhouette with display cutout -->
+  <g filter="url(#walkie-shadow)" transform="translate(460 452) rotate(-30) scale(1.25) translate(-512 -512)">
+
+    <!-- Antenna -->
+    <line x1="427" y1="230" x2="427" y2="320" stroke="#ffffff" stroke-width="19" stroke-linecap="round"/>
+    <polyline points="427,320 445,332 408,344 445,356 427,368"
+      fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="427" y1="368" x2="427" y2="380" stroke="#ffffff" stroke-width="19" stroke-linecap="round"/>
+    <circle cx="427" cy="212" r="16" fill="#ffffff"/>
+
+    <!-- Body silhouette (solid white, no cutout) -->
+    <path d="M 360,386 L 383,358 L 469,358 L 492,386 L 641,386 L 664,415 L 664,494 L 652,508 L 652,625 L 664,639 L 664,830 L 641,860 L 388,860 L 360,830 L 360,639 L 372,625 L 372,508 L 360,494 L 360,415 Z" fill="#ffffff"/>
+
+    <!-- Display panel using same gradient as the background -->
+    <path d="M 429,508 L 595,508 L 595,625 L 429,625 Z" fill="url(#display-grad)"/>
+
+  </g>
+
+  <!-- White eyes inside the display cutout -->
+  <g transform="translate(460 452) rotate(-30) scale(1.25) translate(-512 -512)">
+    <g fill="#ffffff">
+      <!-- Left arc -->
+      <rect x="449" y="573" width="12" height="12"/>
+      <rect x="449" y="585" width="12" height="12"/>
+      <rect x="459" y="561" width="12" height="12"/>
+      <rect x="459" y="573" width="12" height="12"/>
+      <rect x="469" y="549" width="12" height="12"/>
+      <rect x="469" y="561" width="12" height="12"/>
+      <rect x="479" y="561" width="12" height="12"/>
+      <rect x="479" y="573" width="12" height="12"/>
+      <rect x="489" y="573" width="12" height="12"/>
+      <rect x="489" y="585" width="12" height="12"/>
+
+      <!-- Right arc -->
+      <rect x="525" y="573" width="12" height="12"/>
+      <rect x="525" y="585" width="12" height="12"/>
+      <rect x="535" y="561" width="12" height="12"/>
+      <rect x="535" y="573" width="12" height="12"/>
+      <rect x="545" y="549" width="12" height="12"/>
+      <rect x="545" y="561" width="12" height="12"/>
+      <rect x="555" y="561" width="12" height="12"/>
+      <rect x="555" y="573" width="12" height="12"/>
+      <rect x="565" y="573" width="12" height="12"/>
+      <rect x="565" y="585" width="12" height="12"/>
+    </g>
+  </g>
+</svg>

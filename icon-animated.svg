@@ -1,0 +1,97 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <title>Walkie-talkie P2P app logo - animated</title>
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#80D3EB"/>
+      <stop offset="100%" stop-color="#0076C2"/>
+    </linearGradient>
+    <linearGradient id="display-grad" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#76c2dc"/>
+      <stop offset="100%" stop-color="#4ba8d8"/>
+    </linearGradient>
+    <filter id="walkie-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="6" result="offsetblur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.18"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="badge-clip">
+      <rect x="0" y="0" width="1024" height="1024" rx="195"/>
+    </clipPath>
+    <mask id="device-mask">
+      <rect x="0" y="0" width="1024" height="1024" fill="white"/>
+      <g transform="translate(460 452) rotate(-30) scale(1.25) translate(-512 -512)">
+        <path d="M 360,386 L 383,358 L 469,358 L 492,386 L 641,386 L 664,415 L 664,494 L 652,508 L 652,625 L 664,639 L 664,830 L 641,860 L 388,860 L 360,830 L 360,639 L 372,625 L 372,508 L 360,494 L 360,415 Z" fill="black"/>
+      </g>
+    </mask>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="195" fill="url(#bg-grad)"/>
+
+  <!-- Animated signal ripples: 3 concentric rings, each expanding & fading on loop, staggered -->
+  <g clip-path="url(#badge-clip)" mask="url(#device-mask)" fill="none" stroke="#ffffff">
+    <circle cx="180" cy="180" r="60" stroke-width="22" opacity="0">
+      <animate attributeName="r" values="60;900" dur="3s" repeatCount="indefinite"/>
+      <animate attributeName="stroke-width" values="22;160" dur="3s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0.22;0.18;0" keyTimes="0;0.1;0.7;1" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="180" cy="180" r="60" stroke-width="22" opacity="0">
+      <animate attributeName="r" values="60;900" dur="3s" begin="1s" repeatCount="indefinite"/>
+      <animate attributeName="stroke-width" values="22;160" dur="3s" begin="1s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0.22;0.18;0" keyTimes="0;0.1;0.7;1" dur="3s" begin="1s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="180" cy="180" r="60" stroke-width="22" opacity="0">
+      <animate attributeName="r" values="60;900" dur="3s" begin="2s" repeatCount="indefinite"/>
+      <animate attributeName="stroke-width" values="22;160" dur="3s" begin="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0.22;0.18;0" keyTimes="0;0.1;0.7;1" dur="3s" begin="2s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <g filter="url(#walkie-shadow)" transform="translate(460 452) rotate(-30) scale(1.25) translate(-512 -512)">
+    <line x1="427" y1="230" x2="427" y2="320" stroke="#ffffff" stroke-width="19" stroke-linecap="round"/>
+    <polyline points="427,320 445,332 408,344 445,356 427,368" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="427" y1="368" x2="427" y2="380" stroke="#ffffff" stroke-width="19" stroke-linecap="round"/>
+    <circle cx="427" cy="212" r="16" fill="#ffffff"/>
+    <path d="M 360,386 L 383,358 L 469,358 L 492,386 L 641,386 L 664,415 L 664,494 L 652,508 L 652,625 L 664,639 L 664,830 L 641,860 L 388,860 L 360,830 L 360,639 L 372,625 L 372,508 L 360,494 L 360,415 Z" fill="#ffffff"/>
+    <path d="M 429,508 L 595,508 L 595,625 L 429,625 Z" fill="url(#display-grad)"/>
+  </g>
+
+  <g transform="translate(460 452) rotate(-30) scale(1.25) translate(-512 -512)">
+    <g fill="#ffffff">
+      <!-- Left eye (always visible) -->
+      <rect x="449" y="573" width="12" height="12"/>
+      <rect x="449" y="585" width="12" height="12"/>
+      <rect x="459" y="561" width="12" height="12"/>
+      <rect x="459" y="573" width="12" height="12"/>
+      <rect x="469" y="549" width="12" height="12"/>
+      <rect x="469" y="561" width="12" height="12"/>
+      <rect x="479" y="561" width="12" height="12"/>
+      <rect x="479" y="573" width="12" height="12"/>
+      <rect x="489" y="573" width="12" height="12"/>
+      <rect x="489" y="585" width="12" height="12"/>
+
+      <!-- Right eye (base shape: always visible) -->
+      <rect x="525" y="573" width="12" height="12"/>
+      <rect x="525" y="585" width="12" height="12"/>
+      <rect x="535" y="573" width="12" height="12"/>
+      <rect x="555" y="573" width="12" height="12"/>
+      <rect x="565" y="573" width="12" height="12"/>
+      <rect x="565" y="585" width="12" height="12"/>
+
+      <!-- Right eye peak pixels (hidden during wink) -->
+      <g>
+        <animate attributeName="opacity" values="1;1;0;0;1;1" keyTimes="0;0.45;0.48;0.78;0.81;1" dur="6s" repeatCount="indefinite"/>
+        <rect x="535" y="561" width="12" height="12"/>
+        <rect x="545" y="549" width="12" height="12"/>
+        <rect x="545" y="561" width="12" height="12"/>
+        <rect x="555" y="561" width="12" height="12"/>
+      </g>
+
+      <!-- Right eye squint pixel (appears during wink, replaces the missing center) -->
+      <g opacity="0">
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.45;0.48;0.78;0.81;1" dur="6s" repeatCount="indefinite"/>
+        <rect x="545" y="573" width="12" height="12"/>
+      </g>
+    </g>
+  </g>
+</svg>

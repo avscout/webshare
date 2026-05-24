@@ -7,15 +7,29 @@
 
 <!-- PWA manifest: enables Add to Home Screen on Chromium and the iOS
      "Add to Home Screen" flow. The manifest itself lives at /manifest.json
-     in the deployed app. Icons must exist at icon-192.png / icon-512.png. -->
+     in the deployed app. Required icon files alongside index.html:
+       icon-192.png      — manifest any-purpose
+       icon-512.png      — manifest any-purpose, hi-res
+       icon-maskable.png — manifest maskable (Android adaptive icons)
+       icon-180.png      — iOS native apple-touch-icon size
+       icon-32.png       — favicon (modern browsers)
+       icon-16.png       — favicon (older browsers)
+       favicon.ico       — favicon (legacy / multi-size fallback) -->
 <link rel="manifest" href="manifest.json">
 
+<!-- Favicon (browser tab). The ICO is a multi-size fallback for older
+     browsers; modern browsers prefer the PNG-with-size declarations. -->
+<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icon-16.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+
 <!-- iOS-specific PWA support. iOS doesn't read most manifest.json fields,
-     so we duplicate the essentials via meta tags. -->
+     so we duplicate the essentials via meta tags. 180×180 is the size
+     iOS expects natively; 192 would work but gets downscaled. -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="P2P Transfer">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
 
 <!-- Theme color used by Chrome on Android for the system UI -->
 <meta name="theme-color" content="#00A6D6">
@@ -555,10 +569,25 @@
     flex: 1; min-width: 0;
   }
   .items-row .item-title {
+    display: flex; align-items: baseline; gap: 6px;
+    min-width: 0;
+  }
+  .items-row .item-title-text {
     font-weight: 600;
     color: var(--ink);
     text-transform: capitalize;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+  }
+  /* Display ID as a faint subscript-style suffix to the title. Tiny,
+     dim, monospace so it reads as "metadata, ignore unless you need
+     it." Doesn't compete with the title for ellipsis. */
+  .items-row .item-id-suffix {
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    font-weight: 400;
   }
   .items-row .item-meta {
     color: var(--dim); font-size: 12px; margin-top: 2px;
@@ -581,18 +610,6 @@
   }
   .items-row .item-status-bar.found   { background: var(--ok); }
   .items-row .item-status-bar.missing { background: var(--warn); }
-  /* ID pill — small outlined badge with the item's display number. */
-  .items-row .item-id-pill {
-    flex-shrink: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 28px;
-    padding: 2px 8px;
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    color: var(--accent-deep);
-    font-family: var(--mono); font-size: 11px; font-weight: 700;
-    line-height: 1.4;
-  }
   .items-empty {
     padding: 32px 18px;
     text-align: center;
@@ -1086,7 +1103,7 @@
     display: flex; align-items: center; justify-content: center;
   }
   .mydev-card-tile img {
-    width: 100%; height: 100%; display: block; object-fit: cover;
+    width: 100%; height: 100%; display: block; object-fit: contain;
   }
   /* Status tile variant — a solid-colored circle holding a centered
      SVG icon (check for Safe, exclamation for At risk). Lives on the
@@ -4062,16 +4079,15 @@ document.addEventListener('click', (e) => {
 });
 
 // Build the HTML for one item row. Takes the full entry (id +
-// displayNum + item) so the row can show its stable display number in
-// the leading pill. The current sort mode tells us which field is
+// displayNum + item) so the title line can suffix the row's stable
+// display number. The current sort mode tells us which field is
 // already known from the group header (don't repeat "Room 101" on
 // every item when the header says "Room 101").
 //
 // Layout: a slim colored vertical bar on the left (green = found,
-// red = missing), then an outlined cyan ID pill with the number, then
-// the item info (title + meta), then optionally a relative time on
-// the right. The bar replaces the old colored dot — feels more like
-// a left-edge status indicator than a bullet point.
+// red = missing), then title + meta, with the display number tucked
+// in as a faint suffix to the title ("Monitor #1") so it's findable
+// without taking visual weight.
 function itemRowHTML(entry, sortMode) {
   const item = entry.item;
   const title = item.category || 'item';
@@ -4090,9 +4106,11 @@ function itemRowHTML(entry, sortMode) {
   return `
     <div class="items-row">
       <span class="item-status-bar ${statusClass}" aria-hidden="true"></span>
-      <span class="item-id-pill">${entry.displayNum}</span>
       <div class="item-info">
-        <div class="item-title">${escapeHTML(String(title))}</div>
+        <div class="item-title">
+          <span class="item-title-text">${escapeHTML(String(title))}</span>
+          <span class="item-id-suffix">#${entry.displayNum}</span>
+        </div>
         ${meta ? `<div class="item-meta">${escapeHTML(meta)}</div>` : ''}
       </div>
       ${when ? `<div class="item-time">${escapeHTML(when)}</div>` : ''}
@@ -4655,7 +4673,7 @@ async function showMyDevicePanel() {
     : 'Install P2P Transfer as App';
   const getAppHTML = `
       <div class="mydev-card">
-        <div class="mydev-card-tile"><img src="icon192.png" alt="" aria-hidden="true"></div>
+        <div class="mydev-card-tile"><img src="icon-animated.svg" alt="" aria-hidden="true"></div>
         <div class="mydev-card-text">
           <div class="mydev-card-label">Stay safer with the app</div>
           <div class="mydev-card-explain">Installing P2P Transfer protects your reports from automatic cleanup when your device runs low on space.</div>
