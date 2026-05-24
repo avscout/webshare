@@ -475,8 +475,18 @@
   }
   .session-row-panel.open { display: block; }
   .session-row-panel .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
     font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--dim); font-weight: 700; margin-bottom: 10px;
+  }
+  .session-row-panel .panel-close {
+    background: transparent; border: none; padding: 4px 8px;
+    font-size: 18px; line-height: 1; color: var(--dim);
+    cursor: pointer; border-radius: 4px;
+    letter-spacing: 0;   /* override the uppercase tracking on parent */
+  }
+  .session-row-panel .panel-close:hover {
+    background: var(--bg-subtle); color: var(--ink);
   }
   .session-row-panel .panel-field { margin-bottom: 10px; }
   .session-row-panel .panel-field label {
@@ -842,12 +852,33 @@
      headline + subline + action buttons. Entrance animations stagger
      so the eye lands first on the headline, then the subline, then the
      action buttons become tappable. */
+  /* Centered group inside the sent view — headline + which-file
+     name. margin: auto 0 inside the flex-column #transfer-sent-view
+     pushes the group toward the vertical center, while the action
+     buttons (margin-top: auto on .transfer-actions) pin to the
+     bottom. Net effect: text floats centered, buttons sit on the
+     floor. */
+  .sent-center {
+    margin: auto 0;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 14px;
+  }
   .sent-headline {
     font-size: 32px; font-weight: 700; color: var(--accent-deep);
     text-align: center; letter-spacing: -0.01em;
-    margin-top: 32px;
+    margin: 0;
     opacity: 0;
     animation: sent-text-in 0.4s ease-out 0.2s forwards;
+  }
+  /* Which file was sent — shown below the "Sent!" headline. Animates
+     in slightly later than the headline for a staggered reveal. */
+  .sent-filename {
+    font-size: 15px; font-weight: 600; color: var(--ink);
+    text-align: center;
+    max-width: 90%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    opacity: 0;
+    animation: sent-text-in 0.4s ease-out 0.45s forwards;
   }
   @keyframes sent-text-in {
     from { opacity: 0; transform: translateY(8px); }
@@ -855,7 +886,7 @@
   }
   /* Honor user preference for reduced motion: skip animations, show end state */
   @media (prefers-reduced-motion: reduce) {
-    .sent-headline { animation: none; opacity: 1; transform: none; }
+    .sent-headline, .sent-filename { animation: none; opacity: 1; transform: none; }
     .sent-actions-hidden { opacity: 1 !important; pointer-events: auto !important; }
   }
 
@@ -1847,15 +1878,19 @@
            balloon at the bottom of the screen — no subline here would
            duplicate that. -->
       <div class="hidden" id="transfer-sent-view">
-        <h2 class="sent-headline" id="sent-headline">Sent!</h2>
+        <!-- Headline + which-file group sits vertically centered in the
+             screen. The two action buttons below are pinned to the
+             bottom by .transfer-actions { margin-top: auto }. -->
+        <div class="sent-center">
+          <h2 class="sent-headline" id="sent-headline">Sent!</h2>
+          <div class="sent-filename" id="sent-filename"></div>
+        </div>
         <!-- Two actions, revealed together via a short delayed reveal:
-               - "Send another →" (primary): reuses the connection, returns
+               - "Send another" (primary): reuses the connection, returns
                  the user to the pick screen to choose another session.
-               - "Disconnect": closes the pairing, goes to start screen.
-             Both buttons live inside the content area (not the bottom nav)
-             since the bottom nav is hidden on the transfer screen. -->
+               - "Disconnect": closes the pairing, goes to start screen. -->
         <div class="transfer-actions sent-actions-hidden" id="transfer-sent-actions">
-          <button class="primary" id="sent-restart-btn">Send another →</button>
+          <button class="primary" id="sent-restart-btn">Send another</button>
           <button id="sent-disconnect-btn">Disconnect</button>
         </div>
       </div>
@@ -2157,6 +2192,14 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
   // user opens an action so it always reflects current data.
   const panel = document.createElement('div');
   panel.className = 'session-row-panel';
+  // Delegated close: the × in any panel head triggers closeOwn.
+  // Bound once on the panel itself; the dynamic innerHTML inside
+  // doesn't need to re-bind every time it's rebuilt.
+  panel.addEventListener('click', (e) => {
+    if (e.target.closest('[data-pact="close"]')) {
+      closeOwn();
+    }
+  });
 
   // Close any other open panel in the same container — keeps the
   // accordion behavior consistent: only one open at a time.
@@ -2210,7 +2253,10 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
         <textarea data-field="data"></textarea>
       </div>` : '';
     openWith('edit', `
-      <div class="panel-head">Edit report</div>
+      <div class="panel-head">
+        <span>Edit report</span>
+        <button type="button" class="panel-close" data-pact="close" aria-label="Close">×</button>
+      </div>
       <div class="panel-field">
         <label>Name</label>
         <input type="text" data-field="name">
@@ -2285,7 +2331,7 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
                <span class="when">${formatRelative(ev.at)}</span>
              </li>`).join('')}
          </ul>`;
-    openWith('history', `<div class="panel-head">History</div>${listHTML}`);
+    openWith('history', `<div class="panel-head"><span>History</span><button type="button" class="panel-close" data-pact="close" aria-label="Close">×</button></div>${listHTML}`);
   }
 
   async function doDelete() {
@@ -3426,7 +3472,18 @@ function showSentAnimation() {
   // else: created/replaced/merged all get the same headline. The bar
   // disambiguates which action happened.
   $('sent-headline').textContent = headline;
-  // Hide the screen header — the moment is just headline + buttons.
+  // Show which file was sent. Look up the session by selectedSessionId
+  // (the one the user picked for this send) and surface its name. If
+  // we can't find it for any reason, leave the slot empty rather than
+  // showing a fallback like "unknown" — silent absence reads cleaner.
+  const filenameEl = $('sent-filename');
+  filenameEl.textContent = '';
+  if (selectedSessionId) {
+    getSession(selectedSessionId).then(s => {
+      if (s) filenameEl.textContent = s.name;
+    }).catch(() => { /* swallow — empty filename is fine */ });
+  }
+  // Hide the screen header — the moment is just headline + filename + buttons.
   $('transfer-header').classList.add('hidden');
 }
 
@@ -3487,6 +3544,8 @@ async function revealPostTransferSessions() {
   // action icons (Edit, Export, History, Delete) come along automatically.
   // No onRowClick — these rows already feel "primary" via the header;
   // tapping their body would conflict with the action icons.
+  // The .just-transferred class adds the light-blue highlight + left
+  // accent border so a newly arrived row stands out from the rest.
   for (const { session } of justEntries) {
     const frag = renderSessionRow(session, {
       container: justList,
@@ -3497,6 +3556,9 @@ async function revealPostTransferSessions() {
         revealPostTransferSessions();
       },
     });
+    // The fragment carries [row, panel]; tag the row before append.
+    const rowEl = frag.querySelector('.session-row');
+    if (rowEl) rowEl.classList.add('just-transferred');
     justList.appendChild(frag);
   }
 
