@@ -376,13 +376,14 @@
   .session-row .meta .origin-label { color: var(--dim); }
   .session-row .meta .origin-name { color: var(--ink-soft); font-weight: 600; }
 
-  /* Per-row action buttons — icon-only, ~32px square. The trash icon
-     gets a subtle red tint on hover; the others lean into the accent. */
-  .session-row-actions {
-    display: flex; gap: 2px; align-items: center;
+  /* Kebab menu trigger at the right edge of a session row. Visible
+     size is 32×32 to keep the row compact; the ::before pseudo extends
+     the tap target out to 44×44 to meet iOS HIG / Material guidelines
+     for minimum touch size on mobile. The pseudo is transparent and
+     doesn't affect layout. */
+  .session-row-menu-btn {
+    position: relative;
     flex-shrink: 0;
-  }
-  .session-row-action {
     width: 32px; height: 32px;
     display: inline-flex; align-items: center; justify-content: center;
     background: transparent;
@@ -393,36 +394,78 @@
     transition: background 0.12s, border-color 0.12s, color 0.12s;
     padding: 0;
   }
-  .session-row-action svg {
-    width: 16px; height: 16px;
+  .session-row-menu-btn::before {
+    content: "";
+    position: absolute;
+    inset: -6px;       /* extends 6px in every direction → 44×44 hit area */
+  }
+  .session-row-menu-btn svg {
+    width: 18px; height: 18px;
     display: block;
   }
-  .session-row-action:hover {
+  .session-row-menu-btn:hover,
+  .session-row-menu-btn.active {
     background: var(--bg);
     border-color: var(--line);
     color: var(--accent);
   }
-  .session-row-action.danger { color: var(--warn); }
-  .session-row-action.danger:hover {
-    background: var(--bg);
-    border-color: var(--warn);
-    color: var(--warn);
-  }
-  .session-row-action:focus-visible {
+  .session-row-menu-btn:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
-  /* Active state — the icon currently driving an open accordion panel.
-     Subtle filled background so the user can see which panel they're
-     looking at. */
-  .session-row-action.active {
-    background: var(--bg);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
 
+  /* Floating row menu — anchored under (or above) the kebab button.
+     Lives on document.body so it isn't clipped by any ancestor's
+     overflow:hidden. JS handles positioning via inline top/left. */
+  .row-menu {
+    position: fixed;
+    z-index: 200;
+    min-width: 160px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    padding: 4px;
+    display: flex; flex-direction: column;
+  }
+  .row-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    text-align: left;
+    padding: 12px 14px;
+    min-height: 44px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    font-family: var(--sans);
+    font-size: 14px;
+    color: var(--ink);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .row-menu-icon {
+    flex-shrink: 0;
+    width: 18px; height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--ink-soft);
+  }
+  .row-menu-icon svg {
+    width: 18px; height: 18px;
+    display: block;
+  }
+  .row-menu-item.danger .row-menu-icon { color: var(--warn); }
+  .row-menu-item:hover {
+    background: var(--bg-subtle);
+  }
+  .row-menu-item.danger { color: var(--warn); }
+  .row-menu-item.danger:hover {
+    background: rgba(224, 60, 49, 0.08);
+  }
+  .row-menu-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   /* Inline accordion panel under a session row. Holds the Edit form
-     or the History list when the user taps the corresponding icon.
+     or the History list when the user picks them from the row menu.
      Only one panel open per list at a time (enforced in JS). */
   .session-row-panel {
     display: none;
@@ -847,11 +890,38 @@
 
   /* In-content action buttons (Disconnect / Send another). Placed inside the
      content area so they're contextually adjacent to the message they relate
-     to, rather than floating in a global nav bar. */
+     to, rather than floating in a global nav bar. The transfer views are
+     flex-columns filling the full content height, and the actions get
+     margin-top: auto so they pin to the bottom regardless of how much
+     content is above them. */
+  #transfer-progress-view,
+  #transfer-sent-view {
+    display: flex; flex-direction: column;
+    flex: 1;
+  }
+  /* Ensure the content area is a flex container so the inner views
+     get a parent to flex against — otherwise flex:1 has no effect. */
+  .screen[data-screen="transfer"] > .screen-content {
+    display: flex; flex-direction: column;
+  }
+  /* Section dividers on the transfer-done screen — visually separates
+     "Just received", "Other reports", and the action buttons. Mirrors
+     the My device modal's section dividers (1px solid var(--line-soft)). */
+  #transfer-just-panel,
+  #transfer-sessions-panel {
+    padding-top: 22px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--line-soft);
+    margin-top: 0;
+  }
+  /* When both panels are visible they each have a border-bottom; when
+     only one is, it's still the last section and the buttons sit below.
+     The action buttons have their own top border so the divider is
+     always present between content and CTAs. */
   .transfer-actions {
-    margin-top: 28px;
+    margin-top: auto;
+    padding-top: 24px;
     display: flex; gap: 10px; justify-content: center;
-    padding: 0 14px;
   }
   .transfer-actions button {
     flex: 1; max-width: 200px; height: 44px;
@@ -1369,6 +1439,37 @@
     position: fixed; inset: 0; background: rgba(12, 35, 64, 0.6); z-index: 100;
     display: flex; align-items: stretch; justify-content: stretch;
   }
+  /* Toast host — bottom-of-screen container for transient pop-overs.
+     Sits above all modals (z-index 300). Pointer-events: none on the
+     host so it doesn't intercept clicks meant for the modal underneath;
+     individual toasts re-enable pointer-events for tap-to-dismiss. */
+  #toast-host {
+    position: fixed;
+    left: 0; right: 0; bottom: 20px;
+    z-index: 300;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    pointer-events: none;
+    padding: 0 16px;
+  }
+  .toast {
+    pointer-events: auto;
+    background: var(--ink);
+    color: #FFFFFF;
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    max-width: 90%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .toast.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
   .modal {
     background: var(--bg); width: 100%; height: 100%;
     display: flex; flex-direction: column;
@@ -1382,7 +1483,43 @@
   .modal-head .close { background: transparent; border: none; font-size: 22px; padding: 4px 8px; cursor: pointer; color: var(--dim); }
   .modal-body { flex: 1; padding: 18px; overflow-y: auto; }
   .modal-footer { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; }
-  .modal-footer button { flex: 1; }
+  /* Modal-footer buttons inherit a sensible touch-friendly size by
+     default (44px min-height, decent padding, consistent typography).
+     Individual buttons that pass inline styles still take precedence,
+     but this base rule means no footer button is accidentally
+     browser-default tiny. */
+  .modal-footer button {
+    flex: 1;
+    min-height: 44px;
+    padding: 10px 14px;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .modal-footer button:hover:not(:disabled):not(.primary) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .modal-footer button.primary {
+    background: var(--accent);
+    color: #FFFFFF;
+    border-color: var(--accent);
+  }
+  .modal-footer button.primary:hover:not(:disabled) {
+    background: var(--tud-cyan-dark);
+    border-color: var(--tud-cyan-dark);
+  }
+  .modal-footer button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 
   /* Session edit modal — history section */
   .session-history-section {
@@ -1672,20 +1809,21 @@
         <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
         <div class="status-line" id="transfer-status">Waiting for connection…</div>
 
-        <!-- Just-transferred row (receiver or sender). Shows the single
-             row of the report that was just received/sent, with the
-             "just received/sent" badge and the sender's identity tile.
-             This replaces the earlier separate "received from X" banner
-             — the row already carries the same attribution. -->
-        <div class="hidden" id="transfer-just-panel" style="margin-top: 28px;">
+        <!-- "Just received" / "Just sent" panel — section eyebrow plus
+             one or more rows for every transfer that happened in this
+             connection session, newest first. Rows use the shared
+             renderSessionRow so they carry the same icon actions as
+             elsewhere in the app. -->
+        <div class="hidden" id="transfer-just-panel">
+          <div class="screen-eyebrow" id="transfer-just-header" style="margin-bottom: 10px;">Just received</div>
           <div class="session-list" id="transfer-just-list"></div>
         </div>
 
-        <!-- Compact "N reports on this device · [Browse →]" row, mirrors
-             the My device panel's pattern. Replaces the previous full
-             list of every report — Browse opens the sessions modal
-             where the user can manage them all. -->
-        <div class="hidden" id="transfer-sessions-panel" style="margin-top: 22px;">
+        <!-- "Other reports" — compact count + Browse →, mirrors the My
+             device pattern. Excludes anything in the just-transferred
+             list above; hidden when zero. -->
+        <div class="hidden" id="transfer-sessions-panel">
+          <div class="screen-eyebrow" style="margin-bottom: 10px;">Other reports</div>
           <div class="mydev-sessions-row">
             <div class="mydev-sessions-count">
               <span id="transfer-sessions-count">0</span>
@@ -2001,20 +2139,13 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
         <span class="origin-piece"> · <span class="origin-label"></span> <span class="origin-name"></span></span>
       </div>
     </div>
-    <div class="session-row-actions">
-      <button data-act="edit"    class="session-row-action" title="Edit"    aria-label="Edit">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-      </button>
-      <button data-act="exp"     class="session-row-action" title="Export"  aria-label="Export">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      </button>
-      <button data-act="history" class="session-row-action" title="History" aria-label="History">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/><polyline points="12 7 12 12 15 14"/></svg>
-      </button>
-      <button data-act="del" class="session-row-action danger" title="Delete" aria-label="Delete">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-      </button>
-    </div>`;
+    <button class="session-row-menu-btn" data-act="menu" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="5"  r="1.5" fill="currentColor"/>
+        <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+        <circle cx="12" cy="19" r="1.5" fill="currentColor"/>
+      </svg>
+    </button>`;
   row.querySelector('.name').textContent = s.name;
   row.querySelector('.id').textContent = s.id;
   const cnt = dataRecordCount(s.data);
@@ -2034,36 +2165,40 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
     container.querySelectorAll('.session-row-panel.open').forEach(p => {
       if (p !== panel) p.classList.remove('open');
     });
-    container.querySelectorAll('.session-row-action.active').forEach(a => {
-      if (!panel.contains(a) && a.closest('.session-row') !== row) a.classList.remove('active');
+    container.querySelectorAll('.session-row-menu-btn.active').forEach(b => {
+      if (b !== row.querySelector('.session-row-menu-btn')) b.classList.remove('active');
     });
   };
   const closeOwn = () => {
     panel.classList.remove('open');
-    row.querySelectorAll('.session-row-action.active').forEach(a => a.classList.remove('active'));
+    panel.dataset.activeAct = '';
   };
   const openWith = (which, html) => {
     closeSiblings();
-    closeOwn();
     panel.innerHTML = html;
     panel.classList.add('open');
-    row.querySelector(`[data-act="${which}"]`).classList.add('active');
+    panel.dataset.activeAct = which;
   };
 
   // Row body click — selection (when caller provides handler). Ignore
-  // clicks on the icon buttons or the panel itself.
+  // clicks on the kebab menu button or the inline panel.
   if (typeof onRowClick === 'function') {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.session-row-actions')) return;
+      if (e.target.closest('.session-row-menu-btn')) return;
       onRowClick(s);
     });
   }
 
-  // EDIT — inline form. Name field always; data textarea only in dev mode.
-  row.querySelector('[data-act="edit"]').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    // Toggle: if already open showing Edit, close it.
-    if (panel.classList.contains('open') && row.querySelector('[data-act="edit"]').classList.contains('active')) {
+  // -------- Action handlers — each menu item dispatches to one of these.
+
+  async function doView() {
+    const full = await getSession(s.id);
+    if (full) showItemsModal(full);
+  }
+
+  async function doEdit() {
+    // Toggle: if already showing Edit, close.
+    if (panel.classList.contains('open') && panel.dataset.activeAct === 'edit') {
       closeOwn();
       return;
     }
@@ -2124,21 +2259,17 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
         log('Save failed: ' + err.message, 'err');
       }
     });
-  });
+  }
 
-  // EXPORT — immediate download (no panel).
-  row.querySelector('[data-act="exp"]').addEventListener('click', async (e) => {
-    e.stopPropagation();
+  async function doExport() {
     const full = await getSession(s.id);
     if (!full) return;
     await exportReport(full);
     if (typeof onAfterChange === 'function') onAfterChange();
-  });
+  }
 
-  // HISTORY — inline list of audit events. Read-only.
-  row.querySelector('[data-act="history"]').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    if (panel.classList.contains('open') && row.querySelector('[data-act="history"]').classList.contains('active')) {
+  async function doHistory() {
+    if (panel.classList.contains('open') && panel.dataset.activeAct === 'history') {
       closeOwn();
       return;
     }
@@ -2155,15 +2286,33 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
              </li>`).join('')}
          </ul>`;
     openWith('history', `<div class="panel-head">History</div>${listHTML}`);
-  });
+  }
 
-  // DELETE — confirm then remove.
-  row.querySelector('[data-act="del"]').addEventListener('click', async (e) => {
-    e.stopPropagation();
+  async function doDelete() {
     if (!confirm(`Delete "${s.name}"?`)) return;
     await deleteSession(s.id);
     log('Deleted.', 'ok');
     if (typeof onAfterChange === 'function') onAfterChange();
+  }
+
+  // -------- Kebab menu — opens an anchored floating menu listing all
+  // actions. Tap-outside or Escape closes; picking an item closes too.
+  // Only one menu open in the document at a time (the helper handles
+  // closing any existing menu before opening a new one).
+  const menuBtn = row.querySelector('.session-row-menu-btn');
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Each menu item gets a leading icon for fast visual scanning.
+    // Magnifier for View, pencil for Edit, down-arrow for Export,
+    // clock-arrow for History, trash for Delete. Inline SVG (small,
+    // copies pattern used elsewhere in the app).
+    openRowMenu(menuBtn, [
+      { label: 'View',    onClick: doView,    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>` },
+      { label: 'Edit',    onClick: doEdit,    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>` },
+      { label: 'Export',  onClick: doExport,  icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>` },
+      { label: 'History', onClick: doHistory, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/><polyline points="12 7 12 12 15 14"/></svg>` },
+      { label: 'Delete',  onClick: doDelete,  danger: true, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>` },
+    ]);
   });
 
   // Caller gets a fragment containing the row + its panel.
@@ -2171,6 +2320,104 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
   frag.appendChild(row);
   frag.appendChild(panel);
   return frag;
+}
+
+// Floating anchored menu for the per-row kebab. Built fresh each time
+// the user opens it; positioned relative to the triggering button so
+// it appears just below+left of the kebab.
+//
+// Lives on document.body so it isn't clipped by any ancestor's
+// overflow:hidden. Closes on: tap outside, Escape key, picking an
+// item. Only one menu can be open at a time globally; opening a new
+// one closes the previous.
+//
+// Items: [{ label, onClick, danger? }]
+let __openRowMenu = null;
+function openRowMenu(triggerEl, items) {
+  // Toggle: if a menu is already open for this trigger, close it.
+  if (__openRowMenu && __openRowMenu.trigger === triggerEl) {
+    closeRowMenu();
+    return;
+  }
+  closeRowMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'row-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = items.map((it, i) => `
+    <button type="button" class="row-menu-item${it.danger ? ' danger' : ''}" data-i="${i}" role="menuitem">
+      ${it.icon ? `<span class="row-menu-icon" aria-hidden="true">${it.icon}</span>` : ''}
+      <span class="row-menu-label">${escapeHTML(it.label)}</span>
+    </button>
+  `).join('');
+  document.body.appendChild(menu);
+
+  // Position the menu. Default: anchored to the trigger's right edge,
+  // top-aligned to the trigger's bottom. If the menu would overflow
+  // the viewport on the right, slide it left. If it would overflow
+  // the bottom, flip it above the trigger.
+  const rect = triggerEl.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  let top = rect.bottom + 4;
+  let left = rect.right - menuRect.width;
+  if (left < 8) left = 8;
+  if (left + menuRect.width > window.innerWidth - 8) {
+    left = window.innerWidth - menuRect.width - 8;
+  }
+  if (top + menuRect.height > window.innerHeight - 8) {
+    top = rect.top - menuRect.height - 4;
+  }
+  menu.style.top  = `${top}px`;
+  menu.style.left = `${left}px`;
+
+  triggerEl.setAttribute('aria-expanded', 'true');
+  triggerEl.classList.add('active');
+
+  // Wire item clicks. Stop propagation so the document outside-click
+  // listener below doesn't immediately reclose the menu.
+  menu.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-i]');
+    if (!btn) return;
+    e.stopPropagation();
+    const idx = parseInt(btn.getAttribute('data-i'), 10);
+    closeRowMenu();
+    if (items[idx] && typeof items[idx].onClick === 'function') {
+      items[idx].onClick();
+    }
+  });
+
+  // Outside-click + Escape close handlers. Bound after a tick so the
+  // current click event that opened the menu doesn't immediately
+  // bubble up and close it again.
+  const onDocClick = (e) => {
+    if (menu.contains(e.target)) return;
+    closeRowMenu();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') closeRowMenu();
+  };
+  setTimeout(() => {
+    document.addEventListener('click', onDocClick);
+    document.addEventListener('keydown', onKey);
+  }, 0);
+
+  __openRowMenu = {
+    el: menu, trigger: triggerEl,
+    cleanup: () => {
+      document.removeEventListener('click', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    },
+  };
+}
+
+function closeRowMenu() {
+  if (!__openRowMenu) return;
+  const { el, trigger, cleanup } = __openRowMenu;
+  __openRowMenu = null;
+  cleanup();
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.classList.remove('active');
+  el.remove();
 }
 
 // ---------- IndexedDB (preferences) ----------
@@ -2669,6 +2916,14 @@ let selectedSessionId = null;
 // list. Cleared whenever we leave the transfer screen.
 let justTransferredId = null;
 let justTransferredDirection = null;  // 'sent' | 'received' | null
+
+// Across one connection-session (peering through to "Disconnect"), record
+// every transfer that completed — so the post-transfer panel can show ALL
+// of them, not just the most recent. Reset on disconnect/screen-leave,
+// NOT on "Send another" since the user might do several sends in a row.
+// Newest entries are appended; rendering reverses for newest-first display.
+//   { id, direction: 'sent'|'received', at: Date }
+let connectionSessionTransfers = [];
 // On the sender side, this captures what the receiver did with the payload —
 // 'created', 'replaced', 'merged', 'skipped', or an error string. Set by
 // onAck, read by showSentAnimation to choose an appropriate subtitle.
@@ -2677,6 +2932,37 @@ let receiverError = null;
 
 function activeFlow() { return FLOWS[`${currentMode}-${currentBackend}`]; }
 function currentScreenId() { return activeFlow()[currentStep]; }
+
+// Record a successful transfer in the connection-session log. The latest
+// entry per-id wins (if a session was sent then re-received, only the
+// last action is what the user sees in the panel; the earlier entry is
+// pruned). Also sets the single-use justTransferredId/Direction for the
+// celebration animations that need to know the most recent thing.
+//
+// On the receiving side, also play a short audible "blip" and — if the
+// user has wandered off the transfer screen (into a modal, say) — show
+// a brief toast announcing the arrival. The transfer screen's own
+// JUST RECEIVED panel covers the visible case.
+//
+// `name` is optional and used only for the toast. When omitted, the
+// toast falls back to a generic "Received a new report".
+function recordTransfer(id, direction, name) {
+  if (!id || !direction) return;
+  // Drop any earlier entry for the same id; the latest action supersedes.
+  connectionSessionTransfers = connectionSessionTransfers.filter(t => t.id !== id);
+  connectionSessionTransfers.push({ id, direction, at: new Date() });
+  justTransferredId = id;
+  justTransferredDirection = direction;
+  if (direction === 'received') {
+    playReceiveBlip();
+    // Notify the user out-of-band only when a modal is currently open
+    // — the transfer screen's own "Just received" panel covers the
+    // visible case, no toast needed if the user is already looking.
+    if (document.querySelector('.modal-backdrop')) {
+      showToast(`Received ${name || 'a new report'}`);
+    }
+  }
+}
 
 function showScreen(screenId, direction = 'forward') {
   const screens = document.querySelectorAll('.screen');
@@ -2777,6 +3063,10 @@ function onLeaveScreen(screenId) {
     // Clear the highlight state so a future transfer doesn't show stale info
     justTransferredId = null;
     justTransferredDirection = null;
+    // Wipe the connection-session log too — leaving the transfer screen
+    // means the pairing is done, the next time we land here it's a fresh
+    // session. ("Send another" stays on this screen and doesn't trip this.)
+    connectionSessionTransfers = [];
     receiverAction = null;
     receiverError = null;
   }
@@ -3146,15 +3436,21 @@ function setTransferStatus(text, kind = '') {
   el.className = 'status-line' + (kind ? ' ' + kind : '');
 }
 
-// Render the post-transfer session list with the just-touched session highlighted.
-// Called after status === 'done'. Reads justTransferredId/justTransferredDirection
-// to know which row to show and how to label it.
+// Render the post-transfer panels with the appropriate headers and rows.
+// Called after status === 'done'.
 //
-// Layout: just the single row that was touched by this transfer, with a
-// "just received / just sent" badge. Below that, a compact "N reports
-// on this device · Browse →" row that mirrors the My device pattern —
-// no full list inline. The user opens Browse to manage all reports;
-// keeping the done screen focused on what just happened.
+// Layout (top to bottom):
+//   "JUST RECEIVED"/"JUST SENT" eyebrow header (label per direction)
+//   one or more session rows — every transfer in this connection-session,
+//                              newest first. Each row uses the shared
+//                              renderSessionRow so icons (Edit/Export/
+//                              History/Delete) come along automatically.
+//   "OTHER REPORTS" eyebrow header
+//   N other reports on this device · Browse →
+//
+// "Other" excludes anything in the just-transferred list. If there are
+// no just-transferred entries (skip path), the JUST RECEIVED section is
+// hidden and "Other reports" reverts to showing the full count.
 async function revealPostTransferSessions() {
   const justPanel = $('transfer-just-panel');
   const justList  = $('transfer-just-list');
@@ -3165,53 +3461,56 @@ async function revealPostTransferSessions() {
   showProgressRestartButton('Disconnect');
 
   const sessions = await listSessions();
-  const total = sessions.length;
-  $('transfer-sessions-count').textContent = total;
-  $('transfer-sessions-label').textContent = (total === 1 ? 'report' : 'reports') + ' on this device';
-  sumPanel.classList.remove('hidden');
+  const transfersById = new Map();
+  for (const t of connectionSessionTransfers) transfersById.set(t.id, t);
 
-  // The just-transferred row only makes sense when there's actually a
-  // transferred session (skip path leaves justTransferredId set in some
-  // cases — guard explicitly on the direction).
-  if (!justTransferredId || !justTransferredDirection) {
+  // Build the just-transferred list in newest-first order. Drop entries
+  // whose session no longer exists (deleted after transfer? edge case).
+  const justEntries = connectionSessionTransfers
+    .slice().reverse()
+    .map(t => ({ t, session: sessions.find(s => s.id === t.id) }))
+    .filter(e => e.session);
+
+  // Direction label for the header — picks the latest entry's direction.
+  // Mixed sessions are rare in practice; whichever happened last is the
+  // most relevant framing.
+  const headerEl = $('transfer-just-header');
+  if (justEntries.length > 0) {
+    const latestDir = justEntries[0].t.direction;
+    headerEl.textContent = latestDir === 'sent' ? 'Just sent' : 'Just received';
+    justPanel.classList.remove('hidden');
+  } else {
     justPanel.classList.add('hidden');
-    return;
-  }
-  const justSession = sessions.find(s => s.id === justTransferredId);
-  if (!justSession) {
-    justPanel.classList.add('hidden');
-    return;
   }
 
-  justPanel.classList.remove('hidden');
+  // Render each just-transferred row using the shared renderer so the
+  // action icons (Edit, Export, History, Delete) come along automatically.
+  // No onRowClick — these rows already feel "primary" via the header;
+  // tapping their body would conflict with the action icons.
+  for (const { session } of justEntries) {
+    const frag = renderSessionRow(session, {
+      container: justList,
+      onAfterChange: async () => {
+        // After an edit/delete from the row icons, re-render the panel
+        // so counts and "other reports" stay accurate.
+        await refreshSessionsCount();
+        revealPostTransferSessions();
+      },
+    });
+    justList.appendChild(frag);
+  }
 
-  const badgeText = justTransferredDirection === 'sent' ? '✓ just sent' : '✓ just received';
-  const origin = reportOrigin(justSession);
-  const row = document.createElement('div');
-  row.className = 'session-row just-transferred';
-  row.innerHTML = `
-    <div class="session-row-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
-    <div class="info">
-      <div class="name-line">
-        <span class="name"></span>
-        <span class="id-pill dev-only"><span class="id"></span></span>
-      </div>
-      <div class="meta">
-        <span class="count"></span>
-        <span class="origin-piece"> · <span class="origin-label"></span> <span class="origin-name"></span></span>
-      </div>
-      <span class="badge"></span>
-    </div>`;
-  row.querySelector('.name').textContent = justSession.name;
-  row.querySelector('.id').textContent = justSession.id;
-  const cnt = dataRecordCount(justSession.data);
-  row.querySelector('.count').textContent = `${cnt} item${cnt === 1 ? '' : 's'}`;
-  row.querySelector('.origin-label').textContent = origin.label;
-  row.querySelector('.origin-name').textContent = origin.nickname;
-  row.querySelector('.badge').textContent = badgeText;
-  // Tapping the row opens the items view, consistent with other places.
-  row.addEventListener('click', () => showItemsModal(justSession));
-  justList.appendChild(row);
+  // "Other reports" = everything not just-transferred in this session.
+  const otherCount = sessions.filter(s => !transfersById.has(s.id)).length;
+  $('transfer-sessions-count').textContent = otherCount;
+  $('transfer-sessions-label').textContent = (otherCount === 1 ? 'report' : 'reports') + ' on this device';
+  // Hide the whole "Other reports" panel when there's nothing else —
+  // showing "0 other reports" is just noise.
+  if (otherCount > 0) {
+    sumPanel.classList.remove('hidden');
+  } else {
+    sumPanel.classList.add('hidden');
+  }
 }
 
 // Build the peerInfo object we send to the other side on connection.
@@ -3507,8 +3806,9 @@ function wireTransferToSendUI(t) {
     }
     if (s === 'done') {
       // For the sender, the just-touched session is the one we picked.
-      justTransferredId = selectedSessionId;
-      justTransferredDirection = 'sent';
+      // The receiver might have skipped — that path doesn't reach here,
+      // so anything we record was actually transferred and acknowledged.
+      recordTransfer(selectedSessionId, 'sent');
       // Append a 'sent' event to the session's history. We re-fetch the
       // session here rather than mutating from cache so we don't race with
       // any concurrent updates (the user could have edited it in the UI
@@ -3578,8 +3878,7 @@ async function handleIncomingSession(payload) {
     await putSession(incoming);
     log(`Stored new report "${incoming.name}".`, 'ok');
     refreshSessionsCount();
-    justTransferredId = incoming.id;
-    justTransferredDirection = 'received';
+    recordTransfer(incoming.id, 'received', incoming.name);
     receiverAction = 'created';
     return { ok: true, action: 'created' };
   }
@@ -3598,8 +3897,7 @@ async function handleIncomingSession(payload) {
     await putSession(replaced);
     log(`Replaced "${existing.name}".`, 'ok');
     refreshSessionsCount();
-    justTransferredId = incoming.id;
-    justTransferredDirection = 'received';
+    recordTransfer(incoming.id, 'received', incoming.name);
     receiverAction = 'replaced';
     return { ok: true, action: 'replaced' };
   }
@@ -3624,8 +3922,7 @@ async function handleIncomingSession(payload) {
   await putSession(merged);
   log(`Merged: +${result.added} new, ${result.overwritten} overwritten.`, 'ok');
   refreshSessionsCount();
-  justTransferredId = existing.id;
-  justTransferredDirection = 'received';
+  recordTransfer(existing.id, 'received', merged.name);
   receiverAction = 'merged';
   return { ok: true, action: 'merged' };
 }
@@ -3758,7 +4055,16 @@ async function refreshSessionsCount() {
   if (countEl) countEl.textContent = all.length;
 }
 
-async function showSessionsModal() {
+// Opens the standard Sessions modal — list of all reports on this
+// device, each with the kebab menu for per-row actions.
+//
+// Options:
+//   hideNewReport: when true, omit the modal-footer "New report"
+//     button. Used when the modal is reached from the receiver-done
+//     screen via "Browse →" — the receiver landed here to look at
+//     reports they got, not to create a new one. Defaults to false
+//     so other callers (My device → Browse, etc.) still show it.
+async function showSessionsModal({ hideNewReport = false } = {}) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
@@ -3770,9 +4076,10 @@ async function showSessionsModal() {
       <div class="modal-body">
         <div class="session-list" id="sm-list"></div>
       </div>
+      ${hideNewReport ? '' : `
       <div class="modal-footer">
         <button class="primary" id="sm-new" style="background:var(--accent);color:#fff;border-color:var(--accent);">New report</button>
-      </div>
+      </div>`}
     </div>`;
   document.body.appendChild(backdrop);
 
@@ -3801,10 +4108,15 @@ async function showSessionsModal() {
   await render();
 
   backdrop.querySelector('#sm-close').addEventListener('click', () => backdrop.remove());
-  backdrop.querySelector('#sm-new').addEventListener('click', () => {
-    backdrop.remove();
-    showSessionModal(null, 'modal');
-  });
+  // Bind New report only when the button is rendered (omitted when
+  // hideNewReport is true).
+  const newBtn = backdrop.querySelector('#sm-new');
+  if (newBtn) {
+    newBtn.addEventListener('click', () => {
+      backdrop.remove();
+      showSessionModal(null, 'modal');
+    });
+  }
 }
 
 // =====================================================================
@@ -4120,6 +4432,90 @@ function escapeHTML(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// Cached Web Audio context; created lazily on first blip so the page
+// doesn't request audio resources until actually needed. The browser
+// will accept this because all transfers begin with explicit user
+// interaction (the connection setup), so the autoplay policy is met
+// by the time recordTransfer fires.
+let __audioCtx = null;
+function getAudioCtx() {
+  if (__audioCtx) return __audioCtx;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  try { __audioCtx = new Ctor(); } catch (e) { return null; }
+  return __audioCtx;
+}
+
+// Short two-note "blip" played on a successful receive. Generated via
+// Web Audio (no asset file) — a quick A5 → E6 chirp ~120ms total.
+// Volume kept low so a roomful of devices receiving in series doesn't
+// get cacophonous. Silently no-ops if Web Audio isn't available or
+// the audio context fails to start (defensive on mobile Safari).
+function playReceiveBlip() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  // Resume on demand — iOS suspends audio contexts when the tab
+  // backgrounds or after long inactivity. Resume is a no-op if already
+  // running. Don't await it; if it fails, the gain envelope just
+  // produces silence.
+  try { ctx.resume && ctx.resume(); } catch (e) {}
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(880, now);              // A5
+  osc.frequency.exponentialRampToValueAtTime(1320, now + 0.08);  // ~E6
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.18, now + 0.01);  // fast attack
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18); // soft tail
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.2);
+}
+
+// Bottom-of-screen toast for out-of-band notifications. Slides up,
+// pauses ~3s, slides down. Stacks if multiple come in quick succession
+// (each toast is its own DOM node so they don't overwrite each other).
+// Tap a toast to dismiss it early. The pop-over sits above the
+// connection bar (z-index higher than other UI chrome) so it isn't
+// hidden by it.
+function showToast(text) {
+  const host = ensureToastHost();
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = text;
+  toast.setAttribute('role', 'status');
+  host.appendChild(toast);
+  // Force the entry animation: append → next frame → add 'in' class
+  requestAnimationFrame(() => { toast.classList.add('in'); });
+  // Tap to dismiss early. The auto-dismiss timer fires regardless,
+  // but if the user taps before that, we tear it down immediately.
+  let removed = false;
+  const tearDown = () => {
+    if (removed) return;
+    removed = true;
+    toast.classList.remove('in');
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+    // Safety: if transitionend doesn't fire (no transition on element
+    // for some reason), force-remove after a beat.
+    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 400);
+  };
+  toast.addEventListener('click', tearDown);
+  setTimeout(tearDown, 3000);
+}
+
+// Lazy single host container for all toasts — created on first call,
+// reused after. Lives on document.body so it's free of any screen's
+// stacking context.
+function ensureToastHost() {
+  let host = document.getElementById('toast-host');
+  if (host) return host;
+  host = document.createElement('div');
+  host.id = 'toast-host';
+  document.body.appendChild(host);
+  return host;
 }
 
 // Derive a user-visible number for an item from its underlying id.
@@ -5305,7 +5701,12 @@ $('sent-disconnect-btn').addEventListener('click', restartToStart);
 // Browse from the post-transfer summary row opens the standard sessions
 // modal so the user can manage all reports. Same affordance as the
 // "Browse →" button on the My device panel — consistent destination.
-$('transfer-browse-btn').addEventListener('click', () => showSessionsModal());
+// Browse from the post-transfer summary row opens the standard sessions
+// modal so the user can manage all reports. The receiver just landed
+// here to look at reports they got — they didn't come to create one,
+// so the "New report" button is omitted from this entry point. The
+// My device → Browse entry still shows it (default behavior).
+$('transfer-browse-btn').addEventListener('click', () => showSessionsModal({ hideNewReport: true }));
 
 // "Send another" — reuse the open connection. Returns to the pick screen
 // so the user can choose another session to send to the same peer.
