@@ -2000,6 +2000,10 @@ async function listSessions() {
   return all.sort((a, b) => (new Date(b.modifiedAt).getTime()) - (new Date(a.modifiedAt).getTime()));
 }
 async function getSession(id) {
+  // Guard against null/undefined id — IDBObjectStore.get() throws a cryptic
+  // "No key or key range specified" error otherwise. Treat "no id" as
+  // "no such session" so callers can use the same not-found code path.
+  if (id == null) return undefined;
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readonly');
   const r = tx.objectStore('sessions').get(id);
@@ -3405,8 +3409,9 @@ function setupTransferScreen() {
     // across "Send another" without re-pairing.
     (async () => {
       try {
+        if (!selectedSessionId) throw new Error('No report selected to send');
         const session = await getSession(selectedSessionId);
-        if (!session) throw new Error('No session selected');
+        if (!session) throw new Error('Selected report not found');
         await activeTransfer.send(session);
       } catch (err) {
         log('Send failed: ' + err.message, 'err');
@@ -3612,13 +3617,36 @@ let remotePeerInfo = null;
 // =====================================================================
 // Transfer library wiring
 // =====================================================================
+// If an activeTransfer is left over from a PREVIOUS pairing in this
+// page-session (e.g. user received something, then went back and chose
+// Send), it still has the listeners for the OLD direction wired up.
+// Reusing it means the wrong handler fires on 'connected' — for the
+// send-after-receive case that means jumping straight to the transfer
+// screen and skipping pick, which then calls getSession(null) and
+// triggers an IDB "No key or key range specified" error.
+//
+// Each ensure* below stamps the direction on the transfer, and replaces
+// the transfer if it was created for the other direction. Backend changes
+// also force a fresh transfer since the underlying object is backend-bound.
+function disposeActiveTransfer() {
+  if (!activeTransfer) return;
+  try { activeTransfer.close(); } catch {}
+  activeTransfer = null;
+  remotePeerInfo = null;
+}
+
 async function ensureReceiveTransfer() {
+  if (activeTransfer && (activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== currentBackend)) {
+    disposeActiveTransfer();
+  }
   if (activeTransfer) return;
   remotePeerInfo = null;
   activeTransfer = new SessionTransfer({
     backend: currentBackend,
     peerInfo: buildLocalPeerInfo(),
   });
+  activeTransfer._uiDirection = 'receive';
+  activeTransfer._uiBackend = currentBackend;
   wireTransferToReceiveUI(activeTransfer);
   wirePeerInfoListener(activeTransfer);
   try { await activeTransfer.startReceiving(); }
@@ -3626,12 +3654,17 @@ async function ensureReceiveTransfer() {
 }
 
 async function ensureSendTransfer() {
+  if (activeTransfer && (activeTransfer._uiDirection !== 'send' || activeTransfer._uiBackend !== currentBackend)) {
+    disposeActiveTransfer();
+  }
   if (activeTransfer) return;
   remotePeerInfo = null;
   activeTransfer = new SessionTransfer({
     backend: currentBackend,
     peerInfo: buildLocalPeerInfo(),
   });
+  activeTransfer._uiDirection = 'send';
+  activeTransfer._uiBackend = currentBackend;
   wireTransferToSendUI(activeTransfer);
   wirePeerInfoListener(activeTransfer);
 }
