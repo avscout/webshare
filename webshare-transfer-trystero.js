@@ -19,7 +19,17 @@
   'use strict';
 
   const TRYSTERO_APP_ID = 'webshare-tudelft-v1';
-  const TRYSTERO_CDN    = 'https://esm.sh/trystero/nostr';
+  // Pin to a stable version; the /nostr subpath is the Nostr strategy.
+  const TRYSTERO_CDN    = 'https://esm.sh/trystero@0.21.8/nostr';
+
+  // Public Nostr relays used for signaling. Explicit list bypasses Trystero's
+  // internal appId-based relay selection (which changed in newer versions).
+  const NOSTR_RELAY_URLS = [
+    'wss://relay.damus.io',
+    'wss://nos.lol',
+    'wss://relay.snort.social',
+    'wss://nostr.wine',
+  ];
 
   // How long to wait after a peer leaves before declaring a fatal disconnect.
   // Trystero's Nostr relay keep-alives will bring the peer back if the
@@ -174,14 +184,29 @@
       }
       this._log('ok', 'Trystero loaded — connecting to Nostr relays…');
 
-      this._room = joinRoom({ appId: TRYSTERO_APP_ID }, roomCode);
+      this._room = joinRoom({
+        appId    : TRYSTERO_APP_ID,
+        relayUrls: NOSTR_RELAY_URLS,
+      }, roomCode);
 
       // Each makeAction returns [senderFn, receiverHandlerRegistrar].
-      const [sendPayload, onPayload]     = this._room.makeAction('payload');
-      const [sendAck,     onAck]         = this._room.makeAction('ack');
-      const [sendPeerInfo, onPeerInfo]   = this._room.makeAction('peerinfo');
-      const [sendNote,    onNote]        = this._room.makeAction('note');
-      const [sendLamp,    onLamp]        = this._room.makeAction('lamp');
+      // Guard against API shape changes in future Trystero versions.
+      const _makeAction = (name) => {
+        const result = this._room.makeAction(name);
+        if (!Array.isArray(result)) {
+          throw new Error(
+            `Trystero makeAction('${name}') returned ${typeof result} — ` +
+            'expected [sender, receiver]. Check Trystero version compatibility.'
+          );
+        }
+        return result;
+      };
+
+      const [sendPayload, onPayload]   = _makeAction('payload');
+      const [sendAck,     onAck]       = _makeAction('ack');
+      const [sendPeerInfo, onPeerInfo] = _makeAction('peerinfo');
+      const [sendNote,    onNote]      = _makeAction('note');
+      const [sendLamp,    onLamp]      = _makeAction('lamp');
 
       this._sendPayloadAction  = sendPayload;
       this._sendAckAction      = sendAck;
