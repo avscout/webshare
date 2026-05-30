@@ -1730,7 +1730,7 @@
 
       <div class="ob-disc-section">
         <div class="ob-disc-heading">Peer-to-peer</div>
-        <p>Devices connect directly. With "PeerJS" mode, a public signaling server (peerjs.com) helps the two devices find each other, but your data never passes through it. With "Raw WebRTC" mode, no server is involved at all.</p>
+        <p>Devices connect directly — your data never passes through an intermediary server. The default mode uses a free PeerJS signaling server just to help the two devices find each other; once connected, data flows directly. Your data is encrypted end-to-end by WebRTC regardless of which transport is used.</p>
       </div>
 
       <div class="ob-disc-section">
@@ -1807,6 +1807,7 @@
         <div class="toggle-group" id="backend-group">
           <button class="toggle-btn active" data-backend="peerjs">PeerJS<small>cross-network</small></button>
           <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
+          <button class="toggle-btn" data-backend="trystero">Trystero / Nostr<small>reconnect-proof</small></button>
         </div>
 
         <div class="net-banner hidden" id="net-banner">
@@ -2044,12 +2045,21 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '4';
-  const libs = [
+  const LOCAL_VERSION = '7';
+  // Third-party libraries — no ordering constraint between them.
+  const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
     { cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' },
     { cdn: 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',        local: 'peerjs.min.js' },
-    { local: 'webshare-transfer.js' }
+  ];
+  // Our transfer stack — must load in strict order:
+  //   1. core   (defines CoreTransfer, shared protocol)
+  //   2. backends (extend CoreTransfer, can load in parallel once core is ready)
+  const coreLib = { local: 'webshare-transfer-core.js' };
+  const backendLibs = [
+    { local: 'webshare-transfer-peerjs.js' },
+    { local: 'webshare-transfer-raw.js' },
+    { local: 'webshare-transfer-trystero.js' },
   ];
   function withVersion(url) { return url + (url.includes('?') ? '&' : '?') + 'v=' + LOCAL_VERSION; }
   function loadOne(lib) {
@@ -2063,7 +2073,14 @@
       else tryLoad(withVersion(lib.local), () => resolve(false));
     });
   }
-  window.__libsReady = Promise.all(libs.map(loadOne)).then(r => r.every(Boolean));
+  // Third-party libs in parallel → core → backends in parallel.
+  // This guarantees CoreTransfer is defined before any backend file executes.
+  window.__libsReady = Promise.all(thirdPartyLibs.map(loadOne))
+    .then(() => loadOne(coreLib))
+    .then(coreOk => coreOk
+      ? Promise.all(backendLibs.map(loadOne)).then(results => results.every(Boolean))
+      : false
+    );
 })();
 </script>
 
@@ -3052,8 +3069,9 @@ class QRScanner {
 
 const FLOWS = {
   // [mode][backend] -> array of screen IDs (excluding 'start' which is always 0)
-  'receive-peerjs': ['start', 'show-qr', 'transfer'],
-  'receive-raw':    ['start', 'show-qr', 'scan-qr', 'transfer'],
+  'receive-peerjs':    ['start', 'show-qr', 'transfer'],
+  'receive-raw':       ['start', 'show-qr', 'scan-qr', 'transfer'],
+  'receive-trystero':  ['start', 'show-qr', 'transfer'],
   // Send flows: pair FIRST, then pick what to send. Two reasons:
   //   1. The connection is the commitment to a recipient; picking is the
   //      payload choice. Pair → pick reads more naturally — "I'm sending
@@ -3061,8 +3079,9 @@ const FLOWS = {
   //   2. Enables multi-send: after a successful send, "Send another" can
   //      return to the pick screen without re-pairing. The QR step only
   //      happens once per pairing.
-  'send-peerjs':    ['start', 'scan-qr', 'pick', 'transfer'],
-  'send-raw':       ['start', 'scan-qr', 'show-qr', 'pick', 'transfer']
+  'send-peerjs':       ['start', 'scan-qr', 'pick', 'transfer'],
+  'send-raw':          ['start', 'scan-qr', 'show-qr', 'pick', 'transfer'],
+  'send-trystero':     ['start', 'scan-qr', 'pick', 'transfer'],
 };
 
 let currentBackend = 'peerjs';
@@ -3344,6 +3363,11 @@ async function setupShowQRScreen() {
     // Start the transfer if not already
     await ensureReceiveTransfer();
     // The transfer's 'show-qr' event will fill in the QR
+  } else if (currentMode === 'receive' && currentBackend === 'trystero') {
+    $('show-qr-title').textContent = 'Share room code with sender';
+    $('show-qr-subtitle').textContent = 'On the sending device, scan this QR or type the code below.';
+    await ensureReceiveTransfer();
+    // TrysteroTransfer emits show-qr with kind:'peerid' — same handler as PeerJS
   } else if (currentMode === 'receive' && currentBackend === 'raw') {
     $('show-qr-title').textContent = 'Scan this with the sender';
     $('show-qr-subtitle').textContent = 'On the sending device, point its camera at this animated QR.';
@@ -3361,15 +3385,25 @@ async function setupShowQRScreen() {
 // Screen: SCAN QR
 // =====================================================================
 async function setupScanQRScreen() {
-  const isPeerJSSender = currentMode === 'send' && currentBackend === 'peerjs';
-  const isRawSender    = currentMode === 'send' && currentBackend === 'raw';
-  const isRawReceiver  = currentMode === 'receive' && currentBackend === 'raw';
+  const isPeerJSSender  = currentMode === 'send' && currentBackend === 'peerjs';
+  const isTrysteroSender = currentMode === 'send' && currentBackend === 'trystero';
+  const isRawSender     = currentMode === 'send' && currentBackend === 'raw';
+  const isRawReceiver   = currentMode === 'receive' && currentBackend === 'raw';
 
   if (isPeerJSSender) {
     $('scan-qr-title').textContent = 'Scan the receiver';
     $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s QR, or type the peer ID below.';
     $('scan-or').classList.remove('hidden');
     $('scan-manual-label').classList.remove('hidden');
+    $('scan-manual-label').querySelector('span').textContent = 'Enter peer ID manually';
+    $('scan-manual-input').placeholder = 'e.g. idb-tomato-rabbit-42';
+  } else if (isTrysteroSender) {
+    $('scan-qr-title').textContent = 'Scan the room code';
+    $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s QR, or type the room code below.';
+    $('scan-or').classList.remove('hidden');
+    $('scan-manual-label').classList.remove('hidden');
+    $('scan-manual-label').querySelector('span').textContent = 'Enter room code manually';
+    $('scan-manual-input').placeholder = 'e.g. ruby-maple-42';
   } else if (isRawSender) {
     $('scan-qr-title').textContent = 'Scan the offer QR';
     $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s animated QR.';
@@ -3395,7 +3429,7 @@ async function setupScanQRScreen() {
     $('scan-helper').textContent = 'Scanning…';
   } catch (err) {
     log('Camera error: ' + err.message, 'err');
-    $('scan-helper').textContent = 'Camera unavailable. ' + (isPeerJSSender ? 'Use manual entry below.' : '');
+    $('scan-helper').textContent = 'Camera unavailable. ' + (isPeerJSSender || isTrysteroSender ? 'Use manual entry below.' : '');
   }
 }
 
@@ -3417,9 +3451,13 @@ async function setupScanQRScreen() {
 // pathname so it works whether the app is hosted at the root or in a
 // subdirectory. Query string and hash on the current URL are dropped —
 // we want a clean entry point.
-function buildJoinURL(peerId) {
+function buildJoinURL(peerId, backend) {
   const base = window.location.origin + window.location.pathname;
-  return `${base}?join=${encodeURIComponent(peerId)}`;
+  let url = `${base}?join=${encodeURIComponent(peerId)}`;
+  // Encode non-PeerJS backends so autoJoinIfPending can pick the right one
+  // when the QR is scanned from a native camera app.
+  if (backend && backend !== 'peerjs') url += `&backend=${encodeURIComponent(backend)}`;
+  return url;
 }
 
 // Given scanned text (could be either a URL with ?join=... or a bare
@@ -3441,9 +3479,10 @@ function extractPeerIdFromScan(text) {
 
 async function onScanResult(data) {
   log(`Scanned: ${data.slice(0, 40)}${data.length > 40 ? '…' : ''}`, 'info');
-  const isPeerJSSender = currentMode === 'send' && currentBackend === 'peerjs';
-  const isRawSender    = currentMode === 'send' && currentBackend === 'raw';
-  const isRawReceiver  = currentMode === 'receive' && currentBackend === 'raw';
+  const isPeerJSSender   = currentMode === 'send' && currentBackend === 'peerjs';
+  const isTrysteroSender = currentMode === 'send' && currentBackend === 'trystero';
+  const isRawSender      = currentMode === 'send' && currentBackend === 'raw';
+  const isRawReceiver    = currentMode === 'receive' && currentBackend === 'raw';
 
   if (isPeerJSSender) {
     // 'data' could be either a bare peer ID (legacy QR or manual entry)
@@ -3463,6 +3502,22 @@ async function onScanResult(data) {
     } catch (err) {
       log('Connect failed: ' + err.message, 'err');
       // Go to transfer screen to show the error — same pattern as before
+      const transferIdx = activeFlow().indexOf('transfer');
+      if (transferIdx !== -1) goToStep(transferIdx, 'forward');
+      $('transfer-title').textContent = 'Something went wrong';
+      setTransferStatus('Connection failed: ' + err.message, 'err');
+      showProgressRestartButton('Disconnect');
+    }
+  } else if (isTrysteroSender) {
+    // 'data' is the room code (possibly wrapped in a ?join= URL with &backend=trystero)
+    const roomCode = extractPeerIdFromScan(data);
+    if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+    try {
+      await activeTransfer.connect(roomCode);
+      const pickIdx = activeFlow().indexOf('pick');
+      if (pickIdx !== -1) goToStep(pickIdx, 'forward');
+    } catch (err) {
+      log('Trystero connect failed: ' + err.message, 'err');
       const transferIdx = activeFlow().indexOf('transfer');
       if (transferIdx !== -1) goToStep(transferIdx, 'forward');
       $('transfer-title').textContent = 'Something went wrong';
@@ -3761,10 +3816,11 @@ async function ensureReceiveTransfer() {
   }
   if (activeTransfer) return;
   remotePeerInfo = null;
-  activeTransfer = new SessionTransfer({
-    backend: currentBackend,
-    peerInfo: buildLocalPeerInfo(),
-  });
+  const opts = { peerInfo: buildLocalPeerInfo() };
+  if (currentBackend === 'peerjs')     activeTransfer = new PeerJSTransfer(opts);
+  else if (currentBackend === 'raw')   activeTransfer = new RawTransfer(opts);
+  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer(opts);
+  else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'receive';
   activeTransfer._uiBackend = currentBackend;
   wireTransferToReceiveUI(activeTransfer);
@@ -3779,10 +3835,11 @@ async function ensureSendTransfer() {
   }
   if (activeTransfer) return;
   remotePeerInfo = null;
-  activeTransfer = new SessionTransfer({
-    backend: currentBackend,
-    peerInfo: buildLocalPeerInfo(),
-  });
+  const opts = { peerInfo: buildLocalPeerInfo() };
+  if (currentBackend === 'peerjs')        activeTransfer = new PeerJSTransfer(opts);
+  else if (currentBackend === 'raw')      activeTransfer = new RawTransfer(opts);
+  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer(opts);
+  else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'send';
   activeTransfer._uiBackend = currentBackend;
   wireTransferToSendUI(activeTransfer);
@@ -4101,12 +4158,12 @@ function wireTransferToReceiveUI(t) {
     if (kind === 'peerid') {
       $('show-qr-peerid').textContent = text;
       $('show-qr-peerid').classList.remove('hidden');
-      // QR encodes the URL form (?join={peerId}), not the bare ID. This
-      // lets a user scan the QR with their phone's native camera app —
-      // they get a tappable link that opens the app already paired to
-      // this peer. Scanning from within the app also works: the
-      // onScanResult handler strips the URL wrapping back to a peer ID.
-      renderQR($('show-qr-frame'), buildJoinURL(text));
+      // QR encodes the URL form (?join={id}&backend=…). This lets a user
+      // scan with their native camera app — they get a tappable link that
+      // opens the app already knowing both the room/peer ID and the backend.
+      // onScanResult / autoJoinIfPending strip the URL wrapping back.
+      const joinUrl = buildJoinURL(text, currentBackend !== 'peerjs' ? currentBackend : null);
+      renderQR($('show-qr-frame'), joinUrl);
       // The "or type the ID" hint is a dev-mode affordance — in user mode
       // we don't show the ID so this hint would be misleading.
       $('show-qr-info').textContent = DEV_MODE ? 'Or type the ID into the other device' : '';
@@ -6167,7 +6224,7 @@ window.addEventListener('load', async () => {
     log('Warning: WebRTC and camera require HTTPS.', 'err');
   }
   const ok = await (window.__libsReady || Promise.resolve(false));
-  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof Peer === 'undefined' || typeof SessionTransfer === 'undefined') {
+  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof Peer === 'undefined' || typeof PeerJSTransfer === 'undefined') {
     log('Some libraries failed to load.', 'err');
   } else {
     log('Ready.', 'ok');
@@ -6218,15 +6275,23 @@ async function autoJoinIfPending() {
   // Past the early bails — we're committing to either auto-pairing or
   // showing an error state. Either way the main app needs to be visible.
   revealApp();
-  if (typeof SessionTransfer === 'undefined') {
+  if (typeof PeerJSTransfer === 'undefined') {
     log('Cannot auto-join: library not loaded.', 'err');
     return;
   }
   log(`Auto-joining peer "${PENDING_JOIN_PEER_ID}"…`, 'info');
-  // Set up sender mode + peerjs backend so the rest of the app behaves
-  // as if the user had walked through Send → scan-qr manually.
+  // Set up sender mode, deriving the backend from the URL param if present.
+  // QR codes generated by non-PeerJS backends include &backend=… so native
+  // camera scans route to the right transport.
   currentMode = 'send';
-  currentBackend = 'peerjs';
+  currentBackend = (function () {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const b = params.get('backend');
+      if (b === 'trystero' || b === 'raw') return b;
+    } catch {}
+    return 'peerjs';
+  })();
   onBackendOrModeChanged();
   // Identity should already exist (onboarding completed). Defensive
   // check — if it somehow doesn't, bail; the user can still tap Send
