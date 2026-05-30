@@ -329,6 +329,64 @@
   .or-div { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--dim); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; }
   .or-div::before, .or-div::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
+  /* Live note panel — used on the sender's pick screen and the receiver's
+     transfer screen. Two stacked sections: your own input + a live view of
+     what the peer is currently typing. Not a chat — just the latest text. */
+  .note-panel { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .note-panel .demo-eyebrow {
+    font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--dim); font-weight: 700; margin-bottom: 12px;
+  }
+  .note-panel .note-section + .note-section { margin-top: 12px; }
+  .note-panel .note-eyebrow {
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 6px; font-weight: 700;
+  }
+  /* Override the global textarea defaults (mono, 200px min-height) for
+     this small inline input — notes are short prose, not code. */
+  .note-panel textarea.note-input {
+    font-family: var(--sans); font-size: 14px;
+    min-height: 0; height: auto; resize: none;
+    padding: 10px 12px;
+  }
+  .note-panel .note-peer-text {
+    min-height: 38px; padding: 10px 12px;
+    background: var(--bg-subtle); border: 1px solid var(--line-soft);
+    color: var(--ink-soft); font-size: 14px;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .note-panel .note-peer-text.is-empty { color: var(--dim); font-style: italic; }
+
+  /* Shared lamp toggle — single boolean both peers can flip. Sits at the
+     top of the note panel as the second "live presence" signal. Tap (or
+     Enter/Space) anywhere on the row to toggle; the bulb glows yellow
+     when on. State syncs over the data channel as a 'lamp' message. */
+  .lamp-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; margin-bottom: 14px;
+    background: var(--bg-subtle); border: 1px solid var(--line-soft);
+    cursor: pointer; user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .lamp-row:hover { background: var(--line-soft); }
+  .lamp-row:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 166, 214, 0.15); }
+  .lamp-row:active .lamp-bulb { transform: scale(0.95); }
+  .lamp-bulb {
+    width: 28px; height: 28px; border-radius: 50%; flex: 0 0 28px;
+    background: var(--line);
+    transition: background 0.2s ease, box-shadow 0.25s ease, transform 0.1s;
+  }
+  .lamp-row.is-on .lamp-bulb {
+    background: #FFD23F;
+    box-shadow: 0 0 0 4px rgba(255, 210, 63, 0.25), 0 0 18px rgba(255, 210, 63, 0.55);
+  }
+  .lamp-label { display: flex; flex-direction: column; gap: 2px; }
+  .lamp-title {
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dim); font-weight: 700;
+  }
+  .lamp-state { font-size: 14px; color: var(--ink-soft); font-weight: 600; }
+
   /* Session list */
   .session-list {
     border: 1px solid var(--line); margin-bottom: 14px;
@@ -1789,6 +1847,29 @@
         <button class="primary" id="pick-new-btn">New report</button>
       </div>
       <div class="session-list" id="pick-session-list"></div>
+
+      <!-- Live note panel — paired with the peer. Hidden until the channel
+           is open. The .note-input is what THIS user is typing; the
+           .note-peer-text shows what the PEER is typing (constantly
+           overwritten, not appended). -->
+      <div class="note-panel hidden" id="pick-note-panel">
+        <div class="demo-eyebrow">⚙ Demo features</div>
+        <div class="lamp-row" data-lamp-toggle role="button" tabindex="0" aria-pressed="false">
+          <div class="lamp-bulb" data-lamp-bulb aria-hidden="true"></div>
+          <div class="lamp-label">
+            <div class="lamp-title">Shared light</div>
+            <div class="lamp-state" data-lamp-state>Off — tap to turn on</div>
+          </div>
+        </div>
+        <div class="note-section">
+          <div class="note-eyebrow">Note to peer</div>
+          <textarea class="note-input" data-note-input rows="2" placeholder="Type a quick note…" autocomplete="off"></textarea>
+        </div>
+        <div class="note-section">
+          <div class="note-eyebrow"><span data-peer-label>Peer</span> is writing</div>
+          <div class="note-peer-text is-empty" data-note-peer>Nothing yet…</div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1861,6 +1942,29 @@
               <span class="mydev-sessions-label" id="transfer-sessions-label">reports on this device</span>
             </div>
             <button class="mydev-browse-btn" id="transfer-browse-btn">Browse →</button>
+          </div>
+        </div>
+
+        <!-- Live note panel — visible on the receiver's transfer screen
+             while connected. Mirror of the one on the sender's pick screen,
+             so both sides have a place to exchange a quick live-updating
+             note. Hidden by default; shown when receiver is connected. -->
+        <div class="note-panel hidden" id="transfer-note-panel">
+          <div class="demo-eyebrow">⚙ Demo features</div>
+          <div class="lamp-row" data-lamp-toggle role="button" tabindex="0" aria-pressed="false">
+            <div class="lamp-bulb" data-lamp-bulb aria-hidden="true"></div>
+            <div class="lamp-label">
+              <div class="lamp-title">Shared light</div>
+              <div class="lamp-state" data-lamp-state>Off — tap to turn on</div>
+            </div>
+          </div>
+          <div class="note-section">
+            <div class="note-eyebrow">Note to peer</div>
+            <textarea class="note-input" data-note-input rows="2" placeholder="Type a quick note…" autocomplete="off"></textarea>
+          </div>
+          <div class="note-section">
+            <div class="note-eyebrow"><span data-peer-label>Peer</span> is writing</div>
+            <div class="note-peer-text is-empty" data-note-peer>Nothing yet…</div>
           </div>
         </div>
 
@@ -3125,8 +3229,9 @@ function onLeaveScreen(screenId) {
 async function onEnterScreen(screenId) {
   log(`→ ${screenId}`, 'info');
   if (screenId === 'start') {
-    // Returning to start resets the transfer
-    if (activeTransfer) { try { activeTransfer.close(); } catch {} activeTransfer = null; }
+    // Returning to start resets the transfer (and the live note panels,
+    // via disposeActiveTransfer → resetNotePanels).
+    disposeActiveTransfer();
     selectedSessionId = null;
     // Tear down the connection bar — there is no active link anymore.
     // This also handles the case where the user navigated back from
@@ -3143,6 +3248,10 @@ async function onEnterScreen(screenId) {
   } else if (screenId === 'transfer') {
     setupTransferScreen();
   }
+  // Re-evaluate which note panel (if any) should be visible. Done after
+  // each screen's own setup so the panel toggles together with the rest
+  // of the screen.
+  updateNotePanelVisibility();
 }
 
 // =====================================================================
@@ -3633,6 +3742,11 @@ function disposeActiveTransfer() {
   try { activeTransfer.close(); } catch {}
   activeTransfer = null;
   remotePeerInfo = null;
+  // The note panels live in the DOM across screen changes, but their state
+  // belongs to a single pairing. Wipe on dispose so the next pairing
+  // starts with empty fields. Same for the shared lamp.
+  resetNotePanels();
+  resetLampState();
 }
 
 async function ensureReceiveTransfer() {
@@ -3763,6 +3877,10 @@ function wirePeerInfoListener(t) {
     }
     // Refresh the avatar + nickname now that peer identity is known.
     renderConnectionBarPeer();
+    // Same for the live note panel's peer label — done here so the label
+    // updates the moment peer-info arrives, regardless of which panel is
+    // currently visible.
+    updateNotePanelPeerLabel();
   });
   // 'connected' fires when the data channel opens. Show the bar in the
   // connected state. Peer-info usually arrives ms later and updates the
@@ -3778,6 +3896,148 @@ function wirePeerInfoListener(t) {
     setConnectionBarStatus('disconnected');
     handleRemoteDisconnect();
   });
+  // Live note from the peer: just render the latest text. Not a chat —
+  // each message replaces what was there. Listener is shared so it works
+  // for whichever role we're in (sender sees receiver's note on pick
+  // screen; receiver sees sender's note on transfer screen).
+  t.on('note', ({ text }) => {
+    setPeerNoteText(text);
+  });
+  // Shared lamp: just adopt the peer's state. Don't echo back (would
+  // ping-pong forever). { send: false } skips the outbound send.
+  t.on('lamp', ({ on }) => {
+    setLampState(on, { send: false });
+  });
+}
+
+// =====================================================================
+// Live note panels — sender's pick screen and receiver's transfer screen
+// Each side has its own input (what they're typing) and a read-only view
+// of what the peer is typing. Two panels exist in the DOM because they
+// live in different screen sections, but they share state: typing in one
+// is mirrored into the other so the value survives a screen change (e.g.
+// sender's "Send another" returning to pick).
+// =====================================================================
+const NOTE_SEND_DEBOUNCE_MS = 80;
+let _noteSendTimer = null;
+let _lastSentNoteText = null;
+
+function _allNoteInputs() { return document.querySelectorAll('[data-note-input]'); }
+function _allNotePeerSlots() { return document.querySelectorAll('[data-note-peer]'); }
+function _allNotePeerLabels() { return document.querySelectorAll('[data-peer-label]'); }
+
+function setPeerNoteText(text) {
+  const s = text == null ? '' : String(text);
+  const trimmed = s.trim();
+  for (const slot of _allNotePeerSlots()) {
+    if (trimmed) {
+      slot.textContent = s;
+      slot.classList.remove('is-empty');
+    } else {
+      slot.textContent = 'Nothing yet…';
+      slot.classList.add('is-empty');
+    }
+  }
+}
+
+function updateNotePanelPeerLabel() {
+  const name = (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname : 'Peer';
+  for (const el of _allNotePeerLabels()) el.textContent = name;
+}
+
+function resetNotePanels() {
+  if (_noteSendTimer) { clearTimeout(_noteSendTimer); _noteSendTimer = null; }
+  _lastSentNoteText = null;
+  for (const input of _allNoteInputs()) input.value = '';
+  setPeerNoteText('');
+}
+
+// Show the note panel on the right screen for the right role. Pick screen
+// belongs to the sender; transfer screen belongs to the receiver. Hidden
+// in all other cases.
+function updateNotePanelVisibility() {
+  const screen = currentScreenId();
+  const pickPanel = $('pick-note-panel');
+  const transferPanel = $('transfer-note-panel');
+  // Pick screen is sender-only, always post-pairing.
+  if (pickPanel) pickPanel.classList.toggle('hidden', screen !== 'pick');
+  // Transfer screen: only show on the receiver's side. Sender's transfer
+  // screen is the "sending / sent" flow with its own actions — adding a
+  // note panel there would crowd a short-lived screen.
+  if (transferPanel) {
+    const onReceiverTransfer = (screen === 'transfer' && currentMode === 'receive');
+    transferPanel.classList.toggle('hidden', !onReceiverTransfer);
+  }
+  // When the panel becomes visible, refresh the peer label in case
+  // peer-info arrived while the panel was hidden.
+  updateNotePanelPeerLabel();
+}
+
+function setupNotePanels() {
+  // Wire every note input. Both panels share the same handler — typing in
+  // one mirrors into the other so the user's draft survives screen
+  // navigation within a connection session. A short debounce coalesces
+  // bursts of keystrokes into one message over the wire.
+  for (const input of _allNoteInputs()) {
+    input.addEventListener('input', () => {
+      const text = input.value;
+      // Mirror to the other input(s) so state is consistent across panels.
+      for (const other of _allNoteInputs()) {
+        if (other !== input && other.value !== text) other.value = text;
+      }
+      if (_noteSendTimer) clearTimeout(_noteSendTimer);
+      _noteSendTimer = setTimeout(() => {
+        _noteSendTimer = null;
+        if (!activeTransfer || typeof activeTransfer.sendNote !== 'function') return;
+        if (text === _lastSentNoteText) return;  // nothing changed since last send
+        _lastSentNoteText = text;
+        try { activeTransfer.sendNote(text); } catch (e) { log('sendNote failed: ' + e.message, 'err'); }
+      }, NOTE_SEND_DEBOUNCE_MS);
+    });
+  }
+}
+
+// =====================================================================
+// Shared lamp — one boolean both peers can toggle. Last-write-wins over
+// the (reliable, ordered) data channel. Two .lamp-row elements live in
+// the DOM (one per panel); state and rendering are unified.
+// =====================================================================
+let _lampState = false;
+
+function _allLampRows() { return document.querySelectorAll('[data-lamp-toggle]'); }
+
+function setLampState(on, opts = {}) {
+  const next = !!on;
+  const changed = next !== _lampState;
+  _lampState = next;
+  for (const row of _allLampRows()) {
+    row.classList.toggle('is-on', _lampState);
+    row.setAttribute('aria-pressed', _lampState ? 'true' : 'false');
+    const stateEl = row.querySelector('[data-lamp-state]');
+    if (stateEl) stateEl.textContent = _lampState ? 'On — tap to turn off' : 'Off — tap to turn on';
+  }
+  // Outbound only on a local toggle (opts.send: true). Peer-driven updates
+  // call with { send: false } so we don't ping-pong.
+  if (opts.send && changed && activeTransfer && typeof activeTransfer.sendLamp === 'function') {
+    try { activeTransfer.sendLamp(_lampState); } catch (e) { log('sendLamp failed: ' + e.message, 'err'); }
+  }
+}
+
+function resetLampState() {
+  // Quiet reset — no outbound send (channel is going away anyway).
+  setLampState(false, { send: false });
+}
+
+function setupLampToggles() {
+  for (const row of _allLampRows()) {
+    row.addEventListener('click', () => setLampState(!_lampState, { send: true }));
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setLampState(!_lampState, { send: true });
+      }
+    });
+  }
 }
 
 // The peer disconnected on us. Route to start the same way the user's
@@ -5847,6 +6107,11 @@ window.addEventListener('load', async () => {
   }
   try { await refreshSessionsCount(); } catch (e) { log('Session count failed: ' + e.message, 'err'); }
   try { await loadIdentity(); } catch (e) { log('Identity load failed: ' + e.message, 'err'); }
+  // Wire the live-note panel inputs once (event listeners survive screen
+  // changes). The panels themselves are toggled visible/hidden as the
+  // user moves between screens.
+  setupNotePanels();
+  setupLampToggles();
   // Always set the nav bar to its correct state for the start screen,
   // regardless of whether libs or IDB succeeded.
   updateNavBar();

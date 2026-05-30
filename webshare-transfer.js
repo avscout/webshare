@@ -347,6 +347,16 @@
             this._handlePeerInfo(msg.info);
             return;
           }
+          if (msg && msg.type === 'note') {
+            // Live "what the peer is writing" — ephemeral, not chat history.
+            // Just emit the latest text; the UI replaces whatever it had.
+            this.emit('note', { text: String(msg.text == null ? '' : msg.text) });
+            return;
+          }
+          if (msg && msg.type === 'lamp') {
+            this.emit('lamp', { on: !!msg.on });
+            return;
+          }
           if (msg && msg.type === 'bye') {
             // The sender is closing the channel intentionally. Fire the
             // disconnected event with a distinct reason so the app can
@@ -432,6 +442,14 @@
             this._handlePeerInfo(msg.info);
             return;
           }
+          if (msg.type === 'note') {
+            this.emit('note', { text: String(msg.text == null ? '' : msg.text) });
+            return;
+          }
+          if (msg && msg.type === 'lamp') {
+            this.emit('lamp', { on: !!msg.on });
+            return;
+          }
           if (msg.type === 'bye') {
             this._log('info', 'Peer said bye (intentional disconnect).');
             this.emit('disconnected', { reason: 'peer-bye' });
@@ -492,6 +510,14 @@
           this._handlePeerInfo(msg.info);
           return;
         }
+        if (msg && msg.type === 'note') {
+          this.emit('note', { text: String(msg.text == null ? '' : msg.text) });
+          return;
+        }
+        if (msg && msg.type === 'lamp') {
+          this.emit('lamp', { on: !!msg.on });
+          return;
+        }
         if (msg && msg.type === 'bye') {
           this._log('info', 'Peer said bye (intentional disconnect).');
           this.emit('disconnected', { reason: 'peer-bye' });
@@ -550,6 +576,41 @@
         } else {
           this._pendingSend = payload;
           this._log('info', 'Payload queued, waiting for raw channel to open…');
+        }
+      }
+    }
+
+    /**
+     * Send a short, live-updating "note" to the peer over the existing data
+     * channel. Best-effort: silently no-ops if the channel isn't open yet.
+     * Independent of the payload protocol — does not change transfer state.
+     * The peer receives this as a 'note' event with { text }.
+     */
+    sendNote(text) {
+      const msg = { type: 'note', text: String(text == null ? '' : text) };
+      if (this.backend === 'peerjs') {
+        if (!this._conn || this._conn.open === false) return;
+        try { this._conn.send(msg); } catch {}
+      } else {
+        if (this._channel && this._channel.readyState === 'open') {
+          try { this._channel.send(JSON.stringify(msg)); } catch {}
+        }
+      }
+    }
+
+    /**
+     * Send a shared lamp on/off state to the peer. Same delivery semantics
+     * as sendNote — best-effort, no impact on the transfer protocol. The
+     * peer receives this as a 'lamp' event with { on: boolean }.
+     */
+    sendLamp(on) {
+      const msg = { type: 'lamp', on: !!on };
+      if (this.backend === 'peerjs') {
+        if (!this._conn || this._conn.open === false) return;
+        try { this._conn.send(msg); } catch {}
+      } else {
+        if (this._channel && this._channel.readyState === 'open') {
+          try { this._channel.send(JSON.stringify(msg)); } catch {}
         }
       }
     }
@@ -647,6 +708,14 @@
           const msg = JSON.parse(e.data);
           if (msg.type === 'peer-info') {
             this._handlePeerInfo(msg.info);
+            return;
+          }
+          if (msg.type === 'note') {
+            this.emit('note', { text: String(msg.text == null ? '' : msg.text) });
+            return;
+          }
+          if (msg && msg.type === 'lamp') {
+            this.emit('lamp', { on: !!msg.on });
             return;
           }
           if (msg.type === 'bye') {
