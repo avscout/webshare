@@ -2040,12 +2040,18 @@
 <!-- Library loading -->
 <script>
 (function loadLibs() {
+  // Bump this when local scripts (qrcode.js, jsQR.js, peerjs_min.js,
+  // webshare-transfer.js) change and you need to defeat browser caching.
+  // Appended as ?v=… to the local URL only — CDN versions already carry
+  // their own version in the path.
+  const LOCAL_VERSION = '4';
   const libs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
     { cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' },
     { cdn: 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',        local: 'peerjs.min.js' },
     { local: 'webshare-transfer.js' }
   ];
+  function withVersion(url) { return url + (url.includes('?') ? '&' : '?') + 'v=' + LOCAL_VERSION; }
   function loadOne(lib) {
     return new Promise((resolve) => {
       const tryLoad = (src, onFail) => {
@@ -2053,8 +2059,8 @@
         s.src = src; s.onload = () => resolve(true); s.onerror = onFail;
         document.head.appendChild(s);
       };
-      if (lib.cdn) tryLoad(lib.cdn, () => tryLoad(lib.local, () => resolve(false)));
-      else tryLoad(lib.local, () => resolve(false));
+      if (lib.cdn) tryLoad(lib.cdn, () => tryLoad(withVersion(lib.local), () => resolve(false)));
+      else tryLoad(withVersion(lib.local), () => resolve(false));
     });
   }
   window.__libsReady = Promise.all(libs.map(loadOne)).then(r => r.every(Boolean));
@@ -3834,6 +3840,11 @@ function setConnectionBarStatus(stateKey) {
     case 'connected':
       status.textContent = 'connected';
       return;
+    case 'reconnecting':
+      // Same visual register as 'connecting' but distinct copy so the
+      // user knows we had a pairing and are trying to restore it.
+      status.textContent = 'reconnecting…';
+      return;
     case 'error':
       status.textContent = 'error';
       status.classList.add('err');
@@ -3895,6 +3906,37 @@ function wirePeerInfoListener(t) {
   t.on('disconnected', () => {
     setConnectionBarStatus('disconnected');
     handleRemoteDisconnect();
+  });
+  // 'reconnecting' fires when the library detects death but is going to
+  // try to bring the channel back. We DO NOT route to start here — the
+  // UI stays on whatever screen it was on (pick / transfer), so the
+  // user's note draft and lamp state remain on screen.
+  t.on('reconnecting', () => {
+    setConnectionBarStatus('reconnecting');
+  });
+  // 'reconnected' fires only after a successful reconnect (separate
+  // from the regular 'connected' so the UI knows this is a recovery).
+  // Push our current local state to the peer so both sides re-sync.
+  t.on('reconnected', () => {
+    log('Reconnected — pushing local state to peer.', 'ok');
+    setConnectionBarStatus('connected');
+    // Re-send the current note text (whatever's in the textarea) so the
+    // peer's "what they're writing" view catches up.
+    const input = document.querySelector('[data-note-input]');
+    const noteText = input ? input.value : '';
+    try { activeTransfer.sendNote(noteText); } catch {}
+    // Re-send the lamp state. Last-write-wins on the wire — if both
+    // sides toggled during the gap, one of the two states arrives last
+    // and wins. Acceptable for a single shared bool.
+    try { activeTransfer.sendLamp(_lampState); } catch {}
+  });
+  // Identity mismatch — someone tried to reconnect but their session
+  // token doesn't match. Surfaced as a separate event so we can log it
+  // distinctly. The library has already emitted (or will emit) the
+  // 'disconnected' event with reason 'identity-mismatch' which drives
+  // the rest of the cleanup.
+  t.on('identity-mismatch', () => {
+    log('Reconnect attempt rejected: peer identity did not match.', 'err');
   });
   // Live note from the peer: just render the latest text. Not a chat —
   // each message replaces what was there. Listener is shared so it works
@@ -6095,6 +6137,31 @@ $('sent-restart-btn').addEventListener('click', () => {
 // =====================================================================
 // Init
 // =====================================================================
+// =====================================================================
+// Visibility-based liveness check
+// =====================================================================
+// When a mobile browser tab is backgrounded for a while, the OS freezes
+// its JS — ICE keepalives stop, the channel dies on the OTHER side, but
+// the frozen side never sees a close event. On resume, _conn.open may
+// still falsely report true and the heartbeat is just starting to tick.
+// We do an immediate check on every return-to-foreground: if the
+// transfer's own isAlive() says no, route to start the same way we would
+// for any remote disconnect. Belt-and-braces with the heartbeat: this
+// gives immediate feedback when the user reopens the tab, instead of
+// waiting up to ~9s for the heartbeat to time out.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!activeTransfer || typeof activeTransfer.checkAndRecover !== 'function') return;
+  // checkAndRecover returns true if it's already alive (no-op) or if
+  // a recovery attempt was kicked off; we don't have to do anything in
+  // either case — the 'reconnecting' / 'connected' / 'disconnected'
+  // events drive the UI.
+  if (!activeTransfer.isAlive()) {
+    log('Returned to foreground with stale connection — attempting recovery.', 'info');
+    activeTransfer.checkAndRecover();
+  }
+});
+
 window.addEventListener('load', async () => {
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS.', 'err');

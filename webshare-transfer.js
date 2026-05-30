@@ -191,6 +191,27 @@
     ]
   };
 
+  // Application-level heartbeat. ICE has its own keepalives but those are
+  // invisible to JS and get throttled to nothing on mobile when a tab is
+  // backgrounded. Our own ping/pong gives the JS layer a way to notice
+  // when the channel has actually died and emit 'disconnected'.
+  //   INTERVAL: how often we send a ping (and check liveness)
+  //   DEAD_MS:  how long without a pong before we declare the peer gone.
+  // The ratio matters: DEAD_MS should comfortably exceed a couple of
+  // INTERVALs so a single dropped ping doesn't trigger a false positive.
+  const HEARTBEAT_INTERVAL_MS = 3000;
+  const HEARTBEAT_DEAD_MS = 9000;
+
+  // Auto-reconnect: when a previously-established channel dies (mobile
+  // freeze, network blip), try to bring it back rather than giving up
+  // immediately. The receiver re-registers its signaling peer and waits;
+  // the sender additionally re-issues peer.connect() to the same target.
+  // Only applies to PeerJS — raw mode would require a fresh QR handshake.
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  const RECONNECT_BACKOFF_MS = 2500;
+  const RECONNECT_CONN_TIMEOUT_MS = 5000;
+  const SIGNALING_REREGISTER_DELAY_MS = 500;
+
   class SessionTransfer extends Emitter {
     /**
      * @param {Object} opts
@@ -230,6 +251,15 @@
       this._remotePeerInfo = null;            // their info, received from remote
       this._peerInfoSent = false;             // flag: have we sent ours yet?
 
+      // Per-instance random session token, used to verify reconnects come
+      // from the SAME peer. If someone else got hold of our peer ID (e.g.
+      // via a copied QR) and tries to connect during a reconnect window,
+      // their peer-info will carry a different token and we reject. Not a
+      // cryptographic auth, just a "is this the same browser tab as
+      // before" check — enough for the threat model of a casual QR copy.
+      this._sessionToken = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      this._remoteSessionToken = null;        // peer's token, learned at first peer-info
+
       // Backend-specific state
       this._peer = null;          // PeerJS Peer
       this._conn = null;          // PeerJS DataConnection
@@ -247,6 +277,50 @@
       // This flag tells the 'disconnected' handler not to attempt a
       // reconnect, since the disconnection was deliberate.
       this._releasedSignalingPeer = false;
+
+      // ---- Heartbeat / liveness ----
+      // Mobile WebRTC quirk: when a tab is backgrounded, the OS freezes
+      // its JS. ICE keepalives stop, the channel dies on the OTHER side,
+      // but the frozen side never sees a 'close' event because no code
+      // ran. When it resumes, _conn.open may still falsely report true.
+      // The fix: a small application-level heartbeat that times out if
+      // the peer goes silent, surfaced via the existing 'disconnected'
+      // event so the rest of the app reacts identically to a clean
+      // close.
+      this._heartbeatTimer = null;       // interval handle while alive
+      this._lastPongAt = 0;              // ms; last time we heard from peer
+      this._heartbeatDead = false;       // latch to avoid multi-emit
+
+      // ---- Reconnect state ----
+      this._targetPeerId = null;         // sender: receiver's id, for re-issuing peer.connect()
+      this._reconnecting = false;        // are we currently in a reconnect loop?
+      this._reconnectAttempts = 0;
+      this._reconnectTimer = null;
+      // Set when close() is called locally so the close handler on the
+      // dying conn doesn't kick off a reconnect.
+      this._userInitiatedDisconnect = false;
+      // Set when an incoming connection during reconnect failed the
+      // identity check; the close handler uses this to surface the right
+      // reason instead of attempting another reconnect on that conn.
+      this._identityMismatch = false;
+
+      // Wire start/stop to the connection lifecycle. Listening on our own
+      // events means a single hook covers every code path that emits
+      // 'connected' (peerjs sender, peerjs receiver, raw both sides).
+      this.on('connected', () => {
+        this._startHeartbeat();
+        // If we got here via reconnect, clear the loop state and let any
+        // external observers know we're back. The 'reconnected' event is
+        // a convenience for consumers that want to push state back.
+        if (this._reconnecting) {
+          this._reconnecting = false;
+          this._reconnectAttempts = 0;
+          if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+          this._log('ok', 'Reconnect successful.');
+          this.emit('reconnected');
+        }
+      });
+      this.on('disconnected', () => this._stopHeartbeat());
     }
 
     // Disconnect the signaling WebSocket (PeerJS) WITHOUT closing the
@@ -276,9 +350,14 @@
     // the payload/ack envelope (`{type, ...}`) so both backends route it
     // through their existing message handling.
     _sendPeerInfo() {
+      // Always allow re-send on reconnect. The _peerInfoSent flag only
+      // matters for first-connect to avoid double-sends; on reconnect we
+      // explicitly clear it (see _resetForReconnect) so this method
+      // re-sends. Both sides include their session token so the peer can
+      // verify identity across reconnects.
       if (this._peerInfoSent) return;
       if (!this.peerInfo) return;  // nothing to send
-      const msg = { type: 'peer-info', info: this.peerInfo };
+      const msg = { type: 'peer-info', info: this.peerInfo, token: this._sessionToken };
       try {
         if (this.backend === 'peerjs') {
           this._conn.send(msg);
@@ -297,10 +376,32 @@
     // Called from each backend's message handler when a peer-info message
     // arrives. Stores the remote info, emits the 'peer-info' event so the
     // consumer can react (e.g. render the device icons).
-    _handlePeerInfo(info) {
+    //
+    // On reconnect: if we already have a remote token from a previous
+    // connection and the incoming token doesn't match, this is NOT the
+    // same peer — reject the connection. Returns true if accepted, false
+    // if rejected (so callers can stop further processing).
+    _handlePeerInfo(info, token) {
+      if (this._remoteSessionToken && token && token !== this._remoteSessionToken) {
+        this._log('err', 'Identity mismatch on reconnect — rejecting connection.');
+        // Close the offending conn/channel. Don't emit our own
+        // 'disconnected' here: the close handler on the conn will do that
+        // (or the reconnect retry loop will keep going). We just need to
+        // not adopt this conn as a legit reconnect.
+        try {
+          if (this._conn) this._conn.close();
+          if (this._channel) this._channel.close();
+        } catch {}
+        // Mark this so the close handler knows the disconnect reason.
+        this._identityMismatch = true;
+        this.emit('identity-mismatch');
+        return false;
+      }
       this._remotePeerInfo = info || null;
+      if (token) this._remoteSessionToken = token;
       this._log('info', 'Received peer-info from remote.');
       this.emit('peer-info', this._remotePeerInfo);
+      return true;
     }
 
     // Public getter for consumers who want to query state directly
@@ -343,8 +444,11 @@
           this._releaseSignalingPeer();
         });
         conn.on('data', async (msg) => {
+          // Stale-conn guard: a successful reconnect replaced this._conn
+          // with a fresh one; ignore late messages on the old conn.
+          if (this._conn !== conn) return;
           if (msg && msg.type === 'peer-info') {
-            this._handlePeerInfo(msg.info);
+            this._handlePeerInfo(msg.info, msg.token);
             return;
           }
           if (msg && msg.type === 'note') {
@@ -357,6 +461,22 @@
             this.emit('lamp', { on: !!msg.on });
             return;
           }
+          if (msg && msg.type === 'ping') {
+            // Heartbeat ping from peer — echo a pong. No UI emit.
+            try {
+              if (this.backend === 'peerjs') {
+                if (this._conn && this._conn.open !== false) this._conn.send({ type: 'pong' });
+              } else if (this._channel && this._channel.readyState === 'open') {
+                this._channel.send(JSON.stringify({ type: 'pong' }));
+              }
+            } catch {}
+            return;
+          }
+          if (msg && msg.type === 'pong') {
+            // Heartbeat pong from peer — record liveness, no UI emit.
+            this._lastPongAt = Date.now();
+            return;
+          }
           if (msg && msg.type === 'bye') {
             // The sender is closing the channel intentionally. Fire the
             // disconnected event with a distinct reason so the app can
@@ -364,7 +484,7 @@
             // ate the channel." Both are treated the same in the app
             // for now, but the distinction is honest in the logs.
             this._log('info', 'Peer said bye (intentional disconnect).');
-            this.emit('disconnected', { reason: 'peer-bye' });
+            this._handleDeath('peer-bye');
             return;
           }
           if (msg && msg.type === 'payload') {
@@ -383,17 +503,26 @@
           }
         });
         conn.on('close', () => {
+          if (this._conn !== conn) {
+            this._log('info', 'Stale conn closed (ignored).');
+            return;
+          }
+          if (this._identityMismatch) {
+            this._identityMismatch = false;
+            this._handleDeath('identity-mismatch');
+            return;
+          }
           this._log('info', 'Sender disconnected.');
-          // Emit a public 'disconnected' event so the UI can update the
-          // connection bar. We DON'T call this._status('error') because
-          // the channel close after a successful transfer is normal —
-          // status stays at whatever it was. The disconnected event is
-          // purely about the LINK going away.
-          this.emit('disconnected', { reason: 'channel-closed' });
+          // Route through the central death handler — it decides whether
+          // to attempt reconnect or emit 'disconnected' as a terminal
+          // event. Receiver-side reconnect is passive: we just wait for
+          // the sender to come back.
+          this._handleDeath('channel-closed');
         });
         conn.on('error', (e) => {
+          if (this._conn !== conn) return;
           this._log('err', 'Conn error: ' + e.message);
-          this.emit('disconnected', { reason: 'channel-error', message: e.message });
+          this._handleDeath('channel-error');
         });
       });
       this._peer.on('error', (err) => {
@@ -439,7 +568,7 @@
         if (typeof e.data === 'string') {
           const msg = JSON.parse(e.data);
           if (msg.type === 'peer-info') {
-            this._handlePeerInfo(msg.info);
+            this._handlePeerInfo(msg.info, msg.token);
             return;
           }
           if (msg.type === 'note') {
@@ -448,6 +577,22 @@
           }
           if (msg && msg.type === 'lamp') {
             this.emit('lamp', { on: !!msg.on });
+            return;
+          }
+          if (msg && msg.type === 'ping') {
+            // Heartbeat ping from peer — echo a pong. No UI emit.
+            try {
+              if (this.backend === 'peerjs') {
+                if (this._conn && this._conn.open !== false) this._conn.send({ type: 'pong' });
+              } else if (this._channel && this._channel.readyState === 'open') {
+                this._channel.send(JSON.stringify({ type: 'pong' }));
+              }
+            } catch {}
+            return;
+          }
+          if (msg && msg.type === 'pong') {
+            // Heartbeat pong from peer — record liveness, no UI emit.
+            this._lastPongAt = Date.now();
             return;
           }
           if (msg.type === 'bye') {
@@ -490,6 +635,9 @@
       if (this.role) throw new Error('Already started.');
       this.role = 'sender';
       if (this.backend !== 'peerjs') throw new Error('connect() is only for PeerJS. For raw, feedScannedChunk() the offer.');
+      // Remember the target so we can re-issue peer.connect() if the
+      // channel later dies and we need to reconnect.
+      this._targetPeerId = targetPeerId;
       this._status('connecting');
       this._log('info', `Connecting to "${targetPeerId}"…`);
       const peerOptions = Object.assign({ debug: 1 }, this.peerServerConfig || {});
@@ -505,37 +653,7 @@
       // during that gap (the receiver fires its own peer-info immediately
       // on its open event), the message is dropped and we end up showing
       // the receiver as "unknown" in the UI.
-      this._conn.on('data', (msg) => {
-        if (msg && msg.type === 'peer-info') {
-          this._handlePeerInfo(msg.info);
-          return;
-        }
-        if (msg && msg.type === 'note') {
-          this.emit('note', { text: String(msg.text == null ? '' : msg.text) });
-          return;
-        }
-        if (msg && msg.type === 'lamp') {
-          this.emit('lamp', { on: !!msg.on });
-          return;
-        }
-        if (msg && msg.type === 'bye') {
-          this._log('info', 'Peer said bye (intentional disconnect).');
-          this.emit('disconnected', { reason: 'peer-bye' });
-          return;
-        }
-        if (msg && msg.type === 'ack') {
-          if (this.onAck) try { this.onAck(msg.response, msg.error); } catch (e) { console.error(e); }
-          this._status('done');
-        }
-      });
-      // Listen for channel close from the sender's side too. The receiver
-      // closing the conn (e.g. their tab went away) fires 'close' on our
-      // local _conn. Emit a public 'disconnected' event so the UI can
-      // react. Same logic as the receiver's connection handler.
-      this._conn.on('close', () => {
-        this._log('info', 'Receiver disconnected.');
-        this.emit('disconnected', { reason: 'channel-closed' });
-      });
+      this._wireSenderConn(this._conn);
       await new Promise((resolve, reject) => {
         this._conn.on('open', resolve);
         this._conn.on('error', reject);
@@ -613,6 +731,280 @@
           try { this._channel.send(JSON.stringify(msg)); } catch {}
         }
       }
+    }
+
+    // ----- Heartbeat / liveness -----
+    // Public: is the channel believed to be alive right now?
+    //  - PeerJS: needs _conn.open === true AND a recent pong.
+    //  - Raw:    needs _channel.readyState === 'open' AND a recent pong.
+    // The pong recency check is what catches the mobile-freeze case: the
+    // underlying flag may still claim 'open' after a frozen resume.
+    isAlive() {
+      const now = Date.now();
+      // Grace window for the case where we *just* connected but no pong
+      // has had time to round-trip yet. The first heartbeat tick happens
+      // 1s after connect; allow ~3x that before declaring stale.
+      const sinceLastPong = this._lastPongAt ? (now - this._lastPongAt) : 0;
+      const pongOk = !this._lastPongAt || sinceLastPong < HEARTBEAT_DEAD_MS;
+      if (this.backend === 'peerjs') {
+        if (!this._conn || this._conn.open === false) return false;
+        return pongOk;
+      } else {
+        if (!this._channel || this._channel.readyState !== 'open') return false;
+        return pongOk;
+      }
+    }
+
+    _startHeartbeat() {
+      // Idempotent — replace any existing timer.
+      this._stopHeartbeat();
+      // Reset state at the start of a fresh connection. The pong timestamp
+      // is seeded to now so the first tick (1s away) doesn't immediately
+      // declare us dead before any pong had a chance to arrive.
+      this._lastPongAt = Date.now();
+      this._heartbeatDead = false;
+      this._heartbeatTimer = setInterval(() => {
+        this._heartbeatTick();
+      }, HEARTBEAT_INTERVAL_MS);
+    }
+
+    _stopHeartbeat() {
+      if (this._heartbeatTimer) {
+        clearInterval(this._heartbeatTimer);
+        this._heartbeatTimer = null;
+      }
+    }
+
+    _heartbeatTick() {
+      const now = Date.now();
+      const sinceLastPong = now - this._lastPongAt;
+      if (sinceLastPong > HEARTBEAT_DEAD_MS) {
+        if (this._heartbeatDead) return;  // already emitted, wait for cleanup
+        this._heartbeatDead = true;
+        this._log('err', `Heartbeat timeout (${sinceLastPong}ms since last pong) — declaring dead.`);
+        // Tear down the underlying connection as a best-effort cleanup,
+        // then route to the central death handler. _handleDeath decides
+        // whether to reconnect or emit 'disconnected'.
+        try {
+          if (this._conn) this._conn.close();
+          if (this._channel) this._channel.close();
+        } catch {}
+        this._handleDeath('heartbeat-timeout');
+        return;
+      }
+      // Send the next ping. Best-effort: if send fails, the next tick will
+      // notice the silence and time out.
+      const msg = { type: 'ping' };
+      try {
+        if (this.backend === 'peerjs') {
+          if (this._conn && this._conn.open !== false) this._conn.send(msg);
+        } else {
+          if (this._channel && this._channel.readyState === 'open') {
+            this._channel.send(JSON.stringify(msg));
+          }
+        }
+      } catch {}
+    }
+
+    // -----------------------------------------------------------------
+    // Central death handler & reconnect machinery
+    // -----------------------------------------------------------------
+    // Every "connection is dead" code path funnels through here so the
+    // policy is in one place: try to reconnect when it makes sense, give
+    // up otherwise. Idempotent — repeated calls during a reconnect loop
+    // are harmless.
+    _handleDeath(reason) {
+      if (this._reconnecting) return;  // already trying
+      if (this._userInitiatedDisconnect) {
+        // We closed locally. No reconnect — just surface the close.
+        this.emit('disconnected', { reason });
+        return;
+      }
+      // Fatal reasons skip reconnect entirely.
+      if (reason === 'peer-bye' || reason === 'identity-mismatch') {
+        this.emit('disconnected', { reason });
+        return;
+      }
+      // Reconnect is PeerJS-only; raw needs a fresh QR handshake.
+      if (this.backend !== 'peerjs') {
+        this.emit('disconnected', { reason });
+        return;
+      }
+      // Sender needs to know who to reconnect to. (Set in connect().)
+      if (this.role === 'sender' && !this._targetPeerId) {
+        this.emit('disconnected', { reason });
+        return;
+      }
+      // Peer must still be alive enough to either reconnect signaling or
+      // accept a new conn.
+      if (!this._peer || this._peer.destroyed) {
+        this.emit('disconnected', { reason });
+        return;
+      }
+      this._beginReconnect(reason);
+    }
+
+    _beginReconnect(reason) {
+      this._reconnecting = true;
+      this._reconnectAttempts = 0;
+      this._stopHeartbeat();
+      // Clear the old conn — it's dead. The new conn will replace it.
+      this._conn = null;
+      // peer-info needs to be re-sent on the new conn.
+      this._peerInfoSent = false;
+      // We'll release signaling again after the new conn opens.
+      this._releasedSignalingPeer = false;
+      this._log('info', `Reconnecting (trigger: ${reason})…`);
+      this.emit('reconnecting', { reason });
+      this._attemptReconnect();
+    }
+
+    _attemptReconnect() {
+      if (!this._reconnecting) return;
+      this._reconnectAttempts++;
+      if (this._reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+        this._log('err', `Reconnect gave up after ${MAX_RECONNECT_ATTEMPTS} attempts.`);
+        this._reconnecting = false;
+        this.emit('disconnected', { reason: 'reconnect-failed' });
+        return;
+      }
+      this._log('info', `Reconnect attempt ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}…`);
+      // Make sure the signaling WebSocket is up. peer.disconnect() was
+      // called after the first connect, so we need peer.reconnect() to
+      // re-register our peer ID before any incoming/outgoing conn can
+      // be made.
+      if (this._peer && !this._peer.destroyed && this._peer.disconnected) {
+        try { this._peer.reconnect(); }
+        catch (e) { this._log('err', 'peer.reconnect threw: ' + e.message); }
+      }
+      // Brief pause to let signaling re-establish before issuing connect.
+      this._reconnectTimer = setTimeout(() => {
+        if (!this._reconnecting) return;
+        if (this.role === 'sender') {
+          this._attemptSenderReconnect();
+        } else {
+          // Receiver: nothing else to do — the peer.on('connection')
+          // handler set up in startReceiving will accept the new conn
+          // when the sender re-issues peer.connect(). If nothing arrives
+          // before our next tick, retry (which re-runs peer.reconnect()
+          // in case signaling fell over again).
+          this._reconnectTimer = setTimeout(() => this._attemptReconnect(), RECONNECT_BACKOFF_MS);
+        }
+      }, SIGNALING_REREGISTER_DELAY_MS);
+    }
+
+    _attemptSenderReconnect() {
+      if (!this._peer || this._peer.destroyed) {
+        this._reconnecting = false;
+        this.emit('disconnected', { reason: 'peer-destroyed' });
+        return;
+      }
+      if (this._peer.disconnected) {
+        // Signaling didn't come back yet — try again.
+        this._reconnectTimer = setTimeout(() => this._attemptReconnect(), RECONNECT_BACKOFF_MS);
+        return;
+      }
+      let settled = false;
+      let conn;
+      try {
+        conn = this._peer.connect(this._targetPeerId, { reliable: true });
+      } catch (e) {
+        this._log('err', 'peer.connect threw on reconnect: ' + e.message);
+        this._reconnectTimer = setTimeout(() => this._attemptReconnect(), RECONNECT_BACKOFF_MS);
+        return;
+      }
+      this._conn = conn;
+      this._wireSenderConn(conn);
+      const giveUpThisAttempt = () => {
+        if (settled) return;
+        settled = true;
+        try { conn.close(); } catch {}
+        this._reconnectTimer = setTimeout(() => this._attemptReconnect(), RECONNECT_BACKOFF_MS);
+      };
+      conn.on('open', () => {
+        if (settled) return;
+        settled = true;
+        this._log('ok', 'Reconnect channel open.');
+        this._status('connected');
+        this.emit('connected');
+        this._sendPeerInfo();
+        this._releaseSignalingPeer();
+      });
+      conn.on('error', (e) => {
+        this._log('err', 'Reconnect conn error: ' + (e && e.type ? e.type : 'unknown'));
+        giveUpThisAttempt();
+      });
+      setTimeout(giveUpThisAttempt, RECONNECT_CONN_TIMEOUT_MS);
+    }
+
+    // Public API: called by the UI when the tab regains focus. If the
+    // channel is silently dead (frozen-then-resumed case), kicks off
+    // reconnect. Returns true if a recovery flow was started, false if
+    // we're already alive (no-op) or in another state.
+    checkAndRecover() {
+      if (!this.role) return false;
+      if (this._reconnecting) return true;
+      if (this.isAlive()) return false;
+      this._handleDeath('visibility-detected-dead');
+      return true;
+    }
+
+    // Refresh the shared conn handler bindings for the sender. Extracted
+    // from connect() so the reconnect path can reuse the same wiring on
+    // a fresh DataConnection.
+    _wireSenderConn(conn) {
+      conn.on('data', (msg) => {
+        // If this conn was already replaced by a successful reconnect,
+        // any late-arriving message on the stale conn is ignored.
+        if (this._conn !== conn) return;
+        if (msg && msg.type === 'peer-info') {
+          this._handlePeerInfo(msg.info, msg.token);
+          return;
+        }
+        if (msg && msg.type === 'note') {
+          this.emit('note', { text: String(msg.text == null ? '' : msg.text) });
+          return;
+        }
+        if (msg && msg.type === 'lamp') {
+          this.emit('lamp', { on: !!msg.on });
+          return;
+        }
+        if (msg && msg.type === 'ping') {
+          try {
+            if (this._conn && this._conn.open !== false) this._conn.send({ type: 'pong' });
+          } catch {}
+          return;
+        }
+        if (msg && msg.type === 'pong') {
+          this._lastPongAt = Date.now();
+          return;
+        }
+        if (msg && msg.type === 'bye') {
+          this._log('info', 'Peer said bye (intentional disconnect).');
+          this._handleDeath('peer-bye');
+          return;
+        }
+        if (msg && msg.type === 'ack') {
+          if (this.onAck) try { this.onAck(msg.response, msg.error); } catch (e) { console.error(e); }
+          this._status('done');
+        }
+      });
+      conn.on('close', () => {
+        // Stale-conn guard: a successful reconnect replaced this._conn
+        // with a fresh one. The old conn's belated close should NOT
+        // re-trigger the death machinery.
+        if (this._conn !== conn) {
+          this._log('info', 'Stale conn closed (ignored).');
+          return;
+        }
+        if (this._identityMismatch) {
+          this._identityMismatch = false;
+          this._handleDeath('identity-mismatch');
+          return;
+        }
+        this._log('info', 'Channel closed.');
+        this._handleDeath('channel-closed');
+      });
     }
 
     async _rawSendNow(payload) {
@@ -707,7 +1099,7 @@
         if (typeof e.data === 'string') {
           const msg = JSON.parse(e.data);
           if (msg.type === 'peer-info') {
-            this._handlePeerInfo(msg.info);
+            this._handlePeerInfo(msg.info, msg.token);
             return;
           }
           if (msg.type === 'note') {
@@ -716,6 +1108,22 @@
           }
           if (msg && msg.type === 'lamp') {
             this.emit('lamp', { on: !!msg.on });
+            return;
+          }
+          if (msg && msg.type === 'ping') {
+            // Heartbeat ping from peer — echo a pong. No UI emit.
+            try {
+              if (this.backend === 'peerjs') {
+                if (this._conn && this._conn.open !== false) this._conn.send({ type: 'pong' });
+              } else if (this._channel && this._channel.readyState === 'open') {
+                this._channel.send(JSON.stringify({ type: 'pong' }));
+              }
+            } catch {}
+            return;
+          }
+          if (msg && msg.type === 'pong') {
+            // Heartbeat pong from peer — record liveness, no UI emit.
+            this._lastPongAt = Date.now();
             return;
           }
           if (msg.type === 'bye') {
@@ -745,6 +1153,17 @@
 
     // ----- CLEANUP -----
     close() {
+      // Tell the close-handler not to try a reconnect — this is a
+      // local-initiated teardown.
+      this._userInitiatedDisconnect = true;
+      // Stop the heartbeat first so no late tick fires after we've torn
+      // down. The 'disconnected' listener in our own constructor also
+      // stops it, but that only fires if some path emits — close() can
+      // be called without emitting (e.g. local Disconnect button).
+      this._stopHeartbeat();
+      // Cancel any in-flight reconnect.
+      if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+      this._reconnecting = false;
       // Send a "bye" message to the peer if the channel is still open. This
       // lets the remote side distinguish an intentional disconnect from a
       // network blip — though for now both are treated the same in the
