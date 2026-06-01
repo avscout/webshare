@@ -1,7 +1,7 @@
 {
-  "name": "P2P Transfer",
-  "short_name": "P2P Transfer",
-  "description": "Move sessions between devices, directly and privately. A TU Delft prototype.",
+  "name": "FieldSync",
+  "short_name": "FieldSync",
+  "description": "Collaborate on field reports, directly and privately. A TU Delft prototype.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>P2P Transfer</title>
+<title>FieldSync</title>
 
 <!-- PWA manifest: enables Add to Home Screen on Chromium and the iOS
      "Add to Home Screen" flow. The manifest itself lives at /manifest.json
@@ -28,7 +28,7 @@
      iOS expects natively; 192 would work but gets downscaled. -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="P2P Transfer">
+<meta name="apple-mobile-web-app-title" content="FieldSync">
 <link rel="apple-touch-icon" href="icon-180.png">
 
 <!-- Theme color used by Chrome on Android for the system UI -->
@@ -158,6 +158,29 @@
     background: transparent; border: 1px solid var(--line);
     color: var(--ink-soft);
   }
+
+  /* ===== Collaborate FAB ===== */
+  #collab-fab-wrap {
+    position: fixed;
+    bottom: 56px; /* above connection/status bar */
+    left: 0; right: 0;
+    display: flex; justify-content: center;
+    pointer-events: none; /* let taps through to content except the button */
+    z-index: 100;
+  }
+  #collab-fab-wrap.hidden { display: none; }
+  #collab-fab {
+    pointer-events: all;
+    width: 64px; height: 64px; border-radius: 50%;
+    background: #fff; color: var(--ink);
+    border: 3px solid var(--line);
+    box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #collab-fab:active { transform: scale(0.93); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
 
   /* ===== Connecting overlay ===== */
   /* Full-screen overlay over the stage during connection setup.
@@ -1296,26 +1319,27 @@
     font-size: 13px; color: var(--dim);
     text-transform: capitalize;
   }
-  /* Role inline editor */
-  .mydev-role-row {
-    display: flex; align-items: center; gap: 6px; margin: 4px 0 2px;
-  }
+  /* Role inline editor — link style before editing, input on focus */
+  .mydev-role-row { margin: 4px 0 2px; }
   .mydev-role-input {
-    flex: 1; font-size: 13px; font-family: var(--sans);
-    color: var(--accent); font-weight: 600;
+    font-size: 13px; font-family: var(--sans);
+    color: var(--accent); font-weight: 500;
     background: transparent; border: none; border-bottom: 1px solid transparent;
-    padding: 1px 0; outline: none; min-width: 0;
+    padding: 1px 0; outline: none; width: 100%;
     transition: border-color 0.15s;
+    cursor: pointer;
   }
-  .mydev-role-input:focus { border-bottom-color: var(--accent); }
-  .mydev-role-input::placeholder { color: var(--dim); font-weight: 400; }
-  .mydev-role-save {
-    flex-shrink: 0; font-size: 11px; font-weight: 700; font-family: var(--sans);
-    color: var(--accent); background: transparent; border: 1px solid var(--accent);
-    border-radius: 4px; padding: 2px 8px; cursor: pointer; opacity: 0;
-    transition: opacity 0.15s;
+  .mydev-role-input:focus {
+    border-bottom-color: var(--accent);
+    cursor: text;
   }
-  .mydev-role-row.dirty .mydev-role-save { opacity: 1; }
+  .mydev-role-input::placeholder {
+    color: var(--accent);
+    font-weight: 400;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    opacity: .7;
+  }
 
   .mydev-sessions-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -1804,7 +1828,7 @@
         <path d="M 6 40 L 76 12 L 50 70 L 42 50 Z" fill="var(--accent)"/>
         <path d="M 42 50 L 76 12 L 50 50 Z" fill="var(--tud-cyan-dark)"/>
       </svg>
-      <h1 class="ob-title">P2P <em>Transfer</em></h1>
+      <h1 class="ob-title">Field<em style="color:var(--accent);font-style:normal">Sync</em></h1>
       <p class="ob-tagline">Move reports between devices,<br>directly and privately.</p>
       <button class="ob-btn primary" id="ob-home-btn">Get started</button>
     </div>
@@ -1875,7 +1899,7 @@
      badge uses absolute positioning so its width doesn't shift the layout
      when toggled — wordmark and identity stay in fixed positions. -->
 <header class="topbar">
-  <button class="topbar-title-btn" id="topbar-title" aria-label="Go to home">P2P <em>Transfer</em></button>
+  <button class="topbar-title-btn" id="topbar-title" aria-label="Go to home">Field<em style="color:var(--accent);font-style:normal">Sync</em></button>
   <span class="dev-badge" aria-hidden="true">DEV</span>
   <button class="identity-badge" id="topbar-identity" aria-label="My device">
     <span class="identity-badge-svg" id="topbar-identity-svg"></span>
@@ -1895,9 +1919,9 @@
   <!-- ============ START SCREEN ============ -->
   <section class="screen active" data-screen="start">
     <div class="screen-header">
-      <h1 class="screen-title">Transfer reports</h1>
+      <h1 class="screen-title">Reports</h1>
       <p class="screen-subtitle dev-only">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
-      <p class="screen-subtitle user-only-paragraph">Pair two devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
+      <p class="screen-subtitle user-only-paragraph">Pair devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
     </div>
     <div class="screen-content">
       <div class="dev-only">
@@ -1916,6 +1940,18 @@
           </div>
         </div>
       </div>
+
+      <!-- New report button — full width, same style as modal footer -->
+      <button id="home-new-btn" class="primary" style="
+        display:block; width:100%; min-height:44px;
+        padding:10px 14px; margin-bottom:1rem;
+        font-family:var(--sans); font-size:13px; font-weight:700;
+        letter-spacing:.04em; text-transform:uppercase;
+        background:var(--accent); color:#fff; border:1px solid var(--accent);
+        cursor:pointer;">New report</button>
+
+      <!-- Reports list — always visible, local data -->
+      <div class="session-list" id="home-session-list" style="margin-bottom:1.5rem"></div>
 
       <!-- Resume session chip — shown when there's an active connection -->
       <div id="resume-session-bar" class="hidden" style="
@@ -1942,15 +1978,6 @@
           <span class="direction-btn-label">Add device</span>
           <span class="direction-btn-sub">scan a QR code</span>
         </button>
-      </div>
-
-      <!-- Reports on home screen -->
-      <div style="margin-top: 1.5rem">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
-          <span style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)">Reports</span>
-          <button class="primary" id="home-new-btn" style="font-size:12px;padding:5px 14px">New report</button>
-        </div>
-        <div class="session-list" id="home-session-list"></div>
       </div>
     </div>
   </section>
@@ -2156,6 +2183,20 @@
   </div>
   <button class="group-status-retry hidden" id="group-status-retry">Try now</button>
 </div>
+
+<!-- Collaborate FAB — centered above bottom nav, start screen only -->
+<div id="collab-fab-wrap" class="hidden">
+  <button id="collab-fab" aria-label="Collaborate — show QR">
+    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="7" r="4"/>
+      <path d="M4 20c0-4 3.6-7 8-7"/>
+      <line x1="16" y1="16" x2="20" y2="16"/>
+      <line x1="18" y1="14" x2="18" y2="18"/>
+    </svg>
+  </button>
+</div>
+
+
 
 <!-- BOTTOM NAV — hidden on the transfer screen since the action buttons
      for that screen live inline with the content (under the animation /
@@ -2850,6 +2891,14 @@ function disableDevMode() {
 // script load — early enough that no UI has rendered yet.
 document.documentElement.classList.add(DEV_MODE ? 'dev-mode-on' : 'dev-mode-off');
 
+// Suppress console output in user mode — third-party libs (Trystero etc.)
+// log verbosely; users shouldn't see that.
+if (!DEV_MODE) {
+  const noop = () => {};
+  console.log = noop; console.info = noop; console.debug = noop;
+  console.warn = noop; console.error = noop;
+}
+
 // =====================================================================
 // Device identity — stable UUID for this browser/device, used to
 // identify known pairings without relying on ephemeral Trystero peer IDs.
@@ -3166,7 +3215,7 @@ function renderGroupStatusBar(state) {
     const dot = bar.querySelector('.group-status-dot');
     if (dot) { dot.style.background = 'var(--dim)'; dot.style.animation = ''; }
     retryEl.classList.add('hidden');
-    textEl.textContent = 'Not paired — scan or show a QR code to connect';
+    textEl.textContent = 'Not paired — scan or show a QR code to collaborate';
     return;
   }
 
@@ -3767,13 +3816,12 @@ function goToStep(index, direction) {
   const flow = activeFlow();
   if (index < 0 || index >= flow.length) return;
   const dir = direction || (index > currentStep ? 'forward' : 'back');
-  // Cleanup actions when LEAVING a screen
   onLeaveScreen(currentScreenId());
   currentStep = index;
   showScreen(currentScreenId(), dir);
   updateNavBar();
-  // Setup actions when ENTERING a screen
   onEnterScreen(currentScreenId());
+  updateCollabFab();
 }
 function nextStep() { goToStep(currentStep + 1, 'forward'); }
 function prevStep() { goToStep(currentStep - 1, 'back'); }
@@ -3867,6 +3915,7 @@ async function onEnterScreen(screenId) {
     refreshHomeList();
     renderResumeBar();
     renderGroupStatusBar();
+    updateCollabFab();
   } else if (screenId === 'pick') {
     // Adjust title based on context
     const titleEl = document.querySelector('[data-screen="pick"] .screen-title');
@@ -4132,7 +4181,7 @@ function extractPeerIdFromScan(text) {
 // a new device can join. Creates the group if this is the first pairing.
 // The QR URL contains: ?join={roomCode}&pw={password}&invitedBy={DEVICE_ID}&backend=trystero
 // =====================================================================
-async function setupTrysteroInviteQR() {
+async function setupTrysteroInviteQR(qrContainer, infoContainer) {
   // Ensure group exists (create on first use)
   if (!GroupStore.exists()) {
     const roomCode = await (async () => {
@@ -4152,16 +4201,22 @@ async function setupTrysteroInviteQR() {
     })();
   }
 
-  const roomCode = GroupStore.getRoomCode();
-  const password = GroupStore.getPassword();
+  const roomCode  = GroupStore.getRoomCode();
+  const password  = GroupStore.getPassword();
   const inviteUrl = buildJoinURL(roomCode, 'trystero', { pw: password, invitedBy: DEVICE_ID });
 
-  // Show QR
+  // Render into provided containers (overlay) or default screen elements
+  const frameEl = qrContainer || $('show-qr-frame');
+  const textEl  = infoContainer || $('show-qr-info');
+
   hideConnectingOverlay();
-  $('show-qr-peerid').textContent = roomCode;
-  $('show-qr-peerid').classList.remove('hidden');
-  renderQR($('show-qr-frame'), inviteUrl);
-  $('show-qr-info').textContent = DEV_MODE ? `Room: ${roomCode}` : '';
+  if (!qrContainer) {
+    // Only update the show-qr screen elements when not in overlay mode
+    $('show-qr-peerid').textContent = roomCode;
+    $('show-qr-peerid').classList.remove('hidden');
+  }
+  renderQR(frameEl, inviteUrl);
+  if (textEl) textEl.textContent = DEV_MODE ? `Room: ${roomCode}` : '';
 
   // Ensure the group room is running in the background —
   // must happen AFTER GroupStore.create() so the password is available.
@@ -5948,7 +6003,7 @@ function showSessionModal(existing, returnTo) {
                 : `<p class="dev-only" style="color:var(--dim); font-size:12px; margin-bottom:14px;">ID: <code class="inline-code">${session.id}</code></p>`}
         ${historyHTML}
         <label class="field"><span>Name</span><input type="text" id="m-name"></label>
-        <label class="field dev-only"><span>Data (JSON object — keys are item IDs)</span><textarea id="m-data"></textarea></label>
+        <label class="field"><span>Data (JSON object — keys are item IDs)</span><textarea id="m-data"></textarea></label>
       </div>
       <div class="modal-footer">
         <button id="m-cancel-2">Cancel</button>
@@ -6436,18 +6491,18 @@ async function showMyDevicePanel() {
   // already installed the button reads "✓ Installed" and is disabled.
   //
   // Install button label depends on which install path we'd hit:
-  //   - Chromium with deferred prompt → native install dialog → "Install P2P Transfer as App"
+  //   - Chromium with deferred prompt → native install dialog → "Install FieldSync"
   //   - iOS Safari → instructions screen → "Add to home screen"
-  //   - Other → generic hint → "Install P2P Transfer as App"
+  //   - Other → generic hint → "Install FieldSync"
   const installLabel = iosSafariNoStandalone && !deferredInstallPrompt
     ? 'Add to home screen'
-    : 'Install P2P Transfer as App';
+    : 'Install FieldSync';
   const getAppHTML = `
       <div class="mydev-card">
         <div class="mydev-card-tile"><img src="icon-animated.svg" alt="" aria-hidden="true"></div>
         <div class="mydev-card-text">
           <div class="mydev-card-label">Stay safer with the app</div>
-          <div class="mydev-card-explain">Installing P2P Transfer protects your reports from automatic cleanup when your device runs low on space.</div>
+          <div class="mydev-card-explain">Installing FieldSync protects your reports from automatic cleanup when your device runs low on space.</div>
         </div>
       </div>
       ${isAlreadyInstalled
@@ -6479,7 +6534,6 @@ async function showMyDevicePanel() {
                 value="${identity.role || ''}"
                 placeholder="Add a role…"
                 autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-              <button class="mydev-role-save" id="mydev-role-save">Save</button>
             </div>
           </div>
         </div>
@@ -6491,12 +6545,14 @@ async function showMyDevicePanel() {
             const cachedInfo = TrysteroRoomManager._peerInfo.get(p.deviceId);
             const emoji = (cachedInfo && cachedInfo.emoji) || p.emoji || '?';
             const color = (cachedInfo && cachedInfo.color) || p.color || null;
-            const role  = (cachedInfo && cachedInfo.role)  || p.role  || null;
+            const isYou = p.deviceId === DEVICE_ID;
+            const role  = isYou
+              ? (identity.role || null)
+              : ((cachedInfo && cachedInfo.role) || p.role || null);
             const connected = TrysteroRoomManager.getConnectedMembers().some(m => {
               return m.info && m.info.deviceId === p.deviceId;
             });
             const lastSeen = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
-            const isYou = p.deviceId === DEVICE_ID;
             const roleLabel = role || (isYou ? '' : (p.invitedBy
               ? (() => {
                   const inviter = members.find(m => m.deviceId === p.invitedBy);
@@ -6551,7 +6607,7 @@ async function showMyDevicePanel() {
           <button class="mydev-dev-btn" id="mydev-disable-dev">Disable dev mode</button>
         </div>` : ''}
 
-        <div class="mydev-footer" id="mydev-footer">P2P Transfer · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}</div>
+        <div class="mydev-footer" id="mydev-footer">FieldSync · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}</div>
 
       </div>
     </div>`;
@@ -6559,24 +6615,15 @@ async function showMyDevicePanel() {
 
   backdrop.querySelector('#mydev-close').addEventListener('click', () => backdrop.remove());
 
-  // Role inline editor — show Save button when typing, hide when clean
-  const roleRow   = backdrop.querySelector('#mydev-role-row');
+  // Role inline editor — save on Enter or blur
   const roleInput = backdrop.querySelector('#mydev-role-input');
-  const roleSave  = backdrop.querySelector('#mydev-role-save');
-  const originalRole = identity.role || '';
-
-  roleInput.addEventListener('input', () => {
-    roleRow.classList.toggle('dirty', roleInput.value.trim() !== originalRole);
-  });
 
   async function saveRole() {
     const newRole = roleInput.value.trim() || null;
+    if (newRole === (identity.role || null)) return; // nothing changed
     const updated = { ...identity, role: newRole };
     await setPref('identity', updated);
     identity = updated;
-    roleRow.classList.remove('dirty');
-    roleSave.textContent = '✓';
-    setTimeout(() => { roleSave.textContent = 'Save'; }, 1200);
     // Re-send peer-info so group members see the updated role
     if (TrysteroRoomManager._room) {
       TrysteroRoomManager._room.peerInfo = buildLocalPeerInfo();
@@ -6585,13 +6632,10 @@ async function showMyDevicePanel() {
     }
   }
 
-  roleSave.addEventListener('click', saveRole);
+  roleInput.addEventListener('blur', saveRole);
   roleInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') saveRole();
-    if (e.key === 'Escape') {
-      roleInput.value = originalRole;
-      roleRow.classList.remove('dirty');
-    }
+    if (e.key === 'Enter') { roleInput.blur(); }
+    if (e.key === 'Escape') { roleInput.value = identity.role || ''; roleInput.blur(); }
   });
 
   // Unpair buttons in the paired devices section
@@ -6645,7 +6689,7 @@ async function showMyDevicePanel() {
   });
 
   // The install action — fired by both the Get-the-app button and the
-  // inline "Install P2P Transfer as App" links in the safety-check
+  // inline "Install FieldSync" links in the safety-check
   // expand panels. No-op when already installed.
   async function triggerInstall() {
     if (isAlreadyInstalled) return;
@@ -6752,7 +6796,7 @@ async function showMyDevicePanel() {
   const footerEl = backdrop.querySelector('#mydev-footer');
   if (footerEl) {
     let footerTaps = 0;
-    const FOOTER_DEFAULT = `P2P Transfer · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}`;
+    const FOOTER_DEFAULT = `FieldSync · TU Delft prototype${DEV_MODE ? ' · DEV' : ''}`;
     let resetTimer = null;
     footerEl.addEventListener('click', () => {
       if (DEV_MODE) {
@@ -6860,7 +6904,7 @@ function computeSafetyChecks({ isAlreadyInstalled, persistedGranted, storageEsti
   checks.push({
     key: 'browsing-data-warning',
     level: 'info',
-    text: 'Manually clearing your browsing data will always remove your reports, even when P2P Transfer is installed as an App.',
+    text: 'Manually clearing your browsing data will always remove your reports, even when FieldSync is installed as an App.',
   });
   return checks;
 }
@@ -6882,14 +6926,14 @@ function rowIconSVG(level) {
 // Build the body of the expand panel for a given check. Each check
 // has its own explainer copy. The free-space row also gets the
 // numeric usage/quota details appended. Some panels carry an inline
-// "Install P2P Transfer as App" link that fires the same install
+// "Install FieldSync" link that fires the same install
 // handler as the main button; suppressed when the user is already
 // installed, since the advice doesn't apply.
 function safetyDetailHTML(check, { storageEstimate, isAlreadyInstalled }) {
   // Reusable inline link to the install action. Use a real <a> so it's
   // keyboard-focusable; the click handler is wired in showMyDevicePanel
   // via event delegation.
-  const installLink = `<a href="#" class="install-action">Install P2P Transfer as App</a>`;
+  const installLink = `<a href="#" class="install-action">Install FieldSync</a>`;
   switch (check.key) {
     case 'persisted':
       if (check.level === 'ok') {
@@ -6969,6 +7013,23 @@ function showGenericInstallInstructions(backdrop) {
 // Wire the topbar identity badge to open the panel
 document.getElementById('group-status-retry').addEventListener('click', () => {
   GroupReconnectManager.forceRetry();
+});
+
+// =====================================================================
+// Collaborate FAB — show/hide based on screen, open QR overlay on tap
+// =====================================================================
+function updateCollabFab() {
+  const wrap = $('collab-fab-wrap');
+  if (!wrap) return;
+  wrap.classList.toggle('hidden', currentScreenId() !== 'start');
+}
+
+document.getElementById('collab-fab').addEventListener('click', () => {
+  // Same as tapping "Pair a device" — show QR in the existing flow
+  currentMode    = 'receive';
+  currentBackend = 'trystero';
+  const idx = FLOWS['receive-trystero'].indexOf('show-qr');
+  goToStep(idx, 'forward');
 });
 
 document.getElementById('topbar-identity').addEventListener('click', () => {
@@ -7280,6 +7341,7 @@ window.addEventListener('load', async () => {
   try { await refreshSessionsCount(); } catch (e) { log('Session count failed: ' + e.message, 'err'); }
   try { await loadIdentity(); } catch (e) { log('Identity load failed: ' + e.message, 'err'); }
   try { await refreshHomeList(); } catch (e) { log('Home list failed: ' + e.message, 'err'); }
+  updateCollabFab();
   // Wire the live-note panel inputs once (event listeners survive screen
   // changes). The panels themselves are toggled visible/hidden as the
   // user moves between screens.
