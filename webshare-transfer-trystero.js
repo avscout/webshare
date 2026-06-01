@@ -14,7 +14,7 @@
  *    is accepted; unknown peers are only accepted while the QR is on screen
  *
  * Depends on CoreTransfer (webshare-transfer-core.js).
- * Loads Trystero lazily via dynamic import() from esm.sh — no bundler needed.
+ * Loads Trystero lazily via dynamic import() from esm.run — no bundler needed.
  *
  * Exported global: TrysteroTransfer
  */
@@ -22,9 +22,10 @@
   'use strict';
 
   const TRYSTERO_APP_ID = 'webshare-tudelft-v1';
-  // 0.23.0 is the current stable. Nostr is the default strategy —
-  // no /nostr subpath needed in this version.
-  const TRYSTERO_CDN    = 'https://esm.sh/trystero@0.23.0';
+  // esm.run is jsDelivr's ESM CDN — the officially recommended way to load
+  // Trystero in a browser without a bundler. esm.sh caused peer discovery
+  // issues. 0.21.8/nostr is pinned to the version confirmed working.
+  const TRYSTERO_CDN    = 'https://esm.run/trystero@0.21.8/nostr';
 
   // Pre-fetch the Trystero module as soon as this script loads so the
   // first _joinRoom() call doesn't have to wait for a network round-trip.
