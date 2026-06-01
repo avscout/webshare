@@ -130,6 +130,11 @@
     min-width: 0;
   }
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
+  /* When showing connected state, the svg slot contains multiple elements
+     (local avatar + amp + remote avatar) — must be flex to sit side by side. */
+  #topbar-identity-svg {
+    display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+  }
 
   /* ===== Connecting overlay ===== */
   /* Full-screen overlay over the stage during connection setup.
@@ -1869,6 +1874,22 @@
         </div>
       </div>
 
+      <!-- Resume session chip — shown when there's an active connection -->
+      <div id="resume-session-bar" class="hidden" style="
+        margin-bottom: 1.25rem;
+        padding: .75rem 1rem;
+        background: var(--accent);
+        border-radius: .75rem;
+        display: flex; align-items: center; gap: .75rem;
+        cursor: pointer;">
+        <div id="resume-session-avatars" style="display:flex;align-items:center;flex-shrink:0"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px;color:#fff" id="resume-session-label">Resume session</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.8)" id="resume-session-sub">Connected — tap to continue</div>
+        </div>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+      </div>
+
       <div class="direction-actions" id="mode-group">
         <button class="direction-btn" data-mode="receive">
           <span class="direction-btn-label">Pair a device</span>
@@ -3461,12 +3482,9 @@ async function onEnterScreen(screenId) {
     hideConnectingOverlay();
     disposeActiveTransfer();
     selectedSessionId = null;
-    // Tear down the connection bar — there is no active link anymore.
-    // This also handles the case where the user navigated back from
-    // a disconnected state: the bar was showing the fade animation;
-    // hiding it removes the visual cue.
     hideConnectionBar();
     refreshSessionsCount();
+    renderResumeBar();
   } else if (screenId === 'pick') {
     await refreshPickList();
   } else if (screenId === 'show-qr') {
@@ -4226,6 +4244,7 @@ function wirePeerInfoListener(t) {
     hideConnectingOverlay();
     showConnectionBar();
     setConnectionBarStatus('connected');
+    if (currentScreenId() === 'start') renderResumeBar();
   });
   // 'disconnected' fires when the channel closes — peer-bye, channel
   // close, network blip, all the same. Show the disconnect status
@@ -4234,6 +4253,8 @@ function wirePeerInfoListener(t) {
   // for the peer to come back.
   t.on('disconnected', () => {
     hideConnectingOverlay();
+    renderTopbarConnections();
+    if (currentScreenId() === 'start') renderResumeBar();
     setConnectionBarStatus('disconnected');
     if (!t.persistent) handleRemoteDisconnect();
   });
@@ -4416,6 +4437,45 @@ function setupLampToggles() {
 // own Disconnect button does — closes activeTransfer (defensive; usually
 // already closed), navigates to start. onEnterScreen('start') hides
 // the bar and resets state.
+// =====================================================================
+// Resume session bar — shown on start screen when there's an active
+// connection so the user can jump back into the session.
+// =====================================================================
+function renderResumeBar() {
+  const bar     = $('resume-session-bar');
+  const avatars = $('resume-session-avatars');
+  const label   = $('resume-session-label');
+  const sub     = $('resume-session-sub');
+  if (!bar) return;
+
+  // Find the active connected transfer.
+  const t = activeTransfer && activeTransfer._remotePeerId ? activeTransfer : null;
+  if (!t || !identity) { bar.classList.add('hidden'); return; }
+
+  bar.classList.remove('hidden');
+
+  // Render peer avatar.
+  const peerInfo = remotePeerInfo ||
+    (t.persistent ? TrysteroRoomManager._peerInfo.get(
+      [...TrysteroRoomManager._rooms.entries()].find(([,v]) => v === t)?.[0]
+    ) : null);
+  const SIZE = 28;
+  avatars.innerHTML =
+    renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
+    (peerInfo ? renderDeviceSVG(peerInfo.emoji || '?', { size: SIZE, color: peerInfo.color }) : '');
+
+  label.textContent  = peerInfo ? `${peerInfo.nickname || 'Peer'}` : 'Resume session';
+  sub.textContent    = 'Connected — tap to continue';
+}
+
+$('resume-session-bar').addEventListener('click', () => {
+  if (!activeTransfer || !activeTransfer._remotePeerId) return;
+  // Navigate to pick screen if sender, or transfer screen if receiver.
+  const targetScreen = (currentMode === 'receive') ? 'transfer' : 'pick';
+  const idx = activeFlow().indexOf(targetScreen);
+  if (idx !== -1) goToStep(idx, 'forward');
+});
+
 function handleRemoteDisconnect() {
   if (currentScreenId() === 'start') return;
   restartToStart();
@@ -6033,7 +6093,13 @@ async function showMyDevicePanel() {
           const r = indexedDB.deleteDatabase(d.name);
           r.onsuccess = res; r.onerror = res; r.onblocked = res;
         })));
-        try { localStorage.removeItem('p2pt-dev-mode'); } catch {}
+        // Also clear localStorage — device ID and pairings must go too,
+        // otherwise the app is in an inconsistent state after reset.
+        try {
+          localStorage.removeItem('p2pt-dev-mode');
+          localStorage.removeItem('webshare-device-id');
+          localStorage.removeItem('webshare-pairings');
+        } catch {}
       } catch (e) {
         log('Reset failed: ' + e.message, 'err');
       }
