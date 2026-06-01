@@ -2915,6 +2915,17 @@ const GroupStore = {
   // Create a new group (called on first pairing — receiver side).
   create(roomCode, password) {
     this._save({ roomCode, password, members: [] });
+    // Add self as founding member
+    if (typeof identity !== 'undefined' && identity) {
+      this.addMember({
+        deviceId : DEVICE_ID,
+        nickname : identity.nickname,
+        emoji    : identity.emoji,
+        color    : identity.color,
+        role     : identity.role || null,
+        invitedBy: null,
+      });
+    }
   },
   addMember({ deviceId, nickname, emoji, color, invitedBy, role }) {
     const group = this.load();
@@ -3812,23 +3823,25 @@ function prevStep() { goToStep(currentStep - 1, 'back'); }
 function updateNavBar() {
   const flow = activeFlow();
   const screenId = flow[currentStep];
-  // Transfer screen has its own inline actions; start screen uses the big
-  // direction buttons themselves as the action — neither needs the bottom
-  // nav. For every other screen, show it and configure the buttons.
   const bottombar = $('bottombar');
   if (screenId === 'transfer' || screenId === 'start') {
     bottombar.classList.add('hidden');
     return;
   }
   bottombar.classList.remove('hidden');
-  // Back-button label and state:
-  //   - When paired (connection bar visible), the "previous step" is the
-  //     pairing step (scan-qr / show-qr). Backing up there is meaningless
-  //     since the pairing is already done. Instead, the button becomes
-  //     "Disconnect" — explicit about what tapping it does (close the
-  //     pairing, return to start). Always enabled in this mode.
-  //   - Otherwise, normal step-back. Disabled on step 0.
+
   const backBtn = $('nav-back');
+  const nextBtn = $('nav-next');
+
+  // Trystero pick screen — just a plain Back, no Disconnect, no Continue
+  if (screenId === 'pick' && GroupStore.exists()) {
+    backBtn.textContent = '← Back';
+    backBtn.disabled = false;
+    nextBtn.classList.add('hidden');
+    return;
+  }
+  nextBtn.classList.remove('hidden');
+
   const barShown = !$('connection-bar').classList.contains('hidden');
   if (barShown) {
     backBtn.textContent = 'Disconnect';
@@ -3837,10 +3850,8 @@ function updateNavBar() {
     backBtn.textContent = '← Back';
     backBtn.disabled = currentStep === 0;
   }
-  const nextBtn = $('nav-next');
   nextBtn.disabled = true;
   nextBtn.textContent = 'Continue →';
-  // Screen-specific Continue button state
   if (screenId === 'pick') {
     nextBtn.disabled = !selectedSessionId;
   } else if (screenId === 'show-qr') {
