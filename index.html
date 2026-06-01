@@ -100,12 +100,16 @@
     z-index: 10;
     position: relative;
   }
-  .topbar .title {
+  .topbar .title,
+  .topbar-title-btn {
     font-size: 12px; font-weight: 700; color: var(--ink-soft);
     letter-spacing: 0.06em; text-transform: uppercase;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    background: none; border: none; cursor: pointer; padding: 0;
+    font-family: var(--sans);
   }
-  .topbar .title em { font-style: normal; color: var(--accent); }
+  .topbar-title-btn:hover { opacity: 0.7; }
+  .topbar-title-btn em { font-style: normal; color: var(--accent); }
 
   /* Identity badge — top-right entry point to the My device panel.
      Always present; before identity is set, only the empty device frame
@@ -114,8 +118,9 @@
   .topbar .identity-badge {
     display: flex; align-items: center; gap: 8px;
     background: transparent; border: none; padding: 4px 6px 4px 10px;
-    cursor: pointer; max-width: 160px; min-width: 0;
+    cursor: pointer; max-width: 200px; min-width: 0;
     transition: opacity 0.15s;
+    margin-left: auto;
   }
   .topbar .identity-badge:hover { opacity: 0.7; }
   .topbar .identity-badge:active { opacity: 0.5; }
@@ -126,53 +131,20 @@
   }
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
 
-  /* ===== Topbar connection indicator ===== */
-  /* Shows local + peer avatar(s) when connected. Hidden when no connection. */
-  .topbar-right {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .topbar-conn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    animation: conn-in 0.2s ease-out;
-  }
-  .topbar-conn.hidden { display: none; }
-  @keyframes conn-in {
-    from { opacity: 0; transform: translateX(6px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
+  /* ===== Topbar connection state — built into the identity badge ===== */
+  /* When connected, the badge expands to show [local] & [remote] name.
+     Multiple connections: avatars stack with overlap. */
   .topbar-conn-amp {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--dim);
-    flex-shrink: 0;
+    font-size: 11px; font-weight: 700; color: var(--dim); flex-shrink: 0;
   }
-  .topbar-conn-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--ink);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 80px;
-  }
-  /* Overlapping avatar stack for multiple connections */
   .topbar-peer-stack {
-    display: flex;
-    align-items: center;
+    display: flex; align-items: center;
   }
   .topbar-peer-stack .stack-item {
-    display: inline-flex;
-    border-radius: 50%;
+    display: inline-flex; border-radius: 50%;
     box-shadow: 0 0 0 2px var(--bg);
   }
-  .topbar-peer-stack .stack-item + .stack-item {
-    margin-left: -8px;
-  }
+  .topbar-peer-stack .stack-item + .stack-item { margin-left: -8px; }
 
   /* ===== Connection bar ===== */
   /* A thin strip at the bottom of every paired screen.
@@ -1825,15 +1797,12 @@
      badge uses absolute positioning so its width doesn't shift the layout
      when toggled — wordmark and identity stay in fixed positions. -->
 <header class="topbar">
-  <div class="title" id="topbar-title">P2P <em>Transfer</em></div>
+  <button class="topbar-title-btn" id="topbar-title" aria-label="Go to home">P2P <em>Transfer</em></button>
   <span class="dev-badge" aria-hidden="true">DEV</span>
-  <div class="topbar-right">
-    <div class="topbar-conn hidden" id="topbar-conn" aria-live="polite"></div>
-    <button class="identity-badge" id="topbar-identity" aria-label="My device">
-      <span class="identity-badge-svg" id="topbar-identity-svg"></span>
-      <span class="identity-badge-name" id="topbar-identity-name"></span>
-    </button>
-  </div>
+  <button class="identity-badge" id="topbar-identity" aria-label="My device">
+    <span class="identity-badge-svg" id="topbar-identity-svg"></span>
+    <span class="identity-badge-name" id="topbar-identity-name"></span>
+  </button>
 </header>
 
 <!-- STAGE -->
@@ -1864,23 +1833,14 @@
         </div>
       </div>
 
-      <!-- Known Trystero pairings — shown when there are saved devices -->
-      <div id="known-devices-section" class="hidden">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1.5rem;margin-bottom:.5rem">
-          <span style="font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;opacity:.6">Your devices</span>
-          <button id="manage-devices-btn" style="font-size:.75rem;opacity:.6;background:none;border:none;cursor:pointer;text-decoration:underline">Manage</button>
-        </div>
-        <div id="known-devices-list"></div>
-      </div>
-
       <div class="direction-actions" id="mode-group">
         <button class="direction-btn" data-mode="receive">
           <span class="direction-btn-label">Pair a device</span>
           <span class="direction-btn-sub">show your QR code</span>
         </button>
         <button class="direction-btn" data-mode="send">
-          <span class="direction-btn-label">Send a report</span>
-          <span class="direction-btn-sub">scan the other device</span>
+          <span class="direction-btn-label">Add device</span>
+          <span class="direction-btn-sub">scan a QR code</span>
         </button>
       </div>
     </div>
@@ -2052,22 +2012,6 @@
     </div>
   </section>
 
-  <!-- ============ PROFILE / DEVICES ============ -->
-  <section class="screen hidden" data-screen="profile">
-    <div class="screen-header">
-      <h1 class="screen-title">Coupled devices</h1>
-      <p class="screen-subtitle">These devices connect automatically when both are online.</p>
-    </div>
-    <div class="screen-content">
-      <div id="profile-pairings-list"></div>
-      <div style="margin-top:1.5rem">
-        <button class="direction-btn" id="profile-add-btn" style="width:100%">
-          <span class="direction-btn-label">Add device</span>
-          <span class="direction-btn-sub">scan a QR code</span>
-        </button>
-      </div>
-    </div>
-  </section>
 
 </main>
 
@@ -2779,9 +2723,10 @@ const PairingStore = {
   _save(pairings) {
     try { localStorage.setItem(this._key, JSON.stringify(pairings)); } catch {}
   },
-  add({ roomCode, deviceId, nickname, emoji }) {
+  add({ roomCode, deviceId, nickname, emoji, color }) {
     const pairings = this.load().filter(p => p.deviceId !== deviceId);
     pairings.push({ roomCode, deviceId, nickname: nickname || '?', emoji: emoji || '📱',
+                    color: color || null,
                     pairedAt: Date.now(), lastSeenAt: Date.now() });
     this._save(pairings);
   },
@@ -2829,9 +2774,10 @@ const TrysteroRoomManager = {
         }
         if (qrVisible) {
           PairingStore.add({ roomCode: pairing.roomCode, deviceId,
-                             nickname: info && info.nickname, emoji: info && info.emoji });
+                             nickname: info && info.nickname, emoji: info && info.emoji,
+                             color: info && info.color });
           TrysteroRoomManager._rooms.set(deviceId, t);
-          renderPairingsOnStartScreen();
+          
           return true;
         }
         return false;
@@ -2839,12 +2785,12 @@ const TrysteroRoomManager = {
     });
 
     t.on('log',         ({ level, message }) => log(message, level));
-    t.on('connected',   () => { renderPairingsOnStartScreen(); renderTopbarConnections(); });
-    t.on('reconnected', () => { renderPairingsOnStartScreen(); renderTopbarConnections(); });
-    t.on('reconnecting',() => { renderPairingsOnStartScreen(); renderTopbarConnections(); });
+    t.on('connected',   () => {  renderTopbarConnections(); });
+    t.on('reconnected', () => {  renderTopbarConnections(); });
+    t.on('reconnecting',() => {  renderTopbarConnections(); });
     t.on('disconnected',() => {
       TrysteroRoomManager._peerInfo.delete(pairing.deviceId);
-      renderPairingsOnStartScreen();
+      
       renderTopbarConnections();
     });
     t.on('peer-info', (info) => {
@@ -2869,8 +2815,8 @@ const TrysteroRoomManager = {
   async addFromFirstPairing(roomCode, deviceId, peerInfo) {
     PairingStore.add({ roomCode, deviceId,
                        nickname: peerInfo && peerInfo.nickname,
-                       emoji:    peerInfo && peerInfo.emoji });
-    renderPairingsOnStartScreen();
+                       emoji:    peerInfo && peerInfo.emoji,
+                       color:    peerInfo && peerInfo.color });
   },
 
   // Activate a known pairing as the activeTransfer (for UI operations).
@@ -2893,7 +2839,7 @@ const TrysteroRoomManager = {
     if (t) { try { t.forceClose(); } catch {} this._rooms.delete(deviceId); }
     PairingStore.remove(deviceId);
     if (activeTransfer === t) { activeTransfer = null; remotePeerInfo = null; }
-    renderPairingsOnStartScreen();
+    
   },
 
   get(deviceId) { return this._rooms.get(deviceId); },
@@ -3495,8 +3441,6 @@ async function onEnterScreen(screenId) {
     await setupScanQRScreen();
   } else if (screenId === 'transfer') {
     setupTransferScreen();
-  } else if (screenId === 'profile') {
-    renderProfileScreen();
   }
   // Re-evaluate which note panel (if any) should be visible. Done after
   // each screen's own setup so the panel toggles together with the rest
@@ -4168,14 +4112,16 @@ function renderConnectionBarPeer() {
   renderTopbarConnections();
 }
 
-// Renders connected peer avatars in the topbar.
-// Single connection: [local] & [peer] name
-// Multiple connections: overlapping stack of all avatars + count
+// Renders connected peer avatars inside the identity badge.
+// No connection: [local avatar] [local name]  (normal badge)
+// Single:        [local avatar] & [remote avatar] [remote name]
+// Multiple:      stacked avatars + "N connected"
 function renderTopbarConnections() {
-  const el = $('topbar-conn');
-  if (!el || !identity) return;
+  const svgEl  = document.getElementById('topbar-identity-svg');
+  const nameEl = document.getElementById('topbar-identity-name');
+  if (!svgEl || !identity) return;
 
-  // Gather all currently connected peers from persistent rooms.
+  // Gather all currently connected peers.
   const peers = [];
   for (const [deviceId, t] of TrysteroRoomManager._rooms) {
     if (t._remotePeerId) {
@@ -4183,37 +4129,35 @@ function renderTopbarConnections() {
       peers.push(info || { emoji: '📱', nickname: '?' });
     }
   }
-  // Also include the active non-persistent transfer if connected.
   if (activeTransfer && !activeTransfer.persistent && activeTransfer._remotePeerId && remotePeerInfo) {
     peers.push(remotePeerInfo);
   }
 
+  const SIZE = 32;
+
   if (peers.length === 0) {
-    el.classList.add('hidden');
+    // Back to normal: just local avatar + local name.
+    svgEl.innerHTML = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
+    nameEl.textContent = identity.nickname || '';
     return;
   }
 
-  const SIZE = 28;
-  el.classList.remove('hidden');
-
   if (peers.length === 1) {
     const peer = peers[0];
-    el.innerHTML =
+    svgEl.innerHTML =
       renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
       `<span class="topbar-conn-amp">&amp;</span>` +
-      renderDeviceSVG(peer.emoji || '?', { size: SIZE, color: peer.color }) +
-      `<span class="topbar-conn-name">${peer.nickname || 'peer'}</span>`;
+      renderDeviceSVG(peer.emoji || '?', { size: SIZE, color: peer.color });
+    nameEl.textContent = peer.nickname || 'peer';
   } else {
-    // Multiple: stack all avatars (local first, then peers) with overlap.
     const all = [{ emoji: identity.emoji, color: identity.color }, ...peers];
     const stack = all.map((p, i) =>
       `<span class="stack-item" style="${i > 0 ? 'margin-left:-8px' : ''}">` +
       renderDeviceSVG(p.emoji || '?', { size: SIZE, color: p.color }) +
       `</span>`
     ).join('');
-    el.innerHTML =
-      `<span class="topbar-peer-stack">${stack}</span>` +
-      `<span class="topbar-conn-name">${peers.length} connected</span>`;
+    svgEl.innerHTML = `<span class="topbar-peer-stack">${stack}</span>`;
+    nameEl.textContent = `${peers.length} connected`;
   }
 }
 
@@ -4438,40 +4382,9 @@ function handleRemoteDisconnect() {
 }
 
 // =====================================================================
-// Known devices UI — start screen + profile screen
 // =====================================================================
-
-function renderPairingsOnStartScreen() {
-  const pairings = PairingStore.getAll();
-  const section  = $('known-devices-section');
-  const list     = $('known-devices-list');
-  if (!section || !list) return;
-  if (pairings.length === 0) { section.classList.add('hidden'); return; }
-  section.classList.remove('hidden');
-  list.innerHTML = pairings.map(p => {
-    const connected = TrysteroRoomManager.isConnected(p.deviceId);
-    const dot = connected
-      ? '<span style="color:var(--accent);font-size:.75rem">● </span>'
-      : '<span style="color:#888;font-size:.75rem">○ </span>';
-    return `<button class="known-device-btn" data-deviceid="${p.deviceId}"
-      style="display:flex;align-items:center;gap:.75rem;width:100%;padding:.75rem 1rem;
-             margin-bottom:.5rem;border:1px solid var(--border);border-radius:.75rem;
-             background:var(--surface);cursor:pointer;text-align:left">
-      <span style="font-size:1.5rem">${p.emoji || '📱'}</span>
-      <span style="flex:1">
-        <span style="font-weight:600">${p.nickname || p.deviceId.slice(0, 8)}</span>
-        <br><span style="font-size:.75rem;opacity:.6">${dot}${connected ? 'Online' : 'Offline'}</span>
-      </span>
-    </button>`;
-  }).join('');
-
-  list.querySelectorAll('.known-device-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const deviceId = btn.dataset.deviceid;
-      activateKnownPairing(deviceId);
-    });
-  });
-}
+// Known devices UI
+// =====================================================================
 
 async function activateKnownPairing(deviceId) {
   const t = TrysteroRoomManager.get(deviceId);
@@ -4500,85 +4413,15 @@ async function activateKnownPairing(deviceId) {
 
   await refreshPickList();
 
-  const startEl = document.querySelector('[data-screen="start"]');
-  const pickEl  = document.querySelector('[data-screen="pick"]');
   document.querySelectorAll('.screen').forEach(s => {
     s.classList.add('hidden'); s.classList.remove('active');
   });
+  const pickEl = document.querySelector('[data-screen="pick"]');
   if (pickEl) { pickEl.classList.remove('hidden'); pickEl.classList.add('active'); }
 
   updateNavBar();
   updateNotePanelVisibility();
 }
-
-function renderProfileScreen() {
-  const list = $('profile-pairings-list');
-  if (!list) return;
-  const pairings = PairingStore.getAll();
-  if (pairings.length === 0) {
-    list.innerHTML = '<p style="opacity:.6;text-align:center;padding:1rem">No devices coupled yet.</p>';
-    return;
-  }
-  list.innerHTML = pairings.map(p => {
-    const connected = TrysteroRoomManager.isConnected(p.deviceId);
-    const lastSeen  = p.lastSeenAt
-      ? new Date(p.lastSeenAt).toLocaleString()
-      : 'never';
-    return `<div style="display:flex;align-items:center;gap:.75rem;padding:.75rem 0;
-                        border-bottom:1px solid var(--border)">
-      <span style="font-size:1.75rem">${p.emoji || '📱'}</span>
-      <div style="flex:1">
-        <div style="font-weight:600">${p.nickname || '?'}</div>
-        <div style="font-size:.75rem;opacity:.6">${connected ? '● Online' : '○ Last seen: ' + lastSeen}</div>
-      </div>
-      <button class="unpair-btn" data-deviceid="${p.deviceId}"
-        style="padding:.4rem .75rem;border:1px solid #c00;border-radius:.5rem;
-               color:#c00;background:transparent;cursor:pointer;font-size:.8rem">
-        Unpair
-      </button>
-    </div>`;
-  }).join('');
-
-  list.querySelectorAll('.unpair-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (confirm('Remove this device? It will need to scan again to reconnect.')) {
-        TrysteroRoomManager.remove(btn.dataset.deviceid);
-        renderProfileScreen();
-      }
-    });
-  });
-}
-
-// Profile screen: enter via the identity badge long-press or a button.
-document.addEventListener('DOMContentLoaded', () => {
-  const addBtn = $('profile-add-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', () => {
-      currentMode    = 'receive';
-      currentBackend = 'trystero';
-      goToStep(1, 'forward');
-    });
-  }
-  const manageBtn = $('manage-devices-btn');
-  if (manageBtn) {
-    manageBtn.addEventListener('click', () => {
-      // Navigate to profile screen directly (outside the normal flow).
-      const profileEl = document.querySelector('[data-screen="profile"]');
-      const startEl   = document.querySelector('[data-screen="start"]');
-      if (!profileEl) return;
-      document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
-      profileEl.classList.remove('hidden');
-      profileEl.classList.add('active');
-      // Simple back: clicking Back or Devices header goes back to start.
-      profileEl._backFn = () => {
-        profileEl.classList.add('hidden');
-        profileEl.classList.remove('active');
-        if (startEl) { startEl.classList.remove('hidden'); startEl.classList.add('active'); }
-      };
-      renderProfileScreen();
-    });
-  }
-});
 
 function wireTransferToReceiveUI(t) {
   t.on('log', ({ level, message }) => log(message, level));
@@ -5531,13 +5374,8 @@ function hasIdentity() {
 // the identity changes (initial load, save, edit). The circle always
 // renders; emoji, name, and color only fill in if identity is set.
 function updateIdentityBadge() {
-  const svgEl = document.getElementById('topbar-identity-svg');
-  const nameEl = document.getElementById('topbar-identity-name');
-  if (!svgEl) return;
-  const emoji = identity?.emoji || '';
-  // The badge is a circle now; no per-device-shape sizing needed.
-  svgEl.innerHTML = renderDeviceSVG(emoji, { size: 32, color: identity?.color });
-  nameEl.textContent = identity?.nickname || '';
+  // renderTopbarConnections handles both connected and idle state.
+  renderTopbarConnections();
 }
 
 // Renders the identity badge: a filled pastel circle with the emoji
@@ -5975,6 +5813,30 @@ async function showMyDevicePanel() {
           </div>
         </div>
 
+        ${(() => {
+          const pairings = PairingStore.getAll();
+          if (pairings.length === 0) return '';
+          const rows = pairings.map(p => {
+            const connected = TrysteroRoomManager.isConnected(p.deviceId);
+            const lastSeen = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
+            return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft)">
+              <span style="flex-shrink:0">${renderDeviceSVG(p.emoji || '?', { size: 40, color: p.color })}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:14px">${p.nickname || '?'}</div>
+                <div style="font-size:12px;color:var(--dim)">${connected ? '● Online' : 'Last seen: ' + lastSeen}</div>
+              </div>
+              <button class="mydev-unpair-btn" data-deviceid="${p.deviceId}"
+                style="font-size:11px;padding:4px 10px;border:1px solid #c00;border-radius:4px;color:#c00;background:transparent;cursor:pointer;flex-shrink:0">
+                Unpair
+              </button>
+            </div>`;
+          }).join('');
+          return `<div class="mydev-section">
+            <div class="mydev-section-head">Paired devices</div>
+            ${rows}
+          </div>`;
+        })()}
+
         <div class="mydev-section">
           <div class="mydev-section-head">Reports</div>
           <div class="mydev-sessions-row">
@@ -6011,6 +5873,17 @@ async function showMyDevicePanel() {
   document.body.appendChild(backdrop);
 
   backdrop.querySelector('#mydev-close').addEventListener('click', () => backdrop.remove());
+
+  // Unpair buttons in the paired devices section
+  backdrop.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (confirm('Remove this device? It will need to scan again to reconnect.')) {
+        TrysteroRoomManager.remove(btn.dataset.deviceid);
+        backdrop.remove();
+        renderTopbarConnections();
+      }
+    });
+  });
 
   // Safety check rows: tap a row to open its detail panel. Only one
   // panel can be open at a time — tapping a different row closes the
@@ -6360,6 +6233,10 @@ document.getElementById('topbar-identity').addEventListener('click', () => {
   showMyDevicePanel();
 });
 
+document.getElementById('topbar-title').addEventListener('click', () => {
+  if (currentScreenId() !== 'start') restartToStart();
+});
+
 // =====================================================================
 // Onboarding flow (home → disclaimer → setup)
 // =====================================================================
@@ -6689,7 +6566,6 @@ window.addEventListener('load', async () => {
   // across navigation; known peers reconnect automatically when online.
   if (typeof TrysteroTransfer !== 'undefined') {
     TrysteroRoomManager.initAll()
-      .then(() => renderPairingsOnStartScreen())
       .catch(e => log('Room init error: ' + e.message, 'err'));
   }
 });
