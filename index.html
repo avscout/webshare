@@ -2863,15 +2863,13 @@ const TrysteroRoomManager = {
     return t;
   },
 
-  // Add a new pairing from a first-time QR flow and start managing it.
+  // Add a new pairing from a first-time QR flow.
+  // Does NOT join immediately — the activeTransfer is already in this room.
+  // The persistent room is created when initAll() runs after the session ends.
   async addFromFirstPairing(roomCode, deviceId, peerInfo) {
     PairingStore.add({ roomCode, deviceId,
                        nickname: peerInfo && peerInfo.nickname,
                        emoji:    peerInfo && peerInfo.emoji });
-    if (!this._rooms.has(deviceId)) {
-      const pairing = PairingStore.getAll().find(p => p.deviceId === deviceId);
-      if (pairing) await this._joinPairing(pairing).catch(() => {});
-    }
     renderPairingsOnStartScreen();
   },
 
@@ -4028,8 +4026,7 @@ let remotePeerInfo = null;
 // also force a fresh transfer since the underlying object is backend-bound.
 function disposeActiveTransfer() {
   if (!activeTransfer) return;
-  // Persistent Trystero rooms stay open across navigation — just detach
-  // the UI reference. The TrysteroRoomManager retains the actual room.
+  const wasFirstPairingTrystero = activeTransfer._uiBackend === 'trystero' && !activeTransfer.persistent;
   if (!activeTransfer.persistent) {
     try { activeTransfer.close(); } catch {}
   }
@@ -4037,6 +4034,11 @@ function disposeActiveTransfer() {
   remotePeerInfo = null;
   resetNotePanels();
   resetLampState();
+  // If we just closed a first-pairing Trystero session, join any newly
+  // saved rooms that aren't yet managed by the room manager.
+  if (wasFirstPairingTrystero && typeof TrysteroTransfer !== 'undefined') {
+    TrysteroRoomManager.initAll().catch(() => {});
+  }
 }
 
 async function ensureReceiveTransfer() {
@@ -4474,27 +4476,39 @@ function renderPairingsOnStartScreen() {
 async function activateKnownPairing(deviceId) {
   const t = TrysteroRoomManager.get(deviceId);
   if (!t) return;
-  // Set as active transfer and go to the transfer screen.
+  if (!t._remotePeerId) {
+    log('Device not connected yet — waiting for reconnect.', 'info');
+    return;
+  }
+
+  // Attach to UI without closing the persistent room.
   disposeActiveTransfer();
   activeTransfer = t;
   activeTransfer._uiBackend = 'trystero';
   wirePeerInfoListener(activeTransfer);
   wireTransferToReceiveUI(activeTransfer);
   wireTransferToSendUI(activeTransfer);
-  // Navigate to pick (send) or transfer (if already connected).
-  if (t._remotePeerId) {
-    currentMode = 'send';
-    const flow = ['start', 'pick', 'transfer'];
-    // Find pick index and navigate there.
-    const pickIdx = flow.indexOf('pick');
-    if (pickIdx !== -1) {
-      // Manually set flow and step.
-      currentMode = 'send';
-      currentBackend = 'trystero';
-      await refreshPickList();
-      goToStep(1, 'forward');  // start → pick
-    }
-  }
+
+  showConnectionBar();
+  setConnectionBarStatus('connected');
+
+  // Navigate directly to the pick screen, bypassing scan-qr
+  // (we're already connected — no QR exchange needed).
+  currentMode    = 'send';
+  currentBackend = 'trystero';
+  currentStep    = FLOWS['send-trystero'].indexOf('pick');
+
+  await refreshPickList();
+
+  const startEl = document.querySelector('[data-screen="start"]');
+  const pickEl  = document.querySelector('[data-screen="pick"]');
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.add('hidden'); s.classList.remove('active');
+  });
+  if (pickEl) { pickEl.classList.remove('hidden'); pickEl.classList.add('active'); }
+
+  updateNavBar();
+  updateNotePanelVisibility();
 }
 
 function renderProfileScreen() {
