@@ -50,10 +50,27 @@
     'wss://relay.nostr.band',      // nostr.band, good uptime
     'wss://relay.primal.net',      // Primal client relay, well-maintained
     'wss://nostr.mom',             // long-running open relay
-    'wss://relay.damus.io',        // Damus app relay, widely used
   ];
 
-  // How long to wait after a peer leaves before declaring a fatal disconnect.
+  // Free public TURN servers (Open Relay Project / metered.ca).
+  // Required for WebRTC connectivity behind strict NATs — without TURN,
+  // devices on mobile networks or corporate Wi-Fi often can't connect.
+  // PeerJS provides these automatically; for Trystero we supply them explicitly.
+  const RTC_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp',
+        ],
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+    ],
+  };
   // Must cover: ICE timeout (~30s) + reconnect time after screen-on.
   // 5 minutes handles typical field use (set phone down briefly, pick back up).
   const LEAVE_GRACE_MS = 5 * 60 * 1000;
@@ -184,7 +201,7 @@
       return new Promise(async (resolve, reject) => {
         const timer = setTimeout(() => {
           reject(new Error('Connection timed out — is the receiver open on the same room code?'));
-        }, 30000);
+        }, 60000);
         const unsub = this.on('connected', () => {
           clearTimeout(timer);
           unsub();
@@ -234,6 +251,7 @@
       this._room = joinRoom({
         appId    : TRYSTERO_APP_ID,
         relayUrls: NOSTR_RELAY_URLS,
+        rtcConfig: RTC_CONFIG,
       }, roomCode);
 
       // Log relay connection status after a short delay so sockets have
@@ -366,6 +384,7 @@
       if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
       this._remotePeerId   = peerId;
       this._isReconnecting = false;
+      this._log('info', `Nostr: peer found in room (${peerId.slice(0, 8)}…) — establishing WebRTC…`);
       // Send our peer-info immediately so the other side can gate on our deviceId.
       this._sendPeerInfo();
 
