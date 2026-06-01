@@ -6,9 +6,12 @@
  *  - Room-based pairing (shared code like "ruby-maple-42") instead of
  *    peer-ID-based pairing — so both sides just join the same named room
  *  - Native reconnect: Trystero's Nostr relay keep-alives handle connection
- *    recovery automatically; we only need a short grace window on peer-leave
- *    before declaring a fatal disconnect
- *  - Identity verification via per-session tokens exchanged in peer-info
+ *    recovery automatically; the grace window only expires if the peer truly
+ *    goes away (user closes the app, not just screen-off)
+ *  - Persistent rooms: a room can be kept open across UI navigation so that
+ *    known devices reconnect automatically without re-scanning the QR code
+ *  - Gated entry: an onPeerAccept callback decides whether an incoming peer
+ *    is accepted; unknown peers are only accepted while the QR is on screen
  *
  * Depends on CoreTransfer (webshare-transfer-core.js).
  * Loads Trystero lazily via dynamic import() from esm.sh — no bundler needed.
@@ -32,9 +35,9 @@
   ];
 
   // How long to wait after a peer leaves before declaring a fatal disconnect.
-  // Trystero's Nostr relay keep-alives will bring the peer back if the
-  // disconnect was transient (mobile screen-off, brief network blip).
-  const LEAVE_GRACE_MS = 8000;
+  // Must cover: ICE timeout (~30s) + reconnect time after screen-on.
+  // 5 minutes handles typical field use (set phone down briefly, pick back up).
+  const LEAVE_GRACE_MS = 5 * 60 * 1000;
 
   // Room-code word lists — short enough to be legible in a QR label.
   const ADJ  = ['amber','azure','bright','cedar','clean','coral','crisp','early',
@@ -56,7 +59,17 @@
   // TrysteroTransfer
   // -----------------------------------------------------------------------
   class TrysteroTransfer extends CoreTransfer {
-    constructor({ peerInfo, iceServers } = {}) {
+    /**
+     * @param {object}   options
+     * @param {object}   [options.peerInfo]       - Local identity sent to remote.
+     * @param {object[]} [options.iceServers]      - Custom ICE servers.
+     * @param {boolean}  [options.persistent]      - If true, close() is a soft
+     *   reset that leaves the room open. Use forceClose() to actually leave.
+     * @param {Function} [options.onPeerAccept]   - (deviceId, peerInfo) => boolean.
+     *   Called after peer-info exchange to decide whether to accept the peer.
+     *   If omitted, all peers are accepted (first-pairing flow).
+     */
+    constructor({ peerInfo, iceServers, persistent = false, onPeerAccept = null } = {}) {
       super({ iceServers, peerInfo });
 
       // Trystero room state
@@ -64,6 +77,8 @@
       this._remotePeerId   = null;   // Trystero's ephemeral ID for the other side
       this._leaveTimer     = null;   // grace-window timer after onPeerLeave
       this._isReconnecting = false;
+      this._pendingPeerJoin = null;  // { peerId, isReconnect } — held until peer-info accepted
+      this._rejectedPeers  = new Set(); // ephemeral IDs of rejected peers
 
       // Typed Trystero action senders (populated once _joinRoom resolves)
       this._sendPeerInfoAction = null;
@@ -71,6 +86,10 @@
       this._sendLampAction     = null;
       this._sendPayloadAction  = null;
       this._sendAckAction      = null;
+
+      // Persistence + gating
+      this.persistent    = persistent;
+      this.onPeerAccept  = onPeerAccept;  // (deviceId, info) => boolean
     }
 
     // -----------------------------------------------------------------------
@@ -111,16 +130,21 @@
     _stopHeartbeat()  { /* nothing to stop */ }
 
     isAlive() {
-      return !!this._remotePeerId && !this._isReconnecting;
+      // For Trystero, "alive" means the room is open and can receive peers.
+      // Waiting for a first peer, or being in the reconnect grace window, are
+      // both valid states — not stale. Only return false if the room is gone.
+      return !!this._room;
     }
 
-    // Trystero reconnect is automatic; checkAndRecover is a no-op.
+    // Trystero reconnect is automatic via Nostr relay keep-alives.
     checkAndRecover() { return false; }
 
     // -----------------------------------------------------------------------
-    // Receiver flow
+    // Public API — starting sessions
     // -----------------------------------------------------------------------
 
+    // Receiver flow: generate a new room code and emit show-qr.
+    // Used for first-time pairing.
     async startReceiving() {
       if (this.role) throw new Error('Already started.');
       this.role = 'receiver';
@@ -131,12 +155,8 @@
       this.emit('show-qr', { kind: 'peerid', text: code });
     }
 
-    // -----------------------------------------------------------------------
-    // Sender flow
-    // -----------------------------------------------------------------------
-
-    // Join the same room as the receiver. Resolves when the receiver is
-    // detected as a peer (onPeerJoin fires).
+    // Sender flow: join an existing room and wait for the receiver peer.
+    // Used for first-time pairing (sender side).
     async connect(roomCode) {
       if (this.role) throw new Error('Already started.');
       this.role = 'sender';
@@ -146,8 +166,6 @@
         const timer = setTimeout(() => {
           reject(new Error('Connection timed out — is the receiver open on the same room code?'));
         }, 30000);
-        // Register the one-shot listener BEFORE joining so we cannot miss
-        // the event if onPeerJoin fires synchronously (it won't, but defensive).
         const unsub = this.on('connected', () => {
           clearTimeout(timer);
           unsub();
@@ -161,6 +179,16 @@
           reject(err);
         }
       });
+    }
+
+    // Persistent room: join a known room and wait indefinitely for a peer.
+    // Does not emit show-qr. Uses onPeerAccept gating.
+    async joinPersistentRoom(roomCode) {
+      if (this.role) throw new Error('Already started.');
+      this.role = 'persistent';
+      this.peerId = roomCode;
+      this._log('info', `Joining persistent room: ${roomCode}`);
+      await this._joinRoom(roomCode);
     }
 
     async send(payload) {
@@ -218,21 +246,56 @@
       this._room.onPeerJoin(id  => this._onPeerJoin(id));
       this._room.onPeerLeave(id => this._onPeerLeave(id));
 
-      // Incoming data
+      // Incoming peer-info — gate on onPeerAccept before accepting.
       onPeerInfo(({ info, token } = {}, peerId) => {
-        // Use CoreTransfer's identity verification
+        if (this._rejectedPeers.has(peerId)) return;
+
+        const deviceId = info && info.deviceId;
+
+        // If gating is active, check acceptance before emitting 'connected'.
+        if (this.onPeerAccept && deviceId) {
+          const accepted = this.onPeerAccept(deviceId, info);
+          if (!accepted) {
+            this._rejectedPeers.add(peerId);
+            // If this was the tentatively accepted peer, undo that.
+            if (peerId === this._remotePeerId) {
+              this._remotePeerId   = null;
+              this._isReconnecting = false;
+            }
+            this._pendingPeerJoin = null;
+            this._log('info', `Unknown device rejected (QR not visible).`);
+            return;
+          }
+        }
+
+        // Peer is accepted — emit the deferred connected / reconnected event.
+        if (this._pendingPeerJoin && this._pendingPeerJoin.peerId === peerId) {
+          const { isReconnect } = this._pendingPeerJoin;
+          this._pendingPeerJoin = null;
+          if (isReconnect) {
+            this._log('ok', `Peer reconnected (${peerId.slice(0, 8)}…)`);
+            this.emit('reconnected');
+          } else {
+            this._log('ok', `Peer joined room (${peerId.slice(0, 8)}…)`);
+            this.emit('connected');
+          }
+        }
+
         this._handlePeerInfo(info, token);
       });
 
       onNote((text, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
         this.emit('note', { text: String(text == null ? '' : text) });
       });
 
       onLamp(({ on } = {}, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
         this.emit('lamp', { on: !!on });
       });
 
       onPayload(async (payload, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
         this._status('transferring');
         this.emit('progress', { received: 50, total: 100 });
         try {
@@ -249,6 +312,7 @@
       });
 
       onAck(({ response, error } = {}, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
         this._status('done');
         if (this.onAck) {
           try { this.onAck(response, error); } catch (e) { console.error(e); }
@@ -265,22 +329,31 @@
       if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
       this._remotePeerId   = peerId;
       this._isReconnecting = false;
-      // Send peer-info so the other side can display our identity.
+      // Send our peer-info immediately so the other side can gate on our deviceId.
       this._sendPeerInfo();
-      if (isReconnect) {
-        this._log('ok', `Peer reconnected (${peerId.slice(0, 8)}…)`);
-        this.emit('reconnected');
+
+      if (this.onPeerAccept) {
+        // Defer the 'connected' / 'reconnected' event until peer-info arrives
+        // and onPeerAccept has made its decision.
+        this._pendingPeerJoin = { peerId, isReconnect };
       } else {
-        this._log('ok', `Peer joined room (${peerId.slice(0, 8)}…)`);
-        this.emit('connected');
+        // No gating — emit immediately (first-pairing flow).
+        if (isReconnect) {
+          this._log('ok', `Peer reconnected (${peerId.slice(0, 8)}…)`);
+          this.emit('reconnected');
+        } else {
+          this._log('ok', `Peer joined room (${peerId.slice(0, 8)}…)`);
+          this.emit('connected');
+        }
       }
     }
 
     _onPeerLeave(peerId) {
       if (peerId !== this._remotePeerId) return;
-      this._log('info', 'Peer left room — waiting for reconnect…');
+      this._log('info', `Peer left room — waiting up to ${LEAVE_GRACE_MS / 1000}s for reconnect…`);
       this._isReconnecting = true;
-      this._peerInfoSent   = false;  // will need to re-send on rejoin
+      this._peerInfoSent   = false;  // will re-send on rejoin
+      this._pendingPeerJoin = null;
       this.emit('reconnecting', { reason: 'peer-left' });
       this._leaveTimer = setTimeout(() => {
         this._leaveTimer     = null;
@@ -295,11 +368,34 @@
     // Cleanup
     // -----------------------------------------------------------------------
 
+    // Soft reset — clears peer state but keeps the room open.
+    // For persistent rooms this is what gets called when the user navigates
+    // away from the transfer screen; the room stays joined in the background.
     close() {
+      if (this.persistent) {
+        if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
+        this._remotePeerId   = null;
+        this._isReconnecting = false;
+        this._peerInfoSent   = false;
+        this._pendingPeerJoin = null;
+        this._status('idle');
+        return;
+      }
+      this._doClose();
+    }
+
+    // Hard close — leaves the room. Called on explicit unpair.
+    forceClose() {
+      this.persistent = false;
+      this._doClose();
+    }
+
+    _doClose() {
       if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
       if (this._room) { try { this._room.leave(); } catch {} this._room = null; }
       this._remotePeerId        = null;
       this._isReconnecting      = false;
+      this._pendingPeerJoin     = null;
       this._sendPeerInfoAction  = null;
       this._sendNoteAction      = null;
       this._sendLampAction      = null;

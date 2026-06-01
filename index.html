@@ -116,7 +116,6 @@
     background: transparent; border: none; padding: 4px 6px 4px 10px;
     cursor: pointer; max-width: 160px; min-width: 0;
     transition: opacity 0.15s;
-    margin-left: auto;
   }
   .topbar .identity-badge:hover { opacity: 0.7; }
   .topbar .identity-badge:active { opacity: 0.5; }
@@ -126,6 +125,54 @@
     min-width: 0;
   }
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
+
+  /* ===== Topbar connection indicator ===== */
+  /* Shows local + peer avatar(s) when connected. Hidden when no connection. */
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .topbar-conn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    animation: conn-in 0.2s ease-out;
+  }
+  .topbar-conn.hidden { display: none; }
+  @keyframes conn-in {
+    from { opacity: 0; transform: translateX(6px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .topbar-conn-amp {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--dim);
+    flex-shrink: 0;
+  }
+  .topbar-conn-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 80px;
+  }
+  /* Overlapping avatar stack for multiple connections */
+  .topbar-peer-stack {
+    display: flex;
+    align-items: center;
+  }
+  .topbar-peer-stack .stack-item {
+    display: inline-flex;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+  .topbar-peer-stack .stack-item + .stack-item {
+    margin-left: -8px;
+  }
 
   /* ===== Connection bar ===== */
   /* A thin strip at the bottom of every paired screen.
@@ -1719,23 +1766,18 @@
       <h2 class="ob-disc-title">Before you begin</h2>
 
       <div class="ob-disc-section">
-        <div class="ob-disc-heading">Local-first</div>
-        <p>Reports and your identity are stored in this browser only. There's no account, no server-side storage, no cloud sync.</p>
+        <div class="ob-disc-heading">No account, no cloud</div>
+        <p>Reports and your identity are stored in this browser only. Nothing is sent to a server. Clearing your browser data removes everything.</p>
       </div>
 
       <div class="ob-disc-section">
-        <div class="ob-disc-heading">You're in control of transfers</div>
-        <p>Data moves between devices only when you actively scan or share a QR code. Each transfer is a deliberate action.</p>
+        <div class="ob-disc-heading">How pairing works</div>
+        <p>The first time you connect two devices, one shows a QR code and the other scans it. After that, the devices recognise each other and connect automatically whenever both are open — no scanning needed again.</p>
       </div>
 
       <div class="ob-disc-section">
-        <div class="ob-disc-heading">Peer-to-peer</div>
-        <p>Devices connect directly — your data never passes through an intermediary server. The default mode uses a free PeerJS signaling server just to help the two devices find each other; once connected, data flows directly. Your data is encrypted end-to-end by WebRTC regardless of which transport is used.</p>
-      </div>
-
-      <div class="ob-disc-section">
-        <div class="ob-disc-heading">Stays on this device</div>
-        <p>Your identity and reports are stored here only. They're removed if you clear browser data or uninstall this app. For longest-term storage, install this as an app.</p>
+        <div class="ob-disc-heading">Direct and encrypted</div>
+        <p>Data moves directly between devices, encrypted end-to-end by WebRTC. A small signaling service helps the two devices find each other, but your reports never pass through it.</p>
       </div>
 
       <div class="ob-disc-section">
@@ -1785,10 +1827,13 @@
 <header class="topbar">
   <div class="title" id="topbar-title">P2P <em>Transfer</em></div>
   <span class="dev-badge" aria-hidden="true">DEV</span>
-  <button class="identity-badge" id="topbar-identity" aria-label="My device">
-    <span class="identity-badge-svg" id="topbar-identity-svg"></span>
-    <span class="identity-badge-name" id="topbar-identity-name"></span>
-  </button>
+  <div class="topbar-right">
+    <div class="topbar-conn hidden" id="topbar-conn" aria-live="polite"></div>
+    <button class="identity-badge" id="topbar-identity" aria-label="My device">
+      <span class="identity-badge-svg" id="topbar-identity-svg"></span>
+      <span class="identity-badge-name" id="topbar-identity-name"></span>
+    </button>
+  </div>
 </header>
 
 <!-- STAGE -->
@@ -1797,9 +1842,9 @@
   <!-- ============ START SCREEN ============ -->
   <section class="screen active" data-screen="start">
     <div class="screen-header">
-      <h1 class="screen-title">What do you want to do?</h1>
+      <h1 class="screen-title">Transfer reports</h1>
       <p class="screen-subtitle dev-only">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
-      <p class="screen-subtitle user-only-paragraph">Send a report to another device, or receive one from another device.</p>
+      <p class="screen-subtitle user-only-paragraph">Pair two devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
     </div>
     <div class="screen-content">
       <div class="dev-only">
@@ -1819,19 +1864,23 @@
         </div>
       </div>
 
-      <!-- Two big action buttons. Tapping either commits the choice and
-           advances immediately to the next screen — no separate Continue
-           button needed (the act of tapping IS the continue). Both share
-           the same cyan style since neither is "selected"; both are
-           equal calls-to-action. -->
+      <!-- Known Trystero pairings — shown when there are saved devices -->
+      <div id="known-devices-section" class="hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1.5rem;margin-bottom:.5rem">
+          <span style="font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;opacity:.6">Your devices</span>
+          <button id="manage-devices-btn" style="font-size:.75rem;opacity:.6;background:none;border:none;cursor:pointer;text-decoration:underline">Manage</button>
+        </div>
+        <div id="known-devices-list"></div>
+      </div>
+
       <div class="direction-actions" id="mode-group">
-        <button class="direction-btn" data-mode="send">
-          <span class="direction-btn-label">Send</span>
-          <span class="direction-btn-sub">from this device</span>
-        </button>
         <button class="direction-btn" data-mode="receive">
-          <span class="direction-btn-label">Receive</span>
-          <span class="direction-btn-sub">on this device</span>
+          <span class="direction-btn-label">Pair a device</span>
+          <span class="direction-btn-sub">show your QR code</span>
+        </button>
+        <button class="direction-btn" data-mode="send">
+          <span class="direction-btn-label">Send a report</span>
+          <span class="direction-btn-sub">scan the other device</span>
         </button>
       </div>
     </div>
@@ -2000,6 +2049,23 @@
         </div>
       </div>
 
+    </div>
+  </section>
+
+  <!-- ============ PROFILE / DEVICES ============ -->
+  <section class="screen hidden" data-screen="profile">
+    <div class="screen-header">
+      <h1 class="screen-title">Coupled devices</h1>
+      <p class="screen-subtitle">These devices connect automatically when both are online.</p>
+    </div>
+    <div class="screen-content">
+      <div id="profile-pairings-list"></div>
+      <div style="margin-top:1.5rem">
+        <button class="direction-btn" id="profile-add-btn" style="width:100%">
+          <span class="direction-btn-label">Add device</span>
+          <span class="direction-btn-sub">scan a QR code</span>
+        </button>
+      </div>
     </div>
   </section>
 
@@ -2684,6 +2750,163 @@ function disableDevMode() {
 // script load — early enough that no UI has rendered yet.
 document.documentElement.classList.add(DEV_MODE ? 'dev-mode-on' : 'dev-mode-off');
 
+// =====================================================================
+// Device identity — stable UUID for this browser/device, used to
+// identify known pairings without relying on ephemeral Trystero peer IDs.
+// =====================================================================
+const DEVICE_ID = (() => {
+  try {
+    let id = localStorage.getItem('webshare-device-id');
+    if (!id) {
+      id = crypto.randomUUID ? crypto.randomUUID()
+         : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+             (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16));
+      localStorage.setItem('webshare-device-id', id);
+    }
+    return id;
+  } catch { return null; }
+})();
+
+// =====================================================================
+// Pairing store — persists known Trystero pairings in localStorage.
+// Each pairing: { roomCode, deviceId, nickname, emoji, pairedAt, lastSeenAt }
+// =====================================================================
+const PairingStore = {
+  _key: 'webshare-pairings',
+  load() {
+    try { return JSON.parse(localStorage.getItem(this._key) || '[]'); } catch { return []; }
+  },
+  _save(pairings) {
+    try { localStorage.setItem(this._key, JSON.stringify(pairings)); } catch {}
+  },
+  add({ roomCode, deviceId, nickname, emoji }) {
+    const pairings = this.load().filter(p => p.deviceId !== deviceId);
+    pairings.push({ roomCode, deviceId, nickname: nickname || '?', emoji: emoji || '📱',
+                    pairedAt: Date.now(), lastSeenAt: Date.now() });
+    this._save(pairings);
+  },
+  touch(deviceId) {
+    this._save(this.load().map(p =>
+      p.deviceId === deviceId ? { ...p, lastSeenAt: Date.now() } : p));
+  },
+  remove(deviceId) { this._save(this.load().filter(p => p.deviceId !== deviceId)); },
+  isKnown(deviceId) { return !!deviceId && this.load().some(p => p.deviceId === deviceId); },
+  getAll() { return this.load(); },
+};
+
+// =====================================================================
+// QR visibility — true only while the QR screen is active. Used by
+// TrysteroRoomManager to decide whether to accept unknown peers.
+// =====================================================================
+let qrVisible = false;
+
+// =====================================================================
+// Trystero room manager — keeps persistent rooms open across navigation.
+// One TrysteroTransfer per known pairing; rooms survive disposeActiveTransfer.
+// =====================================================================
+const TrysteroRoomManager = {
+  _rooms: new Map(),         // deviceId → TrysteroTransfer
+  _peerInfo: new Map(),      // deviceId → peerInfo (for topbar rendering)
+
+  // Join all known pairings. Called once on startup.
+  async initAll() {
+    for (const pairing of PairingStore.getAll()) {
+      if (!this._rooms.has(pairing.deviceId)) {
+        await this._joinPairing(pairing).catch(e =>
+          console.warn('TrysteroRoomManager: failed to join', pairing.roomCode, e));
+      }
+    }
+  },
+
+  async _joinPairing(pairing) {
+    const t = new TrysteroTransfer({
+      peerInfo   : buildLocalPeerInfo(),
+      persistent : true,
+      onPeerAccept: (deviceId, info) => {
+        if (PairingStore.isKnown(deviceId)) {
+          PairingStore.touch(deviceId);
+          return true;
+        }
+        if (qrVisible) {
+          PairingStore.add({ roomCode: pairing.roomCode, deviceId,
+                             nickname: info && info.nickname, emoji: info && info.emoji });
+          TrysteroRoomManager._rooms.set(deviceId, t);
+          renderPairingsOnStartScreen();
+          return true;
+        }
+        return false;
+      },
+    });
+
+    t.on('log',         ({ level, message }) => log(message, level));
+    t.on('connected',   () => { renderPairingsOnStartScreen(); renderTopbarConnections(); });
+    t.on('reconnected', () => { renderPairingsOnStartScreen(); renderTopbarConnections(); });
+    t.on('reconnecting',() => { renderPairingsOnStartScreen(); renderTopbarConnections(); });
+    t.on('disconnected',() => {
+      TrysteroRoomManager._peerInfo.delete(pairing.deviceId);
+      renderPairingsOnStartScreen();
+      renderTopbarConnections();
+    });
+    t.on('peer-info', (info) => {
+      if (info) TrysteroRoomManager._peerInfo.set(pairing.deviceId, info);
+      // If this is the currently active transfer, update connection bar too.
+      if (activeTransfer === t) {
+        remotePeerInfo = info;
+        renderConnectionBarPeer();
+        updateNotePanelPeerLabel();
+      }
+      renderTopbarConnections();
+    });
+
+    await t.joinPersistentRoom(pairing.roomCode);
+    this._rooms.set(pairing.deviceId, t);
+    return t;
+  },
+
+  // Add a new pairing from a first-time QR flow and start managing it.
+  async addFromFirstPairing(roomCode, deviceId, peerInfo) {
+    PairingStore.add({ roomCode, deviceId,
+                       nickname: peerInfo && peerInfo.nickname,
+                       emoji:    peerInfo && peerInfo.emoji });
+    if (!this._rooms.has(deviceId)) {
+      const pairing = PairingStore.getAll().find(p => p.deviceId === deviceId);
+      if (pairing) await this._joinPairing(pairing).catch(() => {});
+    }
+    renderPairingsOnStartScreen();
+  },
+
+  // Activate a known pairing as the activeTransfer (for UI operations).
+  activate(deviceId) {
+    const t = this._rooms.get(deviceId);
+    if (!t) return null;
+    disposeActiveTransfer();
+    activeTransfer = t;
+    activeTransfer._uiBackend = 'trystero';
+    // Re-wire the UI listeners (connection bar, notes, lamp).
+    wirePeerInfoListener(activeTransfer);
+    wireTransferToReceiveUI(activeTransfer);
+    wireTransferToSendUI(activeTransfer);
+    return t;
+  },
+
+  // Remove a pairing and close its room.
+  remove(deviceId) {
+    const t = this._rooms.get(deviceId);
+    if (t) { try { t.forceClose(); } catch {} this._rooms.delete(deviceId); }
+    PairingStore.remove(deviceId);
+    if (activeTransfer === t) { activeTransfer = null; remotePeerInfo = null; }
+    renderPairingsOnStartScreen();
+  },
+
+  get(deviceId) { return this._rooms.get(deviceId); },
+  getAll() { return [...this._rooms.entries()]; },
+
+  isConnected(deviceId) {
+    const t = this._rooms.get(deviceId);
+    return !!t && !!t._remotePeerId;
+  },
+};
+
 // ---------- Deep-link "join" peer ID ----------
 // When the receiver's QR is scanned with the phone's native camera app,
 // the user lands at https://{site}?join={peerId}. We capture that peer
@@ -3237,6 +3460,7 @@ function onLeaveScreen(screenId) {
   }
   if (screenId === 'show-qr') {
     stopQRCycle('show-qr-frame');
+    qrVisible = false;
   }
   if (screenId === 'transfer') {
     // Clear the highlight state so a future transfer doesn't show stale info
@@ -3267,11 +3491,14 @@ async function onEnterScreen(screenId) {
   } else if (screenId === 'pick') {
     await refreshPickList();
   } else if (screenId === 'show-qr') {
+    qrVisible = true;
     await setupShowQRScreen();
   } else if (screenId === 'scan-qr') {
     await setupScanQRScreen();
   } else if (screenId === 'transfer') {
     setupTransferScreen();
+  } else if (screenId === 'profile') {
+    renderProfileScreen();
   }
   // Re-evaluate which note panel (if any) should be visible. Done after
   // each screen's own setup so the panel toggles together with the rest
@@ -3775,8 +4002,9 @@ function buildLocalPeerInfo() {
     nickname: identity.nickname,
     emoji: identity.emoji,
     color: identity.color,
+    deviceId: DEVICE_ID,
     browser, os,
-    sentAt: Date.now(),  // remote uses (Date.now() - sentAt) for clockOffset
+    sentAt: Date.now(),
   };
 }
 
@@ -3800,12 +4028,13 @@ let remotePeerInfo = null;
 // also force a fresh transfer since the underlying object is backend-bound.
 function disposeActiveTransfer() {
   if (!activeTransfer) return;
-  try { activeTransfer.close(); } catch {}
+  // Persistent Trystero rooms stay open across navigation — just detach
+  // the UI reference. The TrysteroRoomManager retains the actual room.
+  if (!activeTransfer.persistent) {
+    try { activeTransfer.close(); } catch {}
+  }
   activeTransfer = null;
   remotePeerInfo = null;
-  // The note panels live in the DOM across screen changes, but their state
-  // belongs to a single pairing. Wipe on dispose so the next pairing
-  // starts with empty fields. Same for the shared lamp.
   resetNotePanels();
   resetLampState();
 }
@@ -3881,6 +4110,7 @@ function showConnectionBar() {
 function hideConnectionBar() {
   const bar = $('connection-bar');
   bar.classList.add('hidden');
+  renderTopbarConnections();
   updateNavBar();
 }
 
@@ -3933,6 +4163,56 @@ function renderConnectionBarPeer() {
     avatar.innerHTML = renderDeviceSVG('?', { size: 24 });
     nick.textContent = 'peer';
   }
+  renderTopbarConnections();
+}
+
+// Renders connected peer avatars in the topbar.
+// Single connection: [local] & [peer] name
+// Multiple connections: overlapping stack of all avatars + count
+function renderTopbarConnections() {
+  const el = $('topbar-conn');
+  if (!el || !identity) return;
+
+  // Gather all currently connected peers from persistent rooms.
+  const peers = [];
+  for (const [deviceId, t] of TrysteroRoomManager._rooms) {
+    if (t._remotePeerId) {
+      const info = TrysteroRoomManager._peerInfo.get(deviceId);
+      peers.push(info || { emoji: '📱', nickname: '?' });
+    }
+  }
+  // Also include the active non-persistent transfer if connected.
+  if (activeTransfer && !activeTransfer.persistent && activeTransfer._remotePeerId && remotePeerInfo) {
+    peers.push(remotePeerInfo);
+  }
+
+  if (peers.length === 0) {
+    el.classList.add('hidden');
+    return;
+  }
+
+  const SIZE = 28;
+  el.classList.remove('hidden');
+
+  if (peers.length === 1) {
+    const peer = peers[0];
+    el.innerHTML =
+      renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
+      `<span class="topbar-conn-amp">&amp;</span>` +
+      renderDeviceSVG(peer.emoji || '?', { size: SIZE, color: peer.color }) +
+      `<span class="topbar-conn-name">${peer.nickname || 'peer'}</span>`;
+  } else {
+    // Multiple: stack all avatars (local first, then peers) with overlap.
+    const all = [{ emoji: identity.emoji, color: identity.color }, ...peers];
+    const stack = all.map((p, i) =>
+      `<span class="stack-item" style="${i > 0 ? 'margin-left:-8px' : ''}">` +
+      renderDeviceSVG(p.emoji || '?', { size: SIZE, color: p.color }) +
+      `</span>`
+    ).join('');
+    el.innerHTML =
+      `<span class="topbar-peer-stack">${stack}</span>` +
+      `<span class="topbar-conn-name">${peers.length} connected</span>`;
+  }
 }
 
 // Shared listener — both roles want to know who the other peer is.
@@ -3942,12 +4222,17 @@ function wirePeerInfoListener(t) {
     if (info) {
       const clockOffset = info.sentAt ? (Date.now() - info.sentAt) : null;
       log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
+
+      // First-pairing flow: if this is a non-persistent Trystero room and
+      // the peer has a deviceId, save it as a known pairing for future
+      // automatic reconnect. The room will be handed to TrysteroRoomManager
+      // after the session ends.
+      if (info.deviceId && t._uiBackend === 'trystero' && !t.persistent
+          && !PairingStore.isKnown(info.deviceId) && t.peerId) {
+        TrysteroRoomManager.addFromFirstPairing(t.peerId, info.deviceId, info);
+      }
     }
-    // Refresh the avatar + nickname now that peer identity is known.
     renderConnectionBarPeer();
-    // Same for the live note panel's peer label — done here so the label
-    // updates the moment peer-info arrives, regardless of which panel is
-    // currently visible.
     updateNotePanelPeerLabel();
   });
   // 'connected' fires when the data channel opens. Show the bar in the
@@ -3960,9 +4245,11 @@ function wirePeerInfoListener(t) {
   // 'disconnected' fires when the channel closes — peer-bye, channel
   // close, network blip, all the same. Show the disconnect status
   // (briefly visible before we route to start) then route.
+  // Persistent Trystero rooms do NOT navigate — they stay open waiting
+  // for the peer to come back.
   t.on('disconnected', () => {
     setConnectionBarStatus('disconnected');
-    handleRemoteDisconnect();
+    if (!t.persistent) handleRemoteDisconnect();
   });
   // 'reconnecting' fires when the library detects death but is going to
   // try to bring the channel back. We DO NOT route to start here — the
@@ -4144,12 +4431,140 @@ function setupLampToggles() {
 // already closed), navigates to start. onEnterScreen('start') hides
 // the bar and resets state.
 function handleRemoteDisconnect() {
-  // Avoid a duplicate route if we're already heading to start (e.g.
-  // local user pressed Disconnect, which closed the channel, which
-  // fired disconnected on this side too).
   if (currentScreenId() === 'start') return;
   restartToStart();
 }
+
+// =====================================================================
+// Known devices UI — start screen + profile screen
+// =====================================================================
+
+function renderPairingsOnStartScreen() {
+  const pairings = PairingStore.getAll();
+  const section  = $('known-devices-section');
+  const list     = $('known-devices-list');
+  if (!section || !list) return;
+  if (pairings.length === 0) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+  list.innerHTML = pairings.map(p => {
+    const connected = TrysteroRoomManager.isConnected(p.deviceId);
+    const dot = connected
+      ? '<span style="color:var(--accent);font-size:.75rem">● </span>'
+      : '<span style="color:#888;font-size:.75rem">○ </span>';
+    return `<button class="known-device-btn" data-deviceid="${p.deviceId}"
+      style="display:flex;align-items:center;gap:.75rem;width:100%;padding:.75rem 1rem;
+             margin-bottom:.5rem;border:1px solid var(--border);border-radius:.75rem;
+             background:var(--surface);cursor:pointer;text-align:left">
+      <span style="font-size:1.5rem">${p.emoji || '📱'}</span>
+      <span style="flex:1">
+        <span style="font-weight:600">${p.nickname || p.deviceId.slice(0, 8)}</span>
+        <br><span style="font-size:.75rem;opacity:.6">${dot}${connected ? 'Online' : 'Offline'}</span>
+      </span>
+    </button>`;
+  }).join('');
+
+  list.querySelectorAll('.known-device-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const deviceId = btn.dataset.deviceid;
+      activateKnownPairing(deviceId);
+    });
+  });
+}
+
+async function activateKnownPairing(deviceId) {
+  const t = TrysteroRoomManager.get(deviceId);
+  if (!t) return;
+  // Set as active transfer and go to the transfer screen.
+  disposeActiveTransfer();
+  activeTransfer = t;
+  activeTransfer._uiBackend = 'trystero';
+  wirePeerInfoListener(activeTransfer);
+  wireTransferToReceiveUI(activeTransfer);
+  wireTransferToSendUI(activeTransfer);
+  // Navigate to pick (send) or transfer (if already connected).
+  if (t._remotePeerId) {
+    currentMode = 'send';
+    const flow = ['start', 'pick', 'transfer'];
+    // Find pick index and navigate there.
+    const pickIdx = flow.indexOf('pick');
+    if (pickIdx !== -1) {
+      // Manually set flow and step.
+      currentMode = 'send';
+      currentBackend = 'trystero';
+      await refreshPickList();
+      goToStep(1, 'forward');  // start → pick
+    }
+  }
+}
+
+function renderProfileScreen() {
+  const list = $('profile-pairings-list');
+  if (!list) return;
+  const pairings = PairingStore.getAll();
+  if (pairings.length === 0) {
+    list.innerHTML = '<p style="opacity:.6;text-align:center;padding:1rem">No devices coupled yet.</p>';
+    return;
+  }
+  list.innerHTML = pairings.map(p => {
+    const connected = TrysteroRoomManager.isConnected(p.deviceId);
+    const lastSeen  = p.lastSeenAt
+      ? new Date(p.lastSeenAt).toLocaleString()
+      : 'never';
+    return `<div style="display:flex;align-items:center;gap:.75rem;padding:.75rem 0;
+                        border-bottom:1px solid var(--border)">
+      <span style="font-size:1.75rem">${p.emoji || '📱'}</span>
+      <div style="flex:1">
+        <div style="font-weight:600">${p.nickname || '?'}</div>
+        <div style="font-size:.75rem;opacity:.6">${connected ? '● Online' : '○ Last seen: ' + lastSeen}</div>
+      </div>
+      <button class="unpair-btn" data-deviceid="${p.deviceId}"
+        style="padding:.4rem .75rem;border:1px solid #c00;border-radius:.5rem;
+               color:#c00;background:transparent;cursor:pointer;font-size:.8rem">
+        Unpair
+      </button>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.unpair-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (confirm('Remove this device? It will need to scan again to reconnect.')) {
+        TrysteroRoomManager.remove(btn.dataset.deviceid);
+        renderProfileScreen();
+      }
+    });
+  });
+}
+
+// Profile screen: enter via the identity badge long-press or a button.
+document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = $('profile-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      currentMode    = 'receive';
+      currentBackend = 'trystero';
+      goToStep(1, 'forward');
+    });
+  }
+  const manageBtn = $('manage-devices-btn');
+  if (manageBtn) {
+    manageBtn.addEventListener('click', () => {
+      // Navigate to profile screen directly (outside the normal flow).
+      const profileEl = document.querySelector('[data-screen="profile"]');
+      const startEl   = document.querySelector('[data-screen="start"]');
+      if (!profileEl) return;
+      document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+      profileEl.classList.remove('hidden');
+      profileEl.classList.add('active');
+      // Simple back: clicking Back or Devices header goes back to start.
+      profileEl._backFn = () => {
+        profileEl.classList.add('hidden');
+        profileEl.classList.remove('active');
+        if (startEl) { startEl.classList.remove('hidden'); startEl.classList.add('active'); }
+      };
+      renderProfileScreen();
+    });
+  }
+});
 
 function wireTransferToReceiveUI(t) {
   t.on('log', ({ level, message }) => log(message, level));
@@ -6255,6 +6670,14 @@ window.addEventListener('load', async () => {
   // they've just finished setup. autoJoinIfPending no-ops if there
   // was no ?join=... param.
   try { await autoJoinIfPending(); } catch (e) { log('Auto-join error: ' + e.message, 'err'); }
+
+  // Join all known Trystero pairings in the background. Rooms stay open
+  // across navigation; known peers reconnect automatically when online.
+  if (typeof TrysteroTransfer !== 'undefined') {
+    TrysteroRoomManager.initAll()
+      .then(() => renderPairingsOnStartScreen())
+      .catch(e => log('Room init error: ' + e.message, 'err'));
+  }
 });
 
 // Pair automatically if the page was opened with ?join={peerId}. Called
