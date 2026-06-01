@@ -136,6 +136,49 @@
     display: flex; align-items: center; gap: 4px; flex-shrink: 0;
   }
 
+  /* ===== Group status bar — shown on start screen when a group exists ===== */
+  .group-status-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 10px;
+    margin-bottom: 1rem;
+    background: var(--bg-subtle); border: 1px solid var(--line-soft);
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .group-status-bar.connected  { background: #f0faf2; border-color: #b6e3be; }
+  .group-status-bar.connecting { background: var(--bg-subtle); border-color: var(--line); }
+  .group-status-bar.waiting    { background: #fdf8ec; border-color: #f0dfa0; }
+  .group-status-bar.offline    { background: #fdf2f2; border-color: #f0b8b8; }
+  @media (prefers-color-scheme: dark) {
+    .group-status-bar.connected  { background: #0d2b12; border-color: #1e5c28; }
+    .group-status-bar.waiting    { background: #2b2408; border-color: #5c4a0a; }
+    .group-status-bar.offline    { background: #2b0d0d; border-color: #5c1a1a; }
+  }
+  .group-status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: var(--dim);
+  }
+  .group-status-bar.connected  .group-status-dot { background: var(--ok); }
+  .group-status-bar.connecting .group-status-dot {
+    background: var(--accent);
+    animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+  .group-status-bar.waiting .group-status-dot { background: #d4a017; }
+  .group-status-bar.offline  .group-status-dot { background: #c0392b; }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: .4; transform: scale(.7); }
+  }
+  .group-status-text {
+    flex: 1; font-size: 13px; color: var(--ink-soft); min-width: 0;
+  }
+  .group-status-retry {
+    flex-shrink: 0; font-size: 12px; font-weight: 700; font-family: var(--sans);
+    padding: 4px 12px; border-radius: 6px; cursor: pointer;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--ink-soft); transition: all 0.15s;
+  }
+  .group-status-retry:hover { border-color: var(--accent); color: var(--accent); }
+
   /* ===== Connecting overlay ===== */
   /* Full-screen overlay over the stage during connection setup.
      Visible on both sides: receiver while startReceiving() loads,
@@ -1910,6 +1953,13 @@
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
       </div>
 
+      <!-- Group connection status — shown when group exists but not connected -->
+      <div id="group-status-bar" class="group-status-bar hidden">
+        <div class="group-status-dot"></div>
+        <div class="group-status-text" id="group-status-text">Connecting…</div>
+        <button class="group-status-retry hidden" id="group-status-retry">Try now</button>
+      </div>
+
       <div class="direction-actions" id="mode-group">
         <button class="direction-btn" data-mode="receive">
           <span class="direction-btn-label">Pair a device</span>
@@ -2944,21 +2994,26 @@ const TrysteroRoomManager = {
     });
 
     t.on('connected', (peerId) => {
+      GroupReconnectManager.onConnected();
       renderTopbarConnections();
       renderResumeBar();
-      // Connection bar only for PeerJS/Raw — Trystero status lives in topbar + My device
       if (!GroupStore.exists()) {
         showConnectionBar();
         setConnectionBarStatus('connected');
       }
-      // Send a sync-request so the new peer can give us anything we missed
       t.sendSyncRequest(peerId);
     });
 
-    t.on('reconnected', () => { renderTopbarConnections(); renderResumeBar(); });
+    t.on('reconnected', () => {
+      GroupReconnectManager.onConnected();
+      t.peerInfo = buildLocalPeerInfo();
+      t._peerInfoSent = false;
+      renderTopbarConnections(); renderResumeBar();
+    });
     t.on('reconnecting', () => { renderTopbarConnections(); });
 
     t.on('disconnected', () => {
+      GroupReconnectManager.onDisconnected();
       renderTopbarConnections();
       renderResumeBar();
       hideConnectingOverlay();
@@ -3040,7 +3095,109 @@ const TrysteroRoomManager = {
 };
 
 // =====================================================================
-// Sync manager — handles automatic last-write-wins synchronisation
+// Group reconnect manager — automatic reconnect with visual feedback.
+// Strategies: visibility change, online event, exponential backoff timer.
+// =====================================================================
+const GroupReconnectManager = {
+  _retryTimer : null,
+  _retryCount : 0,
+  _retryDelay : 0,
+
+  start() {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
+        this._retryCount = 0;
+        this._doRetry();
+      }
+    });
+    window.addEventListener('online', () => {
+      if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
+        this._retryCount = 0;
+        this._doRetry();
+      }
+    });
+  },
+
+  async _doRetry() {
+    if (!GroupStore.exists()) return;
+    if (TrysteroRoomManager.isConnected()) {
+      renderGroupStatusBar();
+      return;
+    }
+    renderGroupStatusBar('connecting');
+    try {
+      await TrysteroRoomManager.reinit();
+      // Give Nostr relays 8s to connect and find peers before declaring waiting
+      setTimeout(() => {
+        if (!TrysteroRoomManager.isConnected()) this._scheduleRetry();
+        else renderGroupStatusBar();
+      }, 8000);
+    } catch (e) {
+      this._scheduleRetry();
+    }
+  },
+
+  _scheduleRetry() {
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) return;
+    // Exponential backoff: 10s, 20s, 40s, 60s max
+    const delay = Math.min(10000 * Math.pow(2, this._retryCount), 60000);
+    this._retryDelay = delay;
+    this._retryCount++;
+    renderGroupStatusBar('waiting');
+    this._retryTimer = setTimeout(() => this._doRetry(), delay);
+  },
+
+  forceRetry() {
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    this._retryCount = 0;
+    this._doRetry();
+  },
+
+  // Called by TrysteroRoomManager when connected/disconnected
+  onConnected()    { this._retryCount = 0; if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; } renderGroupStatusBar(); },
+  onDisconnected() { this._scheduleRetry(); },
+};
+
+function renderGroupStatusBar(state) {
+  const bar     = $('group-status-bar');
+  const textEl  = $('group-status-text');
+  const retryEl = $('group-status-retry');
+  if (!bar) return;
+
+  if (!GroupStore.exists()) { bar.classList.add('hidden'); return; }
+
+  // When connected and resume bar is visible, hide status bar — resume bar takes over
+  if (!state) {
+    state = TrysteroRoomManager.isConnected() ? 'connected' : 'waiting';
+  }
+  if (state === 'connected') {
+    bar.classList.add('hidden');
+    return;
+  }
+
+  bar.classList.remove('hidden');
+  bar.className = `group-status-bar ${state}`;
+  retryEl.classList.add('hidden');
+
+  switch (state) {
+    case 'connecting':
+      textEl.textContent = 'Connecting to group…';
+      break;
+    case 'waiting': {
+      const secs = Math.round(GroupReconnectManager._retryDelay / 1000);
+      textEl.textContent = navigator.onLine
+        ? `Reconnecting in ${secs}s…`
+        : 'No network connection';
+      retryEl.classList.remove('hidden');
+      break;
+    }
+    case 'offline':
+      textEl.textContent = 'Network unavailable — will retry when online';
+      retryEl.classList.remove('hidden');
+      break;
+  }
+}
 // between all Trystero group members.
 //
 // Protocol:
@@ -3706,6 +3863,7 @@ async function onEnterScreen(screenId) {
     hideConnectionBar();
     refreshSessionsCount();
     renderResumeBar();
+    renderGroupStatusBar();
   } else if (screenId === 'pick') {
     // Adjust title based on context
     const titleEl = document.querySelector('[data-screen="pick"] .screen-title');
@@ -6509,9 +6667,17 @@ async function showMyDevicePanel() {
     editIdBtn.addEventListener('click', async () => {
       backdrop.remove();
       const saved = await showIdentityModal(true);
-      // Reopen My device so the user lands where they came from. Identity
-      // is refreshed via updateIdentityBadge inside showIdentityModal.
-      if (saved !== undefined) showMyDevicePanel();
+      if (saved !== undefined) {
+        // Update the group room's peerInfo so reconnecting peers see the new identity
+        if (TrysteroRoomManager._room) {
+          TrysteroRoomManager._room.peerInfo = buildLocalPeerInfo();
+          TrysteroRoomManager._room._peerInfoSent = false;
+          if (TrysteroRoomManager.isConnected()) {
+            TrysteroRoomManager._room._sendPeerInfo();
+          }
+        }
+        showMyDevicePanel();
+      }
     });
   }
   const resetBtn = backdrop.querySelector('#mydev-reset-data');
@@ -6776,6 +6942,10 @@ function showGenericInstallInstructions(backdrop) {
 }
 
 // Wire the topbar identity badge to open the panel
+document.getElementById('group-status-retry').addEventListener('click', () => {
+  GroupReconnectManager.forceRetry();
+});
+
 document.getElementById('topbar-identity').addEventListener('click', () => {
   showMyDevicePanel();
 });
@@ -7110,7 +7280,9 @@ window.addEventListener('load', async () => {
   try { await autoJoinIfPending(); } catch (e) { log('Auto-join error: ' + e.message, 'err'); }
 
   if (typeof TrysteroTransfer !== 'undefined') {
+    GroupReconnectManager.start();
     TrysteroRoomManager.init()
+      .then(() => renderGroupStatusBar())
       .catch(e => log('Room init error: ' + e.message, 'err'));
   }
 });
