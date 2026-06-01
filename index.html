@@ -2186,17 +2186,24 @@ function openSessionDb() {
   });
 }
 function txPromise(tx) { return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error); }); }
-async function listSessions() {
+
+// Raw list — all sessions including tombstones (for sync)
+async function listSessionsRaw() {
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readonly');
   const all = await new Promise((res, rej) => { const r = tx.objectStore('sessions').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   db.close();
-  return all.sort((a, b) => (new Date(b.modifiedAt).getTime()) - (new Date(a.modifiedAt).getTime()));
+  return all;
+}
+
+// Public list — excludes tombstones, sorted newest first
+async function listSessions() {
+  const all = await listSessionsRaw();
+  return all
+    .filter(s => !s.deleted)
+    .sort((a, b) => (new Date(b.modifiedAt).getTime()) - (new Date(a.modifiedAt).getTime()));
 }
 async function getSession(id) {
-  // Guard against null/undefined id — IDBObjectStore.get() throws a cryptic
-  // "No key or key range specified" error otherwise. Treat "no id" as
-  // "no such session" so callers can use the same not-found code path.
   if (id == null) return undefined;
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readonly');
@@ -2205,17 +2212,43 @@ async function getSession(id) {
   db.close();
   return result;
 }
-async function putSession(session) {
+
+// Internal raw put — used by SyncManager (no sync broadcast, no syncedAt update)
+async function _putSessionRaw(session) {
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readwrite');
   tx.objectStore('sessions').put(session);
   await txPromise(tx); db.close();
 }
-async function deleteSession(id) {
+
+// Public put — sets syncedAt + deviceId, broadcasts delta to group
+async function putSession(session) {
+  session.syncedAt = Date.now();
+  session.deviceId = DEVICE_ID;
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readwrite');
-  tx.objectStore('sessions').delete(id);
+  tx.objectStore('sessions').put(session);
   await txPromise(tx); db.close();
+  // Broadcast to Trystero group
+  if (currentBackend === 'trystero' || GroupStore.exists()) {
+    SyncManager.broadcastDelta(session);
+  }
+}
+
+// Public delete — tombstone instead of hard delete, broadcasts delta
+async function deleteSession(id) {
+  const existing = await getSession(id);
+  if (!existing) return;
+  const tombstone = {
+    ...existing,
+    deleted  : true,
+    syncedAt : Date.now(),
+    deviceId : DEVICE_ID,
+  };
+  await _putSessionRaw(tombstone);
+  if (currentBackend === 'trystero' || GroupStore.exists()) {
+    SyncManager.broadcastDelta(tombstone);
+  }
 }
 
 // ---------- Session history ----------
@@ -2769,31 +2802,60 @@ const DEVICE_ID = (() => {
 })();
 
 // =====================================================================
-// Pairing store — persists known Trystero pairings in localStorage.
-// Each pairing: { roomCode, deviceId, nickname, emoji, pairedAt, lastSeenAt }
+// Group store — persists the Trystero group in localStorage.
+// One group per installation: { roomCode, password, members: [...] }
+// Each member: { deviceId, nickname, emoji, color, invitedBy, joinedAt, lastSeenAt }
 // =====================================================================
-const PairingStore = {
-  _key: 'webshare-pairings',
+const GroupStore = {
+  _key: 'webshare-group',
   load() {
-    try { return JSON.parse(localStorage.getItem(this._key) || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(this._key)); } catch { return null; }
   },
-  _save(pairings) {
-    try { localStorage.setItem(this._key, JSON.stringify(pairings)); } catch {}
+  _save(group) {
+    try { localStorage.setItem(this._key, JSON.stringify(group)); } catch {}
   },
-  add({ roomCode, deviceId, nickname, emoji, color }) {
-    const pairings = this.load().filter(p => p.deviceId !== deviceId);
-    pairings.push({ roomCode, deviceId, nickname: nickname || '?', emoji: emoji || '📱',
-                    color: color || null,
-                    pairedAt: Date.now(), lastSeenAt: Date.now() });
-    this._save(pairings);
+  exists() { return !!this.load(); },
+  // Create a new group (called on first pairing — receiver side).
+  create(roomCode, password) {
+    this._save({ roomCode, password, members: [] });
+  },
+  addMember({ deviceId, nickname, emoji, color, invitedBy }) {
+    const group = this.load();
+    if (!group) return;
+    group.members = group.members.filter(m => m.deviceId !== deviceId);
+    group.members.push({
+      deviceId,
+      nickname  : nickname  || '?',
+      emoji     : emoji     || '📱',
+      color     : color     || null,
+      invitedBy : invitedBy || null,
+      joinedAt  : Date.now(),
+      lastSeenAt: Date.now(),
+    });
+    this._save(group);
   },
   touch(deviceId) {
-    this._save(this.load().map(p =>
-      p.deviceId === deviceId ? { ...p, lastSeenAt: Date.now() } : p));
+    const group = this.load();
+    if (!group) return;
+    group.members = group.members.map(m =>
+      m.deviceId === deviceId ? { ...m, lastSeenAt: Date.now() } : m);
+    this._save(group);
   },
-  remove(deviceId) { this._save(this.load().filter(p => p.deviceId !== deviceId)); },
-  isKnown(deviceId) { return !!deviceId && this.load().some(p => p.deviceId === deviceId); },
-  getAll() { return this.load(); },
+  removeMember(deviceId) {
+    const group = this.load();
+    if (!group) return;
+    group.members = group.members.filter(m => m.deviceId !== deviceId);
+    this._save(group);
+  },
+  isKnown(deviceId) {
+    if (!deviceId) return false;
+    const group = this.load();
+    return !!group && group.members.some(m => m.deviceId === deviceId);
+  },
+  getMembers()  { const g = this.load(); return g ? g.members : []; },
+  getRoomCode() { const g = this.load(); return g ? g.roomCode : null; },
+  getPassword() { const g = this.load(); return g ? g.password : null; },
+  clear() { try { localStorage.removeItem(this._key); } catch {} },
 };
 
 // =====================================================================
@@ -2803,134 +2865,222 @@ const PairingStore = {
 let qrVisible = false;
 
 // =====================================================================
-// Trystero room manager — keeps persistent rooms open across navigation.
-// One TrysteroTransfer per known pairing; rooms survive disposeActiveTransfer.
+// Trystero room manager — one persistent room shared by the whole group.
+// All group members join the same room; peers connect in a mesh topology.
 // =====================================================================
 const TrysteroRoomManager = {
-  _rooms: new Map(),         // deviceId → TrysteroTransfer
-  _peerInfo: new Map(),      // deviceId → peerInfo (for topbar rendering)
+  _room    : null,         // single TrysteroTransfer for the group
+  _peerInfo: new Map(),    // deviceId → peerInfo for all known connected peers
 
-  // Join all known pairings. Called once on startup.
-  async initAll() {
-    for (const pairing of PairingStore.getAll()) {
-      if (!this._rooms.has(pairing.deviceId)) {
-        await this._joinPairing(pairing).catch(e =>
-          console.warn('TrysteroRoomManager: failed to join', pairing.roomCode, e));
-      }
-    }
+  // Join the group room. Called once on startup if a group exists.
+  async init() {
+    if (this._room) return;
+    if (!GroupStore.exists()) return;
+    await this._joinGroup().catch(e =>
+      console.warn('TrysteroRoomManager: failed to join group room', e));
   },
 
-  async _joinPairing(pairing) {
+  async _joinGroup() {
+    const roomCode = GroupStore.getRoomCode();
+    const password = GroupStore.getPassword();
+    if (!roomCode) return;
+
     const t = new TrysteroTransfer({
-      peerInfo   : buildLocalPeerInfo(),
-      persistent : true,
+      peerInfo    : buildLocalPeerInfo(),
+      persistent  : true,
+      password,
       onPeerAccept: (deviceId, info) => {
-        if (PairingStore.isKnown(deviceId)) {
-          PairingStore.touch(deviceId);
+        if (GroupStore.isKnown(deviceId)) {
+          GroupStore.touch(deviceId);
           return true;
         }
         if (qrVisible) {
-          PairingStore.add({ roomCode: pairing.roomCode, deviceId,
-                             nickname: info && info.nickname, emoji: info && info.emoji,
-                             color: info && info.color });
-          TrysteroRoomManager._rooms.set(deviceId, t);
-          
+          GroupStore.addMember({
+            deviceId,
+            nickname : info && info.nickname,
+            emoji    : info && info.emoji,
+            color    : info && info.color,
+            invitedBy: info && info.invitedBy,
+          });
           return true;
         }
         return false;
       },
     });
 
-    t.on('log',         ({ level, message }) => log(message, level));
-    t.on('connected',   () => {  renderTopbarConnections(); });
-    t.on('reconnected', () => {  renderTopbarConnections(); });
-    t.on('reconnecting',() => {  renderTopbarConnections(); });
-    t.on('disconnected',() => {
-      TrysteroRoomManager._peerInfo.delete(pairing.deviceId);
-      
+    t.on('log', ({ level, message }) => log(message, level));
+
+    t.on('connected', (peerId) => {
       renderTopbarConnections();
+      renderResumeBar();
+      // Send a sync-request so the new peer can give us anything we missed
+      t.sendSyncRequest(peerId);
     });
-    t.on('peer-info', (info) => {
-      if (info) TrysteroRoomManager._peerInfo.set(pairing.deviceId, info);
-      // If this is the currently active transfer, update connection bar too.
-      if (activeTransfer === t) {
-        remotePeerInfo = info;
-        renderConnectionBarPeer();
-        updateNotePanelPeerLabel();
+
+    t.on('reconnected', () => { renderTopbarConnections(); renderResumeBar(); });
+    t.on('reconnecting', () => { renderTopbarConnections(); });
+
+    t.on('disconnected', () => {
+      renderTopbarConnections();
+      renderResumeBar();
+      hideConnectingOverlay();
+    });
+
+    t.on('peer-left', (peerId) => {
+      // Remove from peerInfo if this peerId matches a known device
+      for (const [deviceId, info] of this._peerInfo) {
+        if (info._peerId === peerId) {
+          this._peerInfo.delete(deviceId);
+          break;
+        }
       }
       renderTopbarConnections();
     });
 
-    await t.joinPersistentRoom(pairing.roomCode);
-    this._rooms.set(pairing.deviceId, t);
-    return t;
+    t.on('peer-info', (info) => {
+      if (info && info.deviceId) {
+        this._peerInfo.set(info.deviceId, info);
+      }
+      renderTopbarConnections();
+    });
+
+    // Wire sync callbacks to SyncManager
+    t.onSyncFull    = (sessions, peerId) => SyncManager.receiveFull(sessions, peerId);
+    t.onSyncDelta   = (session,  peerId) => SyncManager.receiveDelta(session, peerId);
+    t.onSyncRequest = (peerId)           => SyncManager.sendFullTo(peerId);
+
+    await t.joinPersistentRoom(roomCode);
+    this._room = t;
   },
 
-  // Add a new pairing from a first-time QR flow.
-  // Does NOT join immediately — the activeTransfer is already in this room.
-  // The persistent room is created when initAll() runs after the session ends.
-  async addFromFirstPairing(roomCode, deviceId, peerInfo) {
-    PairingStore.add({ roomCode, deviceId,
-                       nickname: peerInfo && peerInfo.nickname,
-                       emoji:    peerInfo && peerInfo.emoji,
-                       color:    peerInfo && peerInfo.color });
+  // Called after first-time pairing to (re-)init with the new group
+  async reinit() {
+    if (this._room) { try { this._room.forceClose(); } catch {} this._room = null; }
+    this._peerInfo.clear();
+    await this.init();
   },
 
-  // Activate a known pairing as the activeTransfer (for UI operations).
-  activate(deviceId) {
-    const t = this._rooms.get(deviceId);
-    if (!t) return null;
-    disposeActiveTransfer();
-    activeTransfer = t;
-    activeTransfer._uiBackend = 'trystero';
-    // Re-wire the UI listeners (connection bar, notes, lamp).
-    wirePeerInfoListener(activeTransfer);
-    wireTransferToReceiveUI(activeTransfer);
-    wireTransferToSendUI(activeTransfer);
-    return t;
+  remove() {
+    if (this._room) { try { this._room.forceClose(); } catch {} this._room = null; }
+    this._peerInfo.clear();
+    GroupStore.clear();
+    renderTopbarConnections();
   },
 
-  // Remove a pairing and close its room.
-  remove(deviceId) {
-    const t = this._rooms.get(deviceId);
-    if (t) { try { t.forceClose(); } catch {} this._rooms.delete(deviceId); }
-    PairingStore.remove(deviceId);
-    if (activeTransfer === t) { activeTransfer = null; remotePeerInfo = null; }
-    
+  isConnected() {
+    return !!this._room && this._room._connectedPeers.size > 0;
   },
 
-  get(deviceId) { return this._rooms.get(deviceId); },
-  getAll() { return [...this._rooms.entries()]; },
-
-  isConnected(deviceId) {
-    const t = this._rooms.get(deviceId);
-    return !!t && !!t._remotePeerId;
+  getConnectedMembers() {
+    const result = [];
+    if (!this._room) return result;
+    for (const peerId of this._room._connectedPeers) {
+      // Find matching peerInfo by _peerId
+      let info = null;
+      for (const [, pi] of this._peerInfo) {
+        if (pi._peerId === peerId) { info = pi; break; }
+      }
+      result.push({ peerId, info });
+    }
+    return result;
   },
 };
 
-// ---------- Deep-link "join" peer ID ----------
-// When the receiver's QR is scanned with the phone's native camera app,
-// the user lands at https://{site}?join={peerId}. We capture that peer
-// ID here on script load (synchronous, so no race), strip it from the
-// URL so a refresh doesn't auto-trigger, and stash it for use after
-// init completes. autoJoinIfPending() reads this and kicks off the
-// pairing flow once identity + libs are ready.
-const PENDING_JOIN_PEER_ID = (() => {
+// =====================================================================
+// Sync manager — handles automatic last-write-wins synchronisation
+// between all Trystero group members.
+//
+// Protocol:
+//   sync-full    sent on first connect — all local sessions
+//   sync-delta   sent on every local save/delete — one session
+//   sync-request sent on reconnect — asks peer for their full state
+//
+// Conflict resolution: highest syncedAt wins.
+// Tie-break: lexicographically higher deviceId wins (deterministic).
+// =====================================================================
+const SyncManager = {
+
+  // Merge a single incoming session into local IDB.
+  async _merge(incoming) {
+    if (!incoming || !incoming.id) return;
+    const existing = await getSession(incoming.id);
+
+    if (!existing) {
+      // Brand new — store it (even if it's a tombstone — respects remote delete)
+      await _putSessionRaw(incoming);
+      if (!incoming.deleted) {
+        refreshSessionsCount();
+        log(`Sync: received new report "${incoming.name || incoming.id}".`, 'ok');
+      }
+      return;
+    }
+
+    const inTs  = incoming.syncedAt  || 0;
+    const exTs  = existing.syncedAt  || 0;
+
+    // Tie-break on deviceId when timestamps are equal
+    const inWins = inTs > exTs ||
+      (inTs === exTs && (incoming.deviceId || '') > (existing.deviceId || ''));
+
+    if (inWins) {
+      await _putSessionRaw(incoming);
+      refreshSessionsCount();
+      log(`Sync: updated report "${incoming.name || incoming.id}".`, 'info');
+    }
+    // else: local version is newer — ignore incoming
+  },
+
+  // Receive a full state dump from a peer (on first connect or sync-request)
+  async receiveFull(sessions, fromPeerId) {
+    if (!Array.isArray(sessions)) return;
+    log(`Sync: received ${sessions.length} reports from peer.`, 'info');
+    for (const s of sessions) await this._merge(s);
+    refreshSessionsCount();
+  },
+
+  // Receive a single delta (on remote save/delete)
+  async receiveDelta(session, fromPeerId) {
+    await this._merge(session);
+  },
+
+  // Send all local sessions (including tombstones) to a specific peer
+  async sendFullTo(targetPeerId) {
+    const t = TrysteroRoomManager._room;
+    if (!t) return;
+    const all = await listSessionsRaw();
+    t.sendSyncFull(all, targetPeerId);
+    log(`Sync: sent ${all.length} reports to peer.`, 'info');
+  },
+
+  // Broadcast a single session to all connected peers
+  async broadcastDelta(session) {
+    const t = TrysteroRoomManager._room;
+    if (!t || t._connectedPeers.size === 0) return;
+    t.sendSyncDelta(session);
+  },
+};
+// Capture deep-link join params on script load. Strips from URL so
+// refresh doesn't re-trigger.
+const PENDING_JOIN_PARAMS = (() => {
   try {
     const params = new URLSearchParams(window.location.search);
     const joinId = params.get('join');
     if (!joinId) return null;
-    // Strip the param so refresh / back-button doesn't re-pair. Keep
-    // any other params (like ?dev=1) intact.
-    params.delete('join');
+    const result = {
+      peerId   : joinId,
+      backend  : params.get('backend')   || null,
+      pw       : params.get('pw')        || null,
+      invitedBy: params.get('invitedBy') || null,
+    };
+    ['join','backend','pw','invitedBy'].forEach(k => params.delete(k));
     const search = params.toString();
     const cleanUrl = window.location.pathname + (search ? '?' + search : '') + window.location.hash;
     window.history.replaceState({}, '', cleanUrl);
-    return joinId;
-  } catch (e) {
-    return null;
-  }
+    return result;
+  } catch { return null; }
 })();
+// Keep backward-compatible alias used throughout the file
+const PENDING_JOIN_PEER_ID = PENDING_JOIN_PARAMS ? PENDING_JOIN_PARAMS.peerId : null;
 // One-shot flag so autoJoinIfPending only runs the pairing once even
 // when called from multiple init points (load handler + finishOnboarding).
 let autoJoinConsumed = false;
@@ -3480,7 +3630,18 @@ async function onEnterScreen(screenId) {
   log(`→ ${screenId}`, 'info');
   if (screenId === 'start') {
     hideConnectingOverlay();
-    disposeActiveTransfer();
+
+    // If there's an active connection, keep it alive — the user may want
+    // to resume. Only dispose if there's no connection (stale transfer).
+    const hasActiveConnection = activeTransfer && !!activeTransfer._remotePeerId;
+    if (hasActiveConnection) {
+      // Keep the transfer but reset UI state (note panels, lamp).
+      resetNotePanels();
+      resetLampState();
+    } else {
+      disposeActiveTransfer();
+    }
+
     selectedSessionId = null;
     hideConnectionBar();
     refreshSessionsCount();
@@ -3517,10 +3678,15 @@ document.querySelectorAll('#backend-group .toggle-btn').forEach(b => {
 // already, but if not, the setup modal blocks until saved).
 document.querySelectorAll('#mode-group .direction-btn').forEach(b => {
   b.addEventListener('click', async () => {
+    // User is starting a new pairing — close any lingering connection.
+    if (activeTransfer && activeTransfer._remotePeerId) {
+      disposeActiveTransfer();
+      renderResumeBar();
+    }
     currentMode = b.dataset.mode;
     onBackendOrModeChanged();
     const id = await ensureIdentity();
-    if (!id) return;  // shouldn't happen (setup modal is non-cancellable) but defensive
+    if (!id) return;
     nextStep();
   });
 });
@@ -3582,11 +3748,10 @@ async function setupShowQRScreen() {
     if (needsInit) showConnectingOverlay('Setting up…');
     await ensureReceiveTransfer();
   } else if (currentMode === 'receive' && currentBackend === 'trystero') {
-    $('show-qr-title').textContent = 'Share room code with sender';
-    $('show-qr-subtitle').textContent = 'On the sending device, scan this QR or type the code below.';
-    const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'trystero';
-    if (needsInit) showConnectingOverlay('Connecting to relays…');
-    await ensureReceiveTransfer();
+    $('show-qr-title').textContent = GroupStore.exists() ? 'Invite to group' : 'Create group';
+    $('show-qr-subtitle').textContent = 'Let the other device scan this QR to join.';
+    showConnectingOverlay('Setting up…');
+    await setupTrysteroInviteQR();
   } else if (currentMode === 'receive' && currentBackend === 'raw') {
     $('show-qr-title').textContent = 'Scan this with the sender';
     $('show-qr-subtitle').textContent = 'On the sending device, point its camera at this animated QR.';
@@ -3671,30 +3836,80 @@ async function setupScanQRScreen() {
 // pathname so it works whether the app is hosted at the root or in a
 // subdirectory. Query string and hash on the current URL are dropped —
 // we want a clean entry point.
-function buildJoinURL(peerId, backend) {
+// Build a URL for the QR code.
+// For Trystero group invitations: includes pw (password) and invitedBy (device ID).
+function buildJoinURL(peerId, backend, opts = {}) {
   const base = window.location.origin + window.location.pathname;
   let url = `${base}?join=${encodeURIComponent(peerId)}`;
-  // Encode non-PeerJS backends so autoJoinIfPending can pick the right one
-  // when the QR is scanned from a native camera app.
   if (backend && backend !== 'peerjs') url += `&backend=${encodeURIComponent(backend)}`;
+  if (opts.pw)        url += `&pw=${encodeURIComponent(opts.pw)}`;
+  if (opts.invitedBy) url += `&invitedBy=${encodeURIComponent(opts.invitedBy)}`;
   return url;
 }
 
-// Given scanned text (could be either a URL with ?join=... or a bare
-// peer ID from a legacy QR), return just the peer ID. If parsing fails
-// for any reason, fall back to using the input as-is — that handles
-// non-URL inputs (typed manual entry, legacy QRs) without special-casing.
-function extractPeerIdFromScan(text) {
-  if (!text) return text;
+// Extract join params from scanned text (URL or bare ID).
+// Returns { peerId, backend, pw, invitedBy }
+function extractJoinParams(text) {
+  const result = { peerId: text, backend: null, pw: null, invitedBy: null };
+  if (!text) return result;
   try {
-    // Try to parse as a URL. URL constructor throws for non-URL inputs.
     const url = new URL(text);
     const joinParam = url.searchParams.get('join');
-    if (joinParam) return joinParam;
-  } catch {
-    // Not a URL — treat the whole string as a bare peer ID.
+    if (joinParam) {
+      result.peerId    = joinParam;
+      result.backend   = url.searchParams.get('backend') || null;
+      result.pw        = url.searchParams.get('pw')        || null;
+      result.invitedBy = url.searchParams.get('invitedBy') || null;
+    }
+  } catch { /* not a URL — use raw text as peerId */ }
+  return result;
+}
+
+// Legacy single-value extractor (used by PeerJS flow)
+function extractPeerIdFromScan(text) {
+  return extractJoinParams(text).peerId;
+}
+
+// =====================================================================
+// Trystero group invite QR — shows the group's room code + password so
+// a new device can join. Creates the group if this is the first pairing.
+// The QR URL contains: ?join={roomCode}&pw={password}&invitedBy={DEVICE_ID}&backend=trystero
+// =====================================================================
+async function setupTrysteroInviteQR() {
+  // Ensure group exists (create on first use)
+  if (!GroupStore.exists()) {
+    const roomCode = await (async () => {
+      // Use generateTrysteroPassword if available (from transfer file)
+      const pw = typeof generateTrysteroPassword === 'function'
+        ? generateTrysteroPassword()
+        : [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2,'0')).join('');
+      const code = [
+        ['amber','azure','bright','cedar','coral','crisp','frost','golden','green',
+         'ivory','jade','lemon','lime','maple','misty','sandy','snowy','sunny'][Math.floor(Math.random()*18)],
+        ['birch','brook','cliff','creek','field','frost','glade','grove','hill',
+         'lake','mist','moon','moss','peak','pine','pond','ridge','river','rock'][Math.floor(Math.random()*19)],
+        String(10 + Math.floor(Math.random() * 90))
+      ].join('-');
+      GroupStore.create(code, pw);
+      return code;
+    })();
   }
-  return text;
+
+  const roomCode = GroupStore.getRoomCode();
+  const password = GroupStore.getPassword();
+  const inviteUrl = buildJoinURL(roomCode, 'trystero', { pw: password, invitedBy: DEVICE_ID });
+
+  // Show QR
+  hideConnectingOverlay();
+  $('show-qr-peerid').textContent = roomCode;
+  $('show-qr-peerid').classList.remove('hidden');
+  renderQR($('show-qr-frame'), inviteUrl);
+  $('show-qr-info').textContent = DEV_MODE ? `Room: ${roomCode}` : '';
+
+  // Ensure the group room is running in the background
+  if (!TrysteroRoomManager._room) {
+    TrysteroRoomManager.init().catch(e => log('Group room init error: ' + e.message, 'err'));
+  }
 }
 
 async function onScanResult(data) {
@@ -3723,16 +3938,32 @@ async function onScanResult(data) {
       showProgressRestartButton('Disconnect');
     }
   } else if (isTrysteroSender) {
-    const roomCode = extractPeerIdFromScan(data);
+    const params = extractJoinParams(data);
+    const roomCode = params.peerId;
+    const password = params.pw;
+    const invitedBy = params.invitedBy;
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
     showConnectingOverlay('Connecting to relays…');
     try {
+      // If we don't have a group yet, create one from the scanned QR
+      if (!GroupStore.exists() && roomCode && password) {
+        GroupStore.create(roomCode, password);
+      }
+      // Store invitedBy in peerInfo for this session so the host sees it
+      if (invitedBy && !GroupStore.isKnown(DEVICE_ID)) {
+        _pendingInvitedBy = invitedBy;
+      }
       await activeTransfer.connect(roomCode);
       hideConnectingOverlay();
-      const pickIdx = activeFlow().indexOf('pick');
-      if (pickIdx !== -1) goToStep(pickIdx, 'forward');
+      // After first pairing: reinit the room manager with the new group
+      if (!TrysteroRoomManager._room) {
+        await TrysteroRoomManager.reinit();
+      }
+      // Navigate to start — no pick/transfer flow for Trystero
+      restartToStart();
     } catch (err) {
       hideConnectingOverlay();
+      _pendingInvitedBy = null;
       log('Trystero connect failed: ' + err.message, 'err');
       const transferIdx = activeFlow().indexOf('transfer');
       if (transferIdx !== -1) goToStep(transferIdx, 'forward');
@@ -3966,15 +4197,12 @@ async function revealPostTransferSessions() {
   }
 }
 
-// Build the peerInfo object we send to the other side on connection.
-// Reads the saved identity, adds browser/OS detection, and a clock offset
-// placeholder. Returns null if identity isn't set (shouldn't happen if
-// onboarding completed but defensive).
+// Holds invitedBy from a just-scanned invitation QR.
+// Included in peer-info during the join so the host can track the invite tree.
+let _pendingInvitedBy = null;
+
 function buildLocalPeerInfo() {
   if (!identity) return null;
-  // Best-effort browser + OS detection from UA. Imperfect but enough for
-  // a diagnostic log entry. The user-visible UI only uses device/emoji/
-  // nickname; browser/os are diagnostic.
   const ua = navigator.userAgent;
   let browser = 'Unknown', os = 'Unknown';
   if (/Firefox\/[\d.]+/.test(ua)) browser = 'Firefox';
@@ -3986,15 +4214,20 @@ function buildLocalPeerInfo() {
   else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
   else if (/Android/.test(ua)) os = 'Android';
   else if (/Linux/.test(ua)) os = 'Linux';
-  return {
-    device: identity.device,
-    nickname: identity.nickname,
-    emoji: identity.emoji,
-    color: identity.color,
-    deviceId: DEVICE_ID,
+  const info = {
+    device   : identity.device,
+    nickname : identity.nickname,
+    emoji    : identity.emoji,
+    color    : identity.color,
+    deviceId : DEVICE_ID,
     browser, os,
-    sentAt: Date.now(),
+    sentAt   : Date.now(),
   };
+  if (_pendingInvitedBy) {
+    info.invitedBy   = _pendingInvitedBy;
+    _pendingInvitedBy = null; // consume once
+  }
+  return info;
 }
 
 // Holds the remote peer's identity once peer-info arrives. Used by the
@@ -4017,7 +4250,6 @@ let remotePeerInfo = null;
 // also force a fresh transfer since the underlying object is backend-bound.
 function disposeActiveTransfer() {
   if (!activeTransfer) return;
-  const wasFirstPairingTrystero = activeTransfer._uiBackend === 'trystero' && !activeTransfer.persistent;
   if (!activeTransfer.persistent) {
     try { activeTransfer.close(); } catch {}
   }
@@ -4025,11 +4257,6 @@ function disposeActiveTransfer() {
   remotePeerInfo = null;
   resetNotePanels();
   resetLampState();
-  // If we just closed a first-pairing Trystero session, join any newly
-  // saved rooms that aren't yet managed by the room manager.
-  if (wasFirstPairingTrystero && typeof TrysteroTransfer !== 'undefined') {
-    TrysteroRoomManager.initAll().catch(() => {});
-  }
 }
 
 async function ensureReceiveTransfer() {
@@ -4177,14 +4404,14 @@ function renderTopbarConnections() {
   const nameEl = document.getElementById('topbar-identity-name');
   if (!svgEl || !identity) return;
 
-  // Gather all currently connected peers.
+  // Gather all connected peers from the group room
   const peers = [];
-  for (const [deviceId, t] of TrysteroRoomManager._rooms) {
-    if (t._remotePeerId) {
-      const info = TrysteroRoomManager._peerInfo.get(deviceId);
-      peers.push(info || { emoji: '📱', nickname: '?' });
+  if (TrysteroRoomManager._room) {
+    for (const { info } of TrysteroRoomManager.getConnectedMembers()) {
+      if (info) peers.push(info);
     }
   }
+  // Also include a non-persistent active transfer (PeerJS/Raw)
   if (activeTransfer && !activeTransfer.persistent && activeTransfer._remotePeerId && remotePeerInfo) {
     peers.push(remotePeerInfo);
   }
@@ -4192,7 +4419,6 @@ function renderTopbarConnections() {
   const SIZE = 32;
 
   if (peers.length === 0) {
-    // Back to normal: just local avatar + local name.
     svgEl.innerHTML = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
     nameEl.textContent = identity.nickname || '';
     return;
@@ -4225,13 +4451,24 @@ function wirePeerInfoListener(t) {
       const clockOffset = info.sentAt ? (Date.now() - info.sentAt) : null;
       log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
 
-      // First-pairing flow: if this is a non-persistent Trystero room and
-      // the peer has a deviceId, save it as a known pairing for future
-      // automatic reconnect. The room will be handed to TrysteroRoomManager
-      // after the session ends.
-      if (info.deviceId && t._uiBackend === 'trystero' && !t.persistent
-          && !PairingStore.isKnown(info.deviceId) && t.peerId) {
-        TrysteroRoomManager.addFromFirstPairing(t.peerId, info.deviceId, info);
+      // First-pairing flow: non-persistent Trystero room — save peer to group.
+      if (info.deviceId && t._uiBackend === 'trystero' && !t.persistent && t.peerId) {
+        if (!GroupStore.exists()) {
+          // We are the one who showed the QR; create the group now
+          const pw = typeof generateTrysteroPassword === 'function'
+            ? generateTrysteroPassword()
+            : 'default-' + Date.now();
+          GroupStore.create(t.peerId, pw);
+        }
+        if (!GroupStore.isKnown(info.deviceId)) {
+          GroupStore.addMember({
+            deviceId : info.deviceId,
+            nickname : info.nickname,
+            emoji    : info.emoji,
+            color    : info.color,
+            invitedBy: info.invitedBy || null,
+          });
+        }
       }
     }
     renderConnectionBarPeer();
@@ -4448,17 +4685,19 @@ function renderResumeBar() {
   const sub     = $('resume-session-sub');
   if (!bar) return;
 
-  // Find the active connected transfer.
-  const t = activeTransfer && activeTransfer._remotePeerId ? activeTransfer : null;
-  if (!t || !identity) { bar.classList.add('hidden'); return; }
+  // For Trystero group room: check if any peer is connected
+  const groupConnected = TrysteroRoomManager.isConnected();
+  const groupPeers = TrysteroRoomManager.getConnectedMembers();
+  const t = (activeTransfer && activeTransfer._remotePeerId)
+    ? activeTransfer
+    : (groupConnected ? TrysteroRoomManager._room : null);
 
+  if (!t || !identity) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
 
-  // Render peer avatar.
-  const peerInfo = remotePeerInfo ||
-    (t.persistent ? TrysteroRoomManager._peerInfo.get(
-      [...TrysteroRoomManager._rooms.entries()].find(([,v]) => v === t)?.[0]
-    ) : null);
+  // Render peer avatar
+  const peerInfo = remotePeerInfo
+    || (groupPeers.length > 0 ? groupPeers[0].info : null);
   const SIZE = 28;
   avatars.innerHTML =
     renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
@@ -4477,7 +4716,12 @@ $('resume-session-bar').addEventListener('click', () => {
 });
 
 function handleRemoteDisconnect() {
-  if (currentScreenId() === 'start') return;
+  if (currentScreenId() === 'start') {
+    // Connection dropped while on start screen — clean up now.
+    disposeActiveTransfer();
+    renderResumeBar();
+    return;
+  }
   restartToStart();
 }
 
@@ -4486,41 +4730,19 @@ function handleRemoteDisconnect() {
 // Known devices UI
 // =====================================================================
 
-async function activateKnownPairing(deviceId) {
-  const t = TrysteroRoomManager.get(deviceId);
-  if (!t) return;
-  if (!t._remotePeerId) {
-    log('Device not connected yet — waiting for reconnect.', 'info');
+// =====================================================================
+// Known devices UI
+// =====================================================================
+
+async function activateKnownPairing() {
+  // In the group model, there's only one room. Just activate it.
+  const t = TrysteroRoomManager._room;
+  if (!t || !TrysteroRoomManager.isConnected()) {
+    log('Group not connected yet — waiting for reconnect.', 'info');
     return;
   }
-
-  // Attach to UI without closing the persistent room.
-  disposeActiveTransfer();
-  activeTransfer = t;
-  activeTransfer._uiBackend = 'trystero';
-  wirePeerInfoListener(activeTransfer);
-  wireTransferToReceiveUI(activeTransfer);
-  wireTransferToSendUI(activeTransfer);
-
-  showConnectionBar();
-  setConnectionBarStatus('connected');
-
-  // Navigate directly to the pick screen, bypassing scan-qr
-  // (we're already connected — no QR exchange needed).
-  currentMode    = 'send';
-  currentBackend = 'trystero';
-  currentStep    = FLOWS['send-trystero'].indexOf('pick');
-
-  await refreshPickList();
-
-  document.querySelectorAll('.screen').forEach(s => {
-    s.classList.add('hidden'); s.classList.remove('active');
-  });
-  const pickEl = document.querySelector('[data-screen="pick"]');
-  if (pickEl) { pickEl.classList.remove('hidden'); pickEl.classList.add('active'); }
-
-  updateNavBar();
-  updateNotePanelVisibility();
+  // For Trystero, no pick/send flow — sync is automatic
+  log('Group is connected.', 'ok');
 }
 
 function wireTransferToReceiveUI(t) {
@@ -4544,9 +4766,15 @@ function wireTransferToReceiveUI(t) {
       startQRCycle('show-qr-frame', 'show-qr-info', chunks);
     }
   });
-  t.on('connected', () => {
-    // Receiver connected → auto-advance to transfer screen
+  t.on('connected', (peerId) => {
+    // Receiver connected
     log('Peer connected.', 'ok');
+    if (t._uiBackend === 'trystero') {
+      // Trystero: no transfer screen — request sync from new peer
+      hideConnectingOverlay();
+      if (typeof peerId === 'string') t.sendSyncRequest(peerId);
+      return;
+    }
     if (currentScreenId() !== 'transfer') goToStep(activeFlow().indexOf('transfer'), 'forward');
     setTransferStatus('Connected. Waiting for data…');
   });
@@ -4601,15 +4829,13 @@ function wireTransferToSendUI(t) {
   });
   t.on('connected', () => {
     log('Peer connected.', 'ok');
-    // For raw sender, advance to the pick screen now that the channel
-    // is open. The actual send() fires from setupTransferScreen() once
-    // the user picks a session and taps Continue.
+    if (currentBackend === 'trystero') return; // Trystero: sync happens automatically
+    // Raw sender: advance to pick now that the channel is open.
     if (currentBackend === 'raw' && currentMode === 'send') {
       const pickIdx = activeFlow().indexOf('pick');
       if (pickIdx !== -1 && currentStep !== pickIdx) goToStep(pickIdx, 'forward');
     }
-    // PeerJS sender: after connect() succeeded, onScanResult already
-    // advanced us to pick. Nothing to do here for that case.
+    // PeerJS sender: onScanResult already advanced to pick.
   });
   t.on('progress', ({ sent, total }) => {
     const pct = total ? (sent / total) * 100 : 0;
@@ -5915,28 +6141,37 @@ async function showMyDevicePanel() {
         </div>
 
         ${(() => {
-          const pairings = PairingStore.getAll();
-          if (pairings.length === 0) return '';
-          const rows = pairings.map(p => {
-            const connected  = TrysteroRoomManager.isConnected(p.deviceId);
-            const cached     = TrysteroRoomManager._peerInfo.get(p.deviceId);
-            const emoji      = (cached && cached.emoji) || p.emoji || '?';
-            const color      = (cached && cached.color) || p.color || null;
-            const lastSeen   = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
+          const members = GroupStore.getMembers();
+          if (members.length === 0) return '';
+          const rows = members.map(p => {
+            const cachedInfo = TrysteroRoomManager._peerInfo.get(p.deviceId);
+            const emoji = (cachedInfo && cachedInfo.emoji) || p.emoji || '?';
+            const color = (cachedInfo && cachedInfo.color) || p.color || null;
+            const connected = TrysteroRoomManager.getConnectedMembers().some(m => {
+              return m.info && m.info.deviceId === p.deviceId;
+            });
+            const lastSeen = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
+            const invitedLabel = p.invitedBy
+              ? (() => {
+                  const inviter = members.find(m => m.deviceId === p.invitedBy);
+                  return inviter ? `Invited by ${inviter.nickname || '?'}` : 'External invite';
+                })()
+              : 'Founding member';
             return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft)">
               <span style="flex-shrink:0">${renderDeviceSVG(emoji, { size: 40, color })}</span>
               <div style="flex:1;min-width:0">
                 <div style="font-weight:600;font-size:14px">${p.nickname || '?'}</div>
                 <div style="font-size:12px;color:var(--dim)">${connected ? '● Online' : 'Last seen: ' + lastSeen}</div>
+                <div style="font-size:11px;color:var(--dim);opacity:.7">${invitedLabel}</div>
               </div>
               <button class="mydev-unpair-btn" data-deviceid="${p.deviceId}"
                 style="font-size:11px;padding:4px 10px;border:1px solid #c00;border-radius:4px;color:#c00;background:transparent;cursor:pointer;flex-shrink:0">
-                Unpair
+                Remove
               </button>
             </div>`;
           }).join('');
           return `<div class="mydev-section">
-            <div class="mydev-section-head">Paired devices</div>
+            <div class="mydev-section-head">Group members (${members.length})</div>
             ${rows}
           </div>`;
         })()}
@@ -5981,8 +6216,8 @@ async function showMyDevicePanel() {
   // Unpair buttons in the paired devices section
   backdrop.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (confirm('Remove this device? It will need to scan again to reconnect.')) {
-        TrysteroRoomManager.remove(btn.dataset.deviceid);
+      if (confirm('Remove this device from the group? They will need to scan again to rejoin.')) {
+        GroupStore.removeMember(btn.dataset.deviceid);
         backdrop.remove();
         renderTopbarConnections();
       }
@@ -6084,22 +6319,26 @@ async function showMyDevicePanel() {
   const resetBtn = backdrop.querySelector('#mydev-reset-data');
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
-      const ok = confirm('Reset everything? This deletes your identity, all reports, and the consent flag. The app will reload.');
+      const ok = confirm('Reset everything? This deletes your identity, all reports, pairings and settings. The app will reload.');
       if (!ok) return;
       try {
-        // Wipe both IDBs and the dev-mode flag. Onboarding will run again.
-        const dbs = await indexedDB.databases();
-        await Promise.all(dbs.map(d => new Promise((res) => {
-          const r = indexedDB.deleteDatabase(d.name);
+        // Delete known IndexedDB databases explicitly by name — safer than
+        // indexedDB.databases() which is unsupported in Firefox.
+        const knownDbs = [SESSION_DB, PREFS_DB];
+        // Also try the dynamic list as a best-effort catch-all.
+        const dynamicDbs = typeof indexedDB.databases === 'function'
+          ? (await indexedDB.databases().catch(() => [])).map(d => d.name)
+          : [];
+        const allDbs = [...new Set([...knownDbs, ...dynamicDbs])];
+        await Promise.all(allDbs.map(name => new Promise((res) => {
+          const r = indexedDB.deleteDatabase(name);
           r.onsuccess = res; r.onerror = res; r.onblocked = res;
         })));
-        // Also clear localStorage — device ID and pairings must go too,
-        // otherwise the app is in an inconsistent state after reset.
-        try {
-          localStorage.removeItem('p2pt-dev-mode');
-          localStorage.removeItem('webshare-device-id');
-          localStorage.removeItem('webshare-pairings');
-        } catch {}
+        // Wipe all localStorage in one go — catches any key regardless of name.
+        // webshare-group replaces webshare-pairings in the new group model.
+        try { localStorage.clear(); } catch {}
+        // Clear session storage too.
+        try { sessionStorage.clear(); } catch {}
       } catch (e) {
         log('Reset failed: ' + e.message, 'err');
       }
@@ -6672,10 +6911,8 @@ window.addEventListener('load', async () => {
   // was no ?join=... param.
   try { await autoJoinIfPending(); } catch (e) { log('Auto-join error: ' + e.message, 'err'); }
 
-  // Join all known Trystero pairings in the background. Rooms stay open
-  // across navigation; known peers reconnect automatically when online.
   if (typeof TrysteroTransfer !== 'undefined') {
-    TrysteroRoomManager.initAll()
+    TrysteroRoomManager.init()
       .catch(e => log('Room init error: ' + e.message, 'err'));
   }
 });
@@ -6688,67 +6925,55 @@ window.addEventListener('load', async () => {
 // overlay still showing and bails out. No-op if there was no ?join=...
 // param or if it's already been consumed.
 async function autoJoinIfPending() {
-  if (!PENDING_JOIN_PEER_ID) return;
-  if (autoJoinConsumed) return;  // already paired (or attempted) — don't repeat
-  // If onboarding is still showing, defer. finishOnboarding() will call
-  // us again once the user is set up.
+  if (!PENDING_JOIN_PARAMS) return;
+  if (autoJoinConsumed) return;
   const onboardingShown = !document.getElementById('onboarding').classList.contains('hidden');
   if (onboardingShown) return;
   autoJoinConsumed = true;
-  // Past the early bails — we're committing to either auto-pairing or
-  // showing an error state. Either way the main app needs to be visible.
   revealApp();
   if (typeof PeerJSTransfer === 'undefined') {
     log('Cannot auto-join: library not loaded.', 'err');
     return;
   }
-  log(`Auto-joining peer "${PENDING_JOIN_PEER_ID}"…`, 'info');
-  // Set up sender mode, deriving the backend from the URL param if present.
-  // QR codes generated by non-PeerJS backends include &backend=… so native
-  // camera scans route to the right transport.
-  currentMode = 'send';
-  currentBackend = (function () {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const b = params.get('backend');
-      if (b === 'trystero' || b === 'raw') return b;
-    } catch {}
-    return 'peerjs';
-  })();
+  const { peerId, backend, pw, invitedBy } = PENDING_JOIN_PARAMS;
+  log(`Auto-joining peer "${peerId}"…`, 'info');
+
+  currentMode    = 'send';
+  currentBackend = (backend === 'trystero' || backend === 'raw') ? backend : 'peerjs';
   onBackendOrModeChanged();
-  // Identity should already exist (onboarding completed). Defensive
-  // check — if it somehow doesn't, bail; the user can still tap Send
-  // manually after onboarding.
-  if (!hasIdentity()) {
-    log('Cannot auto-join: no identity.', 'err');
+
+  if (!hasIdentity()) { log('Cannot auto-join: no identity.', 'err'); return; }
+
+  if (currentBackend === 'trystero') {
+    // Group join: create group from QR params, then reinit room manager
+    if (!GroupStore.exists() && peerId && pw) {
+      GroupStore.create(peerId, pw);
+    }
+    if (invitedBy) _pendingInvitedBy = invitedBy;
+    showConnectingOverlay('Joining group…');
+    try {
+      await ensureSendTransfer();
+      await activeTransfer.connect(peerId);
+      hideConnectingOverlay();
+      await TrysteroRoomManager.reinit();
+      restartToStart();
+    } catch (err) {
+      hideConnectingOverlay();
+      _pendingInvitedBy = null;
+      log('Auto-join group failed: ' + err.message, 'err');
+    }
     return;
   }
-  // Create the transfer and wire up the listeners. ensureSendTransfer
-  // also handles the wirePeerInfoListener registration which is what
-  // shows the connection bar on the 'connected' event.
+
   await ensureSendTransfer();
-  // Show the connection bar immediately in "connecting" state so the
-  // user gets feedback while pairing happens in the background. The
-  // peer's nickname is still unknown — peer-info arrives after
-  // channel-open. Bar shows "… — connecting" until then.
   showConnectionBar();
   setConnectionBarStatus('connecting');
-  // Initiate the connection. Library fires 'connected' when the data
-  // channel opens; the wirePeerInfoListener-registered handler will
-  // set the bar to 'connected'.
   try {
-    await activeTransfer.connect(PENDING_JOIN_PEER_ID);
-    // Pairing succeeded — go straight to the pick screen. The user
-    // skips the scan-qr step entirely since pairing already happened.
+    await activeTransfer.connect(peerId);
     const pickIdx = activeFlow().indexOf('pick');
     if (pickIdx !== -1) goToStep(pickIdx, 'forward');
   } catch (err) {
     log('Auto-join failed: ' + err.message, 'err');
-    // Hide the bar since we never actually paired. Stay on the start
-    // screen so the user can try again manually (or just see the app
-    // in its normal initial state). The error log line tells dev users
-    // what went wrong; for non-dev users the bar just disappears and
-    // they're at the start screen.
     hideConnectionBar();
   }
 }
