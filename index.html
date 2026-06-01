@@ -2344,26 +2344,32 @@ function reportOrigin(session) {
       };
     }
   }
-  // No received event found. If there's a created-here event, this
-  // device made it — show the current local identity.
+  // No received event found. If there's a created-here event, use the
+  // stored creator identity (set at creation time). This ensures synced
+  // reports show the correct creator, not the local user.
   const createdHere = h.find(ev => ev.kind === 'created-here');
-  if (createdHere && identity) {
-    return {
-      emoji: identity.emoji || '',
-      nickname: identity.nickname || 'me',
-      color: identity.color || DEFAULT_IDENTITY_COLOR,
-      label: 'created by',
-    };
+  if (createdHere) {
+    const peer = createdHere.peer || (identity ? {
+      emoji   : identity.emoji,
+      nickname: identity.nickname,
+      color   : identity.color,
+    } : null);
+    if (peer) {
+      return {
+        emoji   : peer.emoji    || '',
+        nickname: peer.nickname || 'me',
+        color   : peer.color    || DEFAULT_IDENTITY_COLOR,
+        label   : 'created by',
+      };
+    }
   }
-  // Fallback: legacy report with no history, or imported one. The
-  // report exists on this device, so attribute it to the local user
-  // as the most useful guess; "created by" reads better than nothing.
+  // Fallback: legacy report with no history.
   if (identity) {
     return {
-      emoji: identity.emoji || '',
+      emoji   : identity.emoji    || '',
       nickname: identity.nickname || 'me',
-      color: identity.color || DEFAULT_IDENTITY_COLOR,
-      label: 'created by',
+      color   : identity.color    || DEFAULT_IDENTITY_COLOR,
+      label   : 'created by',
     };
   }
   // No identity at all (very early state). Return a quiet placeholder.
@@ -2819,7 +2825,7 @@ const GroupStore = {
   create(roomCode, password) {
     this._save({ roomCode, password, members: [] });
   },
-  addMember({ deviceId, nickname, emoji, color, invitedBy }) {
+  addMember({ deviceId, nickname, emoji, color, invitedBy, role }) {
     const group = this.load();
     if (!group) return;
     group.members = group.members.filter(m => m.deviceId !== deviceId);
@@ -2828,6 +2834,7 @@ const GroupStore = {
       nickname  : nickname  || '?',
       emoji     : emoji     || '📱',
       color     : color     || null,
+      role      : role      || null,
       invitedBy : invitedBy || null,
       joinedAt  : Date.now(),
       lastSeenAt: Date.now(),
@@ -2949,11 +2956,24 @@ const TrysteroRoomManager = {
     t.on('peer-info', (info) => {
       if (info && info.deviceId) {
         this._peerInfo.set(info.deviceId, info);
+        // Update stored role if peer sent one
+        if (GroupStore.isKnown(info.deviceId) && info.role !== undefined) {
+          const group = GroupStore.load();
+          if (group) {
+            group.members = group.members.map(m =>
+              m.deviceId === info.deviceId ? { ...m, role: info.role || m.role } : m);
+            GroupStore._save(group);
+          }
+        }
       }
       renderTopbarConnections();
       renderConnectionBarPeer();
       renderResumeBar();
     });
+
+    // Demo features — note and lamp over the group room
+    t.on('note', ({ text }) => setPeerNoteText(text));
+    t.on('lamp', ({ on }) => setLampState(on, { send: false }));
 
     // Wire sync callbacks to SyncManager
     t.onSyncFull    = (sessions, peerId) => SyncManager.receiveFull(sessions, peerId);
@@ -3046,12 +3066,19 @@ const SyncManager = {
     if (!Array.isArray(sessions)) return;
     log(`Sync: received ${sessions.length} reports from peer.`, 'info');
     for (const s of sessions) await this._merge(s);
-    refreshSessionsCount();
+    SyncManager._refreshUI();
   },
 
   // Receive a single delta (on remote save/delete)
   async receiveDelta(session, fromPeerId) {
     await this._merge(session);
+    SyncManager._refreshUI();
+  },
+
+  // Refresh session count and pick list if currently visible
+  _refreshUI() {
+    refreshSessionsCount();
+    if (currentScreenId() === 'pick') refreshPickList();
   },
 
   // Send all local sessions (including tombstones) to a specific peer
@@ -3469,7 +3496,7 @@ const FLOWS = {
   'send-trystero':     ['start', 'scan-qr', 'pick', 'transfer'],
 };
 
-let currentBackend = 'peerjs';
+let currentBackend = 'trystero';
 let currentMode = 'receive';
 let currentStep = 0;       // index into the active flow
 let activeTransfer = null;
@@ -4258,6 +4285,7 @@ function buildLocalPeerInfo() {
     nickname : identity.nickname,
     emoji    : identity.emoji,
     color    : identity.color,
+    role     : identity.role || null,
     deviceId : DEVICE_ID,
     browser, os,
     sentAt   : Date.now(),
@@ -4566,15 +4594,11 @@ function wirePeerInfoListener(t) {
   t.on('reconnected', () => {
     log('Reconnected — pushing local state to peer.', 'ok');
     setConnectionBarStatus('connected');
-    // Re-send the current note text (whatever's in the textarea) so the
-    // peer's "what they're writing" view catches up.
     const input = document.querySelector('[data-note-input]');
     const noteText = input ? input.value : '';
-    try { activeTransfer.sendNote(noteText); } catch {}
-    // Re-send the lamp state. Last-write-wins on the wire — if both
-    // sides toggled during the gap, one of the two states arrives last
-    // and wins. Acceptable for a single shared bool.
-    try { activeTransfer.sendLamp(_lampState); } catch {}
+    const tDemo = getTransferForDemoFeatures();
+    try { if (tDemo) tDemo.sendNote(noteText); } catch {}
+    try { if (tDemo) tDemo.sendLamp(_lampState); } catch {}
   });
   // Identity mismatch — someone tried to reconnect but their session
   // token doesn't match. Surfaced as a separate event so we can log it
@@ -4661,6 +4685,17 @@ function updateNotePanelVisibility() {
   updateNotePanelPeerLabel();
 }
 
+// Returns the right transfer for demo features (note/lamp).
+// Prefers the group room (Trystero) over activeTransfer so it always
+// broadcasts to all connected group members.
+function getTransferForDemoFeatures() {
+  if (TrysteroRoomManager._room && TrysteroRoomManager.isConnected()) {
+    return TrysteroRoomManager._room;
+  }
+  if (activeTransfer && activeTransfer._remotePeerId) return activeTransfer;
+  return null;
+}
+
 function setupNotePanels() {
   // Wire every note input. Both panels share the same handler — typing in
   // one mirrors into the other so the user's draft survives screen
@@ -4676,10 +4711,10 @@ function setupNotePanels() {
       if (_noteSendTimer) clearTimeout(_noteSendTimer);
       _noteSendTimer = setTimeout(() => {
         _noteSendTimer = null;
-        if (!activeTransfer || typeof activeTransfer.sendNote !== 'function') return;
+        const t = getTransferForDemoFeatures(); if (!t || typeof t.sendNote !== 'function') return;
         if (text === _lastSentNoteText) return;  // nothing changed since last send
         _lastSentNoteText = text;
-        try { activeTransfer.sendNote(text); } catch (e) { log('sendNote failed: ' + e.message, 'err'); }
+        try { t.sendNote(text); } catch (e) { log('sendNote failed: ' + e.message, 'err'); }
       }, NOTE_SEND_DEBOUNCE_MS);
     });
   }
@@ -4706,8 +4741,8 @@ function setLampState(on, opts = {}) {
   }
   // Outbound only on a local toggle (opts.send: true). Peer-driven updates
   // call with { send: false } so we don't ping-pong.
-  if (opts.send && changed && activeTransfer && typeof activeTransfer.sendLamp === 'function') {
-    try { activeTransfer.sendLamp(_lampState); } catch (e) { log('sendLamp failed: ' + e.message, 'err'); }
+  if (opts.send && changed) { const tl = getTransferForDemoFeatures(); if (tl && typeof tl.sendLamp === 'function') {
+    try { tl.sendLamp(_lampState); } catch (e) { log('sendLamp failed: ' + e.message, 'err'); } }
   }
 }
 
@@ -5733,7 +5768,15 @@ function showSessionModal(existing, returnTo) {
     if (isNew) {
       const id = (typeof generateFriendlyId === 'function') ? generateFriendlyId() : ('s-' + Math.random().toString(36).slice(2, 10));
       const fresh = { id, name, createdAt: now, modifiedAt: now, data, rooms: session.rooms || {} };
-      appendHistoryEvent(fresh, { kind: 'created-here' });
+      appendHistoryEvent(fresh, {
+        kind: 'created-here',
+        peer: identity ? {
+          emoji   : identity.emoji,
+          nickname: identity.nickname,
+          color   : identity.color,
+          deviceId: DEVICE_ID,
+        } : null,
+      });
       await putSession(fresh);
       log(`Created "${fresh.name}".`, 'ok');
       if (returnTo === 'pick') selectedSessionId = fresh.id;
@@ -5923,6 +5966,8 @@ function showIdentityModal(isEditing = false) {
           </div>
           <div class="field-label">Your name</div>
           <input type="text" class="netid" id="id-netid" value="${startNickname}" placeholder="e.g. jvanderlaan, sanne, or a nickname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <div class="field-label" style="margin-top:14px">Your role <span style="opacity:.5;font-weight:400">(optional)</span></div>
+          <input type="text" class="netid" id="id-role" value="${(isEditing && identity?.role) || ''}" placeholder="e.g. Inspector, Team lead, Researcher" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="margin-bottom:0">
           <button class="save-btn" id="id-save">Save</button>
         </div>
       </div>`;
@@ -5981,10 +6026,11 @@ function showIdentityModal(isEditing = false) {
       // the slot machine writes to it on every tick but only updates
       // the JS closure variable on landing.
       const newIdentity = {
-        emoji: emojiEl.textContent,
+        emoji   : emojiEl.textContent,
         nickname: value,
-        device: DEVICE_TYPE,
-        color: circleEl.getAttribute('fill') || DEFAULT_IDENTITY_COLOR
+        device  : DEVICE_TYPE,
+        color   : circleEl.getAttribute('fill') || DEFAULT_IDENTITY_COLOR,
+        role    : (backdrop.querySelector('#id-role')?.value.trim()) || null,
       };
       setPref('identity', newIdentity).then(() => {
         identity = newIdentity;
@@ -6220,6 +6266,7 @@ async function showMyDevicePanel() {
           <div class="mydev-identity-svg">${renderDeviceSVG(identity.emoji, { size: 60, color: identity.color })}</div>
           <div class="mydev-identity-text">
             <div class="mydev-identity-name">${identity.nickname}</div>
+            ${identity.role ? `<div class="mydev-identity-device" style="color:var(--accent);font-weight:600">${identity.role}</div>` : ''}
             <div class="mydev-identity-device">${identity.device}</div>
           </div>
         </div>
@@ -6231,23 +6278,24 @@ async function showMyDevicePanel() {
             const cachedInfo = TrysteroRoomManager._peerInfo.get(p.deviceId);
             const emoji = (cachedInfo && cachedInfo.emoji) || p.emoji || '?';
             const color = (cachedInfo && cachedInfo.color) || p.color || null;
+            const role  = (cachedInfo && cachedInfo.role)  || p.role  || null;
             const connected = TrysteroRoomManager.getConnectedMembers().some(m => {
               return m.info && m.info.deviceId === p.deviceId;
             });
             const lastSeen = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
-            const invitedLabel = p.invitedBy
+            const isYou = p.deviceId === DEVICE_ID;
+            const roleLabel = role || (isYou ? '' : (p.invitedBy
               ? (() => {
                   const inviter = members.find(m => m.deviceId === p.invitedBy);
-                  return inviter ? `Invited by ${inviter.nickname || '?'}` : 'External invite';
+                  return inviter ? `Invited by ${inviter.nickname || '?'}` : '';
                 })()
-              : 'Founding member';
-            const isYou = p.deviceId === DEVICE_ID;
+              : ''));
             return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft)">
               <span style="flex-shrink:0">${renderDeviceSVG(emoji, { size: 40, color })}</span>
               <div style="flex:1;min-width:0">
                 <div style="font-weight:600;font-size:14px">${p.nickname || '?'}${isYou ? ' <span style="opacity:.5;font-weight:400">(you)</span>' : ''}</div>
                 <div style="font-size:12px;color:var(--dim)">${isYou ? '● Online' : connected ? '● Online' : 'Last seen: ' + lastSeen}</div>
-                <div style="font-size:11px;color:var(--dim);opacity:.7">${invitedLabel}</div>
+                ${roleLabel ? `<div style="font-size:11px;color:var(--accent);font-weight:500">${roleLabel}</div>` : ''}
               </div>
               <button class="mydev-unpair-btn" data-deviceid="${p.deviceId}"
                 style="font-size:11px;padding:4px 10px;border:1px solid #c00;border-radius:4px;color:#c00;background:transparent;cursor:pointer;flex-shrink:0">
