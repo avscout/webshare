@@ -136,48 +136,28 @@
     display: flex; align-items: center; gap: 4px; flex-shrink: 0;
   }
 
-  /* ===== Group status bar — shown on start screen when a group exists ===== */
-  .group-status-bar {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 14px; border-radius: 10px;
-    margin-bottom: 1rem;
-    background: var(--bg-subtle); border: 1px solid var(--line-soft);
-    transition: background 0.2s, border-color 0.2s;
-  }
-  .group-status-bar.connected  { background: #f0faf2; border-color: #b6e3be; }
-  .group-status-bar.connecting { background: var(--bg-subtle); border-color: var(--line); }
-  .group-status-bar.waiting    { background: #fdf8ec; border-color: #f0dfa0; }
-  .group-status-bar.offline    { background: #fdf2f2; border-color: #f0b8b8; }
-  @media (prefers-color-scheme: dark) {
-    .group-status-bar.connected  { background: #0d2b12; border-color: #1e5c28; }
-    .group-status-bar.waiting    { background: #2b2408; border-color: #5c4a0a; }
-    .group-status-bar.offline    { background: #2b0d0d; border-color: #5c1a1a; }
-  }
+  /* ===== Group status bar — bottom bar, same style as connection bar ===== */
   .group-status-dot {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
     background: var(--dim);
   }
-  .group-status-bar.connected  .group-status-dot { background: var(--ok); }
-  .group-status-bar.connecting .group-status-dot {
+  #group-status-bar.connecting .group-status-dot {
     background: var(--accent);
     animation: pulse-dot 1.2s ease-in-out infinite;
   }
-  .group-status-bar.waiting .group-status-dot { background: #d4a017; }
-  .group-status-bar.offline  .group-status-dot { background: #c0392b; }
+  #group-status-bar.waiting .group-status-dot { background: #d4a017; }
+  #group-status-bar.offline  .group-status-dot { background: #c0392b; }
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; transform: scale(1); }
     50%       { opacity: .4; transform: scale(.7); }
   }
-  .group-status-text {
-    flex: 1; font-size: 13px; color: var(--ink-soft); min-width: 0;
-  }
+  .group-status-text { font-size: 13px; color: var(--ink-soft); }
   .group-status-retry {
-    flex-shrink: 0; font-size: 12px; font-weight: 700; font-family: var(--sans);
-    padding: 4px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 700; font-family: var(--sans);
+    padding: 3px 10px; border-radius: 5px; cursor: pointer;
     background: transparent; border: 1px solid var(--line);
-    color: var(--ink-soft); transition: all 0.15s;
+    color: var(--ink-soft);
   }
-  .group-status-retry:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ===== Connecting overlay ===== */
   /* Full-screen overlay over the stage during connection setup.
@@ -1958,9 +1938,7 @@
         <div class="group-status-dot"></div>
         <div class="group-status-text" id="group-status-text">Connecting…</div>
         <button class="group-status-retry hidden" id="group-status-retry">Try now</button>
-      </div>
-
-      <div class="direction-actions" id="mode-group">
+      </div>      <div class="direction-actions" id="mode-group">
         <button class="direction-btn" data-mode="receive">
           <span class="direction-btn-label">Pair a device</span>
           <span class="direction-btn-sub">show your QR code</span>
@@ -1969,6 +1947,15 @@
           <span class="direction-btn-label">Add device</span>
           <span class="direction-btn-sub">scan a QR code</span>
         </button>
+      </div>
+
+      <!-- Reports on home screen -->
+      <div style="margin-top: 1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+          <span style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)">Reports</span>
+          <button class="primary" id="home-new-btn" style="font-size:12px;padding:5px 14px">New report</button>
+        </div>
+        <div class="session-list" id="home-session-list"></div>
       </div>
     </div>
   </section>
@@ -2165,6 +2152,14 @@
   <span class="conn-bar-avatar" id="conn-bar-avatar" aria-hidden="true"></span>
   <span class="conn-bar-nick" id="conn-bar-nick">peer</span>
   <span class="conn-bar-status" id="conn-bar-status">connecting…</span>
+</div>
+
+<div class="connection-bar hidden" id="group-status-bar" style="justify-content:space-between">
+  <div style="display:flex;align-items:center;gap:8px">
+    <div class="group-status-dot"></div>
+    <span class="group-status-text" id="group-status-text">Connecting…</span>
+  </div>
+  <button class="group-status-retry hidden" id="group-status-retry">Try now</button>
 </div>
 
 <!-- BOTTOM NAV — hidden on the transfer screen since the action buttons
@@ -3166,34 +3161,36 @@ function renderGroupStatusBar(state) {
   if (!bar) return;
 
   if (!GroupStore.exists()) { bar.classList.add('hidden'); return; }
-
-  // When connected and resume bar is visible, hide status bar — resume bar takes over
-  if (!state) {
-    state = TrysteroRoomManager.isConnected() ? 'connected' : 'waiting';
-  }
-  if (state === 'connected') {
-    bar.classList.add('hidden');
-    return;
-  }
+  if (!state) state = TrysteroRoomManager.isConnected() ? 'connected' : 'waiting';
+  if (state === 'connected') { bar.classList.add('hidden'); return; }
 
   bar.classList.remove('hidden');
-  bar.className = `group-status-bar ${state}`;
+  bar.className = 'connection-bar'; // reuse connection-bar style
+  bar.id = 'group-status-bar';
+  bar.setAttribute('data-state', state);
+
+  // Set dot state via id-scoped class
+  const dot = bar.querySelector('.group-status-dot');
+  if (dot) dot.parentElement.className = state; // set on wrapper div
+
   retryEl.classList.add('hidden');
 
   switch (state) {
     case 'connecting':
       textEl.textContent = 'Connecting to group…';
+      // Set dot style directly
+      if (dot) { dot.style.background = 'var(--accent)'; dot.style.animation = 'pulse-dot 1.2s ease-in-out infinite'; }
       break;
     case 'waiting': {
       const secs = Math.round(GroupReconnectManager._retryDelay / 1000);
-      textEl.textContent = navigator.onLine
-        ? `Reconnecting in ${secs}s…`
-        : 'No network connection';
+      textEl.textContent = navigator.onLine ? `Reconnecting in ${secs}s…` : 'No network';
+      if (dot) { dot.style.background = '#d4a017'; dot.style.animation = ''; }
       retryEl.classList.remove('hidden');
       break;
     }
     case 'offline':
-      textEl.textContent = 'Network unavailable — will retry when online';
+      textEl.textContent = 'Network unavailable';
+      if (dot) { dot.style.background = '#c0392b'; dot.style.animation = ''; }
       retryEl.classList.remove('hidden');
       break;
   }
@@ -3258,6 +3255,7 @@ const SyncManager = {
   _refreshUI() {
     refreshSessionsCount();
     if (currentScreenId() === 'pick') refreshPickList();
+    if (currentScreenId() === 'start') refreshHomeList();
   },
 
   // Send all local sessions (including tombstones) to a specific peer
@@ -3862,6 +3860,7 @@ async function onEnterScreen(screenId) {
     selectedSessionId = null;
     hideConnectionBar();
     refreshSessionsCount();
+    refreshHomeList();
     renderResumeBar();
     renderGroupStatusBar();
   } else if (screenId === 'pick') {
@@ -3962,6 +3961,30 @@ async function refreshPickList() {
   updateNavBar();
 }
 $('pick-new-btn').addEventListener('click', () => showSessionModal(null, 'pick'));
+$('home-new-btn').addEventListener('click', () => showSessionModal(null, 'start'));
+
+async function refreshHomeList() {
+  const list = $('home-session-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const sessions = await listSessions();
+  for (const s of sessions) {
+    const frag = renderSessionRow(s, {
+      container: list,
+      selectedId: null,
+      onRowClick: () => {}, // no selection on home screen
+      onAfterChange: () => {
+        refreshHomeList();
+        refreshSessionsCount();
+        if (currentScreenId() === 'pick') refreshPickList();
+      },
+    });
+    list.appendChild(frag);
+  }
+  if (sessions.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:2rem 0;color:var(--dim);font-size:14px">No reports yet — tap New report to start.</div>';
+  }
+}
 
 // =====================================================================
 // Screen: SHOW QR
@@ -4960,14 +4983,13 @@ function renderResumeBar() {
   const sub     = $('resume-session-sub');
   if (!bar || !identity) { bar && bar.classList.add('hidden'); return; }
 
-  // Check group room connection first (Trystero)
+  const groupExists    = GroupStore.exists();
   const groupConnected = TrysteroRoomManager.isConnected();
   const groupPeers     = TrysteroRoomManager.getConnectedMembers();
-
-  // Check activeTransfer connection (PeerJS/Raw)
   const transferConnected = activeTransfer && !!activeTransfer._remotePeerId;
 
-  if (!groupConnected && !transferConnected) {
+  // Show resume bar if group exists OR if there's an active PeerJS/Raw connection
+  if (!groupExists && !transferConnected) {
     bar.classList.add('hidden');
     return;
   }
@@ -4978,25 +5000,22 @@ function renderResumeBar() {
   const peers = groupPeers.filter(m => m.info).map(m => m.info);
   if (peers.length === 0 && remotePeerInfo) peers.push(remotePeerInfo);
 
-  if (peers.length === 0) {
-    // Connected but no peer-info yet — show generic
-    avatars.innerHTML = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
-    label.textContent = groupConnected ? 'Group connected' : 'Resume session';
-    sub.textContent   = 'Connected — tap to continue';
-    return;
-  }
-
-  const first = peers[0];
-  avatars.innerHTML =
-    renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
-    renderDeviceSVG(first.emoji || '?', { size: SIZE, color: first.color });
-
-  if (peers.length === 1) {
-    label.textContent = first.nickname || 'Peer';
+  // Avatar: always show own avatar; add peer avatar if connected
+  if (peers.length > 0) {
+    const first = peers[0];
+    avatars.innerHTML =
+      renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
+      renderDeviceSVG(first.emoji || '?', { size: SIZE, color: first.color });
+    label.textContent = peers.length === 1
+      ? (first.nickname || 'Peer')
+      : `${peers.length} connected`;
+    sub.textContent = 'Connected — tap to continue';
   } else {
-    label.textContent = `${peers.length} connected`;
+    // Group exists but no peers — show own identity + demo label
+    avatars.innerHTML = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
+    label.textContent = `${identity.emoji} ${identity.nickname}`;
+    sub.textContent   = 'Demo — tap to open';
   }
-  sub.textContent = 'Connected — tap to continue';
 }
 
 $('resume-session-bar').addEventListener('click', async () => {
@@ -5982,6 +6001,7 @@ function showSessionModal(existing, returnTo) {
     close();
     await refreshSessionsCount();
     if (returnTo === 'pick') await refreshPickList();
+    if (returnTo === 'start') await refreshHomeList();
   });
 }
 
