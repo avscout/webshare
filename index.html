@@ -2910,6 +2910,12 @@ const TrysteroRoomManager = {
 
     t.on('log', ({ level, message }) => log(message, level));
 
+    t.on('relay-status', ({ connected, total }) => {
+      if (connected === 0) {
+        log(`⚠ No relays reachable — this network may block Nostr. Try a different network or use PeerJS.`, 'err');
+      }
+    });
+
     t.on('connected', (peerId) => {
       renderTopbarConnections();
       renderResumeBar();
@@ -3956,6 +3962,15 @@ async function onScanResult(data) {
       }
       await activeTransfer.connect(roomCode);
       hideConnectingOverlay();
+      // Wait for peer-info to arrive before reinit — ensures GroupStore has
+      // the remote member before the persistent room's onPeerAccept fires.
+      await new Promise(resolve => {
+        if (remotePeerInfo) return resolve();
+        const timeout = setTimeout(resolve, 3000);
+        const unsub = activeTransfer.on('peer-info', () => {
+          clearTimeout(timeout); unsub(); resolve();
+        });
+      });
       // After first pairing: reinit the room manager with the new group
       if (!TrysteroRoomManager._room) {
         await TrysteroRoomManager.reinit();
@@ -3966,11 +3981,9 @@ async function onScanResult(data) {
       hideConnectingOverlay();
       _pendingInvitedBy = null;
       log('Trystero connect failed: ' + err.message, 'err');
-      const transferIdx = activeFlow().indexOf('transfer');
-      if (transferIdx !== -1) goToStep(transferIdx, 'forward');
-      $('transfer-title').textContent = 'Something went wrong';
-      setTransferStatus('Connection failed: ' + err.message, 'err');
-      showProgressRestartButton('Disconnect');
+      // Don't navigate to transfer screen — setupTransferScreen would try
+      // to send automatically. Just go back to start and show the error.
+      restartToStart();
     }
   } else if (isRawSender || isRawReceiver) {
     // 'data' is a QR chunk — feed back to library; library will advance via events
@@ -4411,15 +4424,26 @@ function renderTopbarConnections() {
   const nameEl = document.getElementById('topbar-identity-name');
   if (!svgEl || !identity) return;
 
-  // Gather all connected peers from the group room
+  // Gather connected peers from the group room
   const peers = [];
+  const seenDeviceIds = new Set();
+
   if (TrysteroRoomManager._room) {
     for (const { info } of TrysteroRoomManager.getConnectedMembers()) {
-      if (info) peers.push(info);
+      if (info) {
+        peers.push(info);
+        if (info.deviceId) seenDeviceIds.add(info.deviceId);
+      }
     }
   }
-  // Also include a non-persistent active transfer (PeerJS/Raw)
-  if (activeTransfer && !activeTransfer.persistent && activeTransfer._remotePeerId && remotePeerInfo) {
+  // Fallback: include remotePeerInfo from active transfer (covers first-pairing
+  // window before TrysteroRoomManager._peerInfo is populated)
+  if (remotePeerInfo && remotePeerInfo.deviceId && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
+    peers.push(remotePeerInfo);
+  }
+  // Non-Trystero active transfer (PeerJS/Raw)
+  if (activeTransfer && !activeTransfer.persistent && activeTransfer._remotePeerId && remotePeerInfo
+      && currentBackend !== 'trystero' && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
     peers.push(remotePeerInfo);
   }
 
@@ -6962,12 +6986,21 @@ async function autoJoinIfPending() {
       await ensureSendTransfer();
       await activeTransfer.connect(peerId);
       hideConnectingOverlay();
+      // Wait for peer-info before reinit to avoid race condition
+      await new Promise(resolve => {
+        if (remotePeerInfo) return resolve();
+        const timeout = setTimeout(resolve, 3000);
+        const unsub = activeTransfer.on('peer-info', () => {
+          clearTimeout(timeout); unsub(); resolve();
+        });
+      });
       await TrysteroRoomManager.reinit();
       restartToStart();
     } catch (err) {
       hideConnectingOverlay();
       _pendingInvitedBy = null;
       log('Auto-join group failed: ' + err.message, 'err');
+      restartToStart();
     }
     return;
   }
