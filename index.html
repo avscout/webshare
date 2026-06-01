@@ -2112,7 +2112,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '7';
+  const LOCAL_VERSION = '8';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -2919,6 +2919,9 @@ const TrysteroRoomManager = {
     t.on('connected', (peerId) => {
       renderTopbarConnections();
       renderResumeBar();
+      // Show connection bar on receiver side too
+      showConnectionBar();
+      setConnectionBarStatus('connected');
       // Send a sync-request so the new peer can give us anything we missed
       t.sendSyncRequest(peerId);
     });
@@ -2948,6 +2951,8 @@ const TrysteroRoomManager = {
         this._peerInfo.set(info.deviceId, info);
       }
       renderTopbarConnections();
+      renderConnectionBarPeer();
+      renderResumeBar();
     });
 
     // Wire sync callbacks to SyncManager
@@ -4399,14 +4404,16 @@ function setConnectionBarStatus(stateKey) {
 // Render the avatar + nickname for the current peer. Reads remotePeerInfo;
 // falls back to placeholders if peer-info hasn't arrived yet.
 function renderConnectionBarPeer() {
-  const info = remotePeerInfo;
+  // Use remotePeerInfo first, then fall back to first connected group member
+  let info = remotePeerInfo;
+  if (!info) {
+    const members = TrysteroRoomManager.getConnectedMembers();
+    if (members.length > 0 && members[0].info) info = members[0].info;
+  }
   const avatar = $('conn-bar-avatar');
-  const nick = $('conn-bar-nick');
+  const nick   = $('conn-bar-nick');
   if (info && info.nickname) {
-    avatar.innerHTML = renderDeviceSVG(info.emoji || '?', {
-      size: 24,
-      color: info.color
-    });
+    avatar.innerHTML = renderDeviceSVG(info.emoji || '?', { size: 24, color: info.color });
     nick.textContent = info.nickname;
   } else {
     avatar.innerHTML = renderDeviceSVG('?', { size: 24 });
@@ -4714,33 +4721,55 @@ function renderResumeBar() {
   const avatars = $('resume-session-avatars');
   const label   = $('resume-session-label');
   const sub     = $('resume-session-sub');
-  if (!bar) return;
+  if (!bar || !identity) { bar && bar.classList.add('hidden'); return; }
 
-  // For Trystero group room: check if any peer is connected
+  // Check group room connection first (Trystero)
   const groupConnected = TrysteroRoomManager.isConnected();
-  const groupPeers = TrysteroRoomManager.getConnectedMembers();
-  const t = (activeTransfer && activeTransfer._remotePeerId)
-    ? activeTransfer
-    : (groupConnected ? TrysteroRoomManager._room : null);
+  const groupPeers     = TrysteroRoomManager.getConnectedMembers();
 
-  if (!t || !identity) { bar.classList.add('hidden'); return; }
+  // Check activeTransfer connection (PeerJS/Raw)
+  const transferConnected = activeTransfer && !!activeTransfer._remotePeerId;
+
+  if (!groupConnected && !transferConnected) {
+    bar.classList.add('hidden');
+    return;
+  }
+
   bar.classList.remove('hidden');
 
-  // Render peer avatar
-  const peerInfo = remotePeerInfo
-    || (groupPeers.length > 0 ? groupPeers[0].info : null);
   const SIZE = 28;
+  const peers = groupPeers.filter(m => m.info).map(m => m.info);
+  if (peers.length === 0 && remotePeerInfo) peers.push(remotePeerInfo);
+
+  if (peers.length === 0) {
+    // Connected but no peer-info yet — show generic
+    avatars.innerHTML = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
+    label.textContent = groupConnected ? 'Group connected' : 'Resume session';
+    sub.textContent   = 'Connected — tap to continue';
+    return;
+  }
+
+  const first = peers[0];
   avatars.innerHTML =
     renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
-    (peerInfo ? renderDeviceSVG(peerInfo.emoji || '?', { size: SIZE, color: peerInfo.color }) : '');
+    renderDeviceSVG(first.emoji || '?', { size: SIZE, color: first.color });
 
-  label.textContent  = peerInfo ? `${peerInfo.nickname || 'Peer'}` : 'Resume session';
-  sub.textContent    = 'Connected — tap to continue';
+  if (peers.length === 1) {
+    label.textContent = first.nickname || 'Peer';
+  } else {
+    label.textContent = `${peers.length} connected`;
+  }
+  sub.textContent = 'Connected — tap to continue';
 }
 
 $('resume-session-bar').addEventListener('click', () => {
+  // For Trystero: no pick/transfer flow — just show sync status or sessions
+  if (currentBackend === 'trystero' || (GroupStore.exists() && TrysteroRoomManager.isConnected())) {
+    // Navigate to the browse/sessions view
+    showMyDevicePanel();
+    return;
+  }
   if (!activeTransfer || !activeTransfer._remotePeerId) return;
-  // Navigate to pick screen if sender, or transfer screen if receiver.
   const targetScreen = (currentMode === 'receive') ? 'transfer' : 'pick';
   const idx = activeFlow().indexOf(targetScreen);
   if (idx !== -1) goToStep(idx, 'forward');
