@@ -3906,9 +3906,10 @@ async function setupTrysteroInviteQR() {
   renderQR($('show-qr-frame'), inviteUrl);
   $('show-qr-info').textContent = DEV_MODE ? `Room: ${roomCode}` : '';
 
-  // Ensure the group room is running in the background
+  // Ensure the group room is running in the background —
+  // must happen AFTER GroupStore.create() so the password is available.
   if (!TrysteroRoomManager._room) {
-    TrysteroRoomManager.init().catch(e => log('Group room init error: ' + e.message, 'err'));
+    await TrysteroRoomManager.init().catch(e => log('Group room init error: ' + e.message, 'err'));
   }
 }
 
@@ -4268,7 +4269,10 @@ async function ensureReceiveTransfer() {
   const opts = { peerInfo: buildLocalPeerInfo() };
   if (currentBackend === 'peerjs')     activeTransfer = new PeerJSTransfer(opts);
   else if (currentBackend === 'raw')   activeTransfer = new RawTransfer(opts);
-  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer(opts);
+  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer({
+    ...opts,
+    password: GroupStore.getPassword() || null,
+  });
   else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'receive';
   activeTransfer._uiBackend = currentBackend;
@@ -4287,7 +4291,10 @@ async function ensureSendTransfer() {
   const opts = { peerInfo: buildLocalPeerInfo() };
   if (currentBackend === 'peerjs')        activeTransfer = new PeerJSTransfer(opts);
   else if (currentBackend === 'raw')      activeTransfer = new RawTransfer(opts);
-  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer(opts);
+  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer({
+    ...opts,
+    password: GroupStore.getPassword() || null,
+  });
   else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'send';
   activeTransfer._uiBackend = currentBackend;
