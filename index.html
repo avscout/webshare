@@ -1933,12 +1933,7 @@
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
       </div>
 
-      <!-- Group connection status — shown when group exists but not connected -->
-      <div id="group-status-bar" class="group-status-bar hidden">
-        <div class="group-status-dot"></div>
-        <div class="group-status-text" id="group-status-text">Connecting…</div>
-        <button class="group-status-retry hidden" id="group-status-retry">Try now</button>
-      </div>      <div class="direction-actions" id="mode-group">
+      <div class="direction-actions" id="mode-group">
         <button class="direction-btn" data-mode="receive">
           <span class="direction-btn-label">Pair a device</span>
           <span class="direction-btn-sub">show your QR code</span>
@@ -3160,25 +3155,34 @@ function renderGroupStatusBar(state) {
   const retryEl = $('group-status-retry');
   if (!bar) return;
 
-  if (!GroupStore.exists()) { bar.classList.add('hidden'); return; }
+  // Hide entirely if no identity yet (onboarding not done)
+  if (!identity) { bar.classList.add('hidden'); return; }
+
+  // No group yet — show pairing prompt
+  if (!GroupStore.exists()) {
+    bar.classList.remove('hidden');
+    bar.className = 'connection-bar';
+    bar.id = 'group-status-bar';
+    const dot = bar.querySelector('.group-status-dot');
+    if (dot) { dot.style.background = 'var(--dim)'; dot.style.animation = ''; }
+    retryEl.classList.add('hidden');
+    textEl.textContent = 'Not paired — scan or show a QR code to connect';
+    return;
+  }
+
   if (!state) state = TrysteroRoomManager.isConnected() ? 'connected' : 'waiting';
   if (state === 'connected') { bar.classList.add('hidden'); return; }
 
   bar.classList.remove('hidden');
-  bar.className = 'connection-bar'; // reuse connection-bar style
+  bar.className = 'connection-bar';
   bar.id = 'group-status-bar';
-  bar.setAttribute('data-state', state);
 
-  // Set dot state via id-scoped class
   const dot = bar.querySelector('.group-status-dot');
-  if (dot) dot.parentElement.className = state; // set on wrapper div
-
   retryEl.classList.add('hidden');
 
   switch (state) {
     case 'connecting':
       textEl.textContent = 'Connecting to group…';
-      // Set dot style directly
       if (dot) { dot.style.background = 'var(--accent)'; dot.style.animation = 'pulse-dot 1.2s ease-in-out infinite'; }
       break;
     case 'waiting': {
@@ -6020,6 +6024,7 @@ let identity = null;  // { emoji, nickname, device, color } or null if not set y
 async function loadIdentity() {
   identity = await getPref('identity');
   updateIdentityBadge();
+  renderGroupStatusBar();
   return identity;
 }
 function hasIdentity() {
@@ -7274,6 +7279,7 @@ window.addEventListener('load', async () => {
   }
   try { await refreshSessionsCount(); } catch (e) { log('Session count failed: ' + e.message, 'err'); }
   try { await loadIdentity(); } catch (e) { log('Identity load failed: ' + e.message, 'err'); }
+  try { await refreshHomeList(); } catch (e) { log('Home list failed: ' + e.message, 'err'); }
   // Wire the live-note panel inputs once (event listeners survive screen
   // changes). The panels themselves are toggled visible/hidden as the
   // user moves between screens.
