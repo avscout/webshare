@@ -1273,6 +1273,26 @@
     font-size: 13px; color: var(--dim);
     text-transform: capitalize;
   }
+  /* Role inline editor */
+  .mydev-role-row {
+    display: flex; align-items: center; gap: 6px; margin: 4px 0 2px;
+  }
+  .mydev-role-input {
+    flex: 1; font-size: 13px; font-family: var(--sans);
+    color: var(--accent); font-weight: 600;
+    background: transparent; border: none; border-bottom: 1px solid transparent;
+    padding: 1px 0; outline: none; min-width: 0;
+    transition: border-color 0.15s;
+  }
+  .mydev-role-input:focus { border-bottom-color: var(--accent); }
+  .mydev-role-input::placeholder { color: var(--dim); font-weight: 400; }
+  .mydev-role-save {
+    flex-shrink: 0; font-size: 11px; font-weight: 700; font-family: var(--sans);
+    color: var(--accent); background: transparent; border: 1px solid var(--accent);
+    border-radius: 4px; padding: 2px 8px; cursor: pointer; opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .mydev-role-row.dirty .mydev-role-save { opacity: 1; }
 
   .mydev-sessions-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -2926,9 +2946,11 @@ const TrysteroRoomManager = {
     t.on('connected', (peerId) => {
       renderTopbarConnections();
       renderResumeBar();
-      // Show connection bar on receiver side too
-      showConnectionBar();
-      setConnectionBarStatus('connected');
+      // Connection bar only for PeerJS/Raw — Trystero status lives in topbar + My device
+      if (!GroupStore.exists()) {
+        showConnectionBar();
+        setConnectionBarStatus('connected');
+      }
       // Send a sync-request so the new peer can give us anything we missed
       t.sendSyncRequest(peerId);
     });
@@ -4565,8 +4587,10 @@ function wirePeerInfoListener(t) {
   // nickname in place via the listener above.
   t.on('connected', () => {
     hideConnectingOverlay();
-    showConnectionBar();
-    setConnectionBarStatus('connected');
+    if (!GroupStore.exists()) {
+      showConnectionBar();
+      setConnectionBarStatus('connected');
+    }
     if (currentScreenId() === 'start') renderResumeBar();
   });
   // 'disconnected' fires when the channel closes — peer-bye, channel
@@ -5966,8 +5990,6 @@ function showIdentityModal(isEditing = false) {
           </div>
           <div class="field-label">Your name</div>
           <input type="text" class="netid" id="id-netid" value="${startNickname}" placeholder="e.g. jvanderlaan, sanne, or a nickname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-          <div class="field-label" style="margin-top:14px">Your role <span style="opacity:.5;font-weight:400">(optional)</span></div>
-          <input type="text" class="netid" id="id-role" value="${(isEditing && identity?.role) || ''}" placeholder="e.g. Inspector, Team lead, Researcher" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="margin-bottom:0">
           <button class="save-btn" id="id-save">Save</button>
         </div>
       </div>`;
@@ -6030,7 +6052,7 @@ function showIdentityModal(isEditing = false) {
         nickname: value,
         device  : DEVICE_TYPE,
         color   : circleEl.getAttribute('fill') || DEFAULT_IDENTITY_COLOR,
-        role    : (backdrop.querySelector('#id-role')?.value.trim()) || null,
+        role    : identity?.role || null,
       };
       setPref('identity', newIdentity).then(() => {
         identity = newIdentity;
@@ -6265,9 +6287,17 @@ async function showMyDevicePanel() {
         <div class="mydev-section mydev-identity">
           <div class="mydev-identity-svg">${renderDeviceSVG(identity.emoji, { size: 60, color: identity.color })}</div>
           <div class="mydev-identity-text">
-            <div class="mydev-identity-name">${identity.nickname}</div>
-            ${identity.role ? `<div class="mydev-identity-device" style="color:var(--accent);font-weight:600">${identity.role}</div>` : ''}
-            <div class="mydev-identity-device">${identity.device}</div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <div class="mydev-identity-name">${identity.nickname}</div>
+              <div class="mydev-identity-device">${identity.device}</div>
+            </div>
+            <div class="mydev-role-row" id="mydev-role-row">
+              <input class="mydev-role-input" id="mydev-role-input"
+                value="${identity.role || ''}"
+                placeholder="Add a role…"
+                autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+              <button class="mydev-role-save" id="mydev-role-save">Save</button>
+            </div>
           </div>
         </div>
 
@@ -6345,6 +6375,41 @@ async function showMyDevicePanel() {
   document.body.appendChild(backdrop);
 
   backdrop.querySelector('#mydev-close').addEventListener('click', () => backdrop.remove());
+
+  // Role inline editor — show Save button when typing, hide when clean
+  const roleRow   = backdrop.querySelector('#mydev-role-row');
+  const roleInput = backdrop.querySelector('#mydev-role-input');
+  const roleSave  = backdrop.querySelector('#mydev-role-save');
+  const originalRole = identity.role || '';
+
+  roleInput.addEventListener('input', () => {
+    roleRow.classList.toggle('dirty', roleInput.value.trim() !== originalRole);
+  });
+
+  async function saveRole() {
+    const newRole = roleInput.value.trim() || null;
+    const updated = { ...identity, role: newRole };
+    await setPref('identity', updated);
+    identity = updated;
+    roleRow.classList.remove('dirty');
+    roleSave.textContent = '✓';
+    setTimeout(() => { roleSave.textContent = 'Save'; }, 1200);
+    // Re-send peer-info so group members see the updated role
+    if (TrysteroRoomManager._room) {
+      TrysteroRoomManager._room.peerInfo = buildLocalPeerInfo();
+      TrysteroRoomManager._room._peerInfoSent = false;
+      TrysteroRoomManager._room._sendPeerInfo();
+    }
+  }
+
+  roleSave.addEventListener('click', saveRole);
+  roleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveRole();
+    if (e.key === 'Escape') {
+      roleInput.value = originalRole;
+      roleRow.classList.remove('dirty');
+    }
+  });
 
   // Unpair buttons in the paired devices section
   backdrop.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
