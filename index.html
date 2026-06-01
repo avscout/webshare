@@ -159,29 +159,6 @@
     color: var(--ink-soft);
   }
 
-  /* ===== Collaborate FAB ===== */
-  #collab-fab-wrap {
-    position: fixed;
-    bottom: 56px; /* above connection/status bar */
-    left: 0; right: 0;
-    display: flex; justify-content: center;
-    pointer-events: none; /* let taps through to content except the button */
-    z-index: 100;
-  }
-  #collab-fab-wrap.hidden { display: none; }
-  #collab-fab {
-    pointer-events: all;
-    width: 64px; height: 64px; border-radius: 50%;
-    background: #fff; color: var(--ink);
-    border: 3px solid var(--line);
-    box-shadow: 0 2px 8px rgba(0,0,0,.15);
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s;
-    -webkit-tap-highlight-color: transparent;
-  }
-  #collab-fab:active { transform: scale(0.93); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
-
   /* ===== Connecting overlay ===== */
   /* Full-screen overlay over the stage during connection setup.
      Visible on both sides: receiver while startReceiving() loads,
@@ -360,23 +337,23 @@
      no "active" state because tapping IS the action (commits and advances
      in one motion). Big label, small subtitle, generous tap target. */
   .direction-actions {
-    display: grid; grid-template-columns: 1fr; gap: 14px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
     margin-bottom: 18px;
   }
   .direction-btn {
     background: var(--accent); color: #FFFFFF; border: none;
-    padding: 38px 20px; font-family: var(--sans);
+    padding: 20px 14px; font-family: var(--sans);
     cursor: pointer; transition: background 0.15s, transform 0.05s;
     text-align: center;
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
   }
   .direction-btn:hover { background: var(--tud-cyan-dark); }
   .direction-btn:active { transform: scale(0.985); }
   .direction-btn-label {
-    font-size: 30px; font-weight: 700; letter-spacing: -0.01em;
+    font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
   }
   .direction-btn-sub {
-    font-size: 14px; opacity: 0.85; font-weight: 400;
+    font-size: 12px; opacity: 0.85; font-weight: 400;
   }
 
   /* QR area, big and centered for mobile */
@@ -1919,9 +1896,8 @@
   <!-- ============ START SCREEN ============ -->
   <section class="screen active" data-screen="start">
     <div class="screen-header">
-      <h1 class="screen-title">Reports</h1>
+      <h1 class="screen-title">Home</h1>
       <p class="screen-subtitle dev-only">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
-      <p class="screen-subtitle user-only-paragraph">Pair devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
     </div>
     <div class="screen-content">
       <div class="dev-only">
@@ -1941,19 +1917,46 @@
         </div>
       </div>
 
-      <!-- New report button — full width, same style as modal footer -->
-      <button id="home-new-btn" class="primary" style="
-        display:block; width:100%; min-height:44px;
-        padding:10px 14px; margin-bottom:1rem;
-        font-family:var(--sans); font-size:13px; font-weight:700;
-        letter-spacing:.04em; text-transform:uppercase;
-        background:var(--accent); color:#fff; border:1px solid var(--accent);
-        cursor:pointer;">New report</button>
+      <!-- Recent reports -->
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Recent reports</div>
+      <div class="session-list" id="home-session-list" style="margin-bottom:1rem"></div>
 
-      <!-- Reports list — always visible, local data -->
-      <div class="session-list" id="home-session-list" style="margin-bottom:1.5rem"></div>
+      <!-- Two-button toolbar -->
+      <div style="display:flex;gap:8px;margin-bottom:1.5rem">
+        <button id="home-new-btn" style="
+          flex:1; min-height:44px; padding:10px 14px;
+          font-family:var(--sans); font-size:13px; font-weight:700;
+          letter-spacing:.04em; text-transform:uppercase;
+          background:#fff; color:var(--accent);
+          border:1px solid var(--accent); cursor:pointer;">New report</button>
+        <button id="home-view-all-btn" style="
+          flex:1; min-height:44px; padding:10px 14px;
+          font-family:var(--sans); font-size:13px; font-weight:700;
+          letter-spacing:.04em; text-transform:uppercase;
+          background:var(--accent); color:#fff;
+          border:1px solid var(--accent); cursor:pointer;">View all</button>
+      </div>
 
-      <!-- Resume session chip — shown when there's an active connection -->
+      <!-- My group section -->
+      <hr style="border:none;border-top:1px solid var(--line);margin:0 0 1rem">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.75rem">My group</div>
+      <div id="home-group-members"></div>
+      <p class="user-only-paragraph" style="font-size:13px;color:var(--dim);margin:0 0 .75rem">Pair devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
+      <div class="direction-actions" id="mode-group">
+        <button class="direction-btn" data-mode="receive">
+          <span class="direction-btn-label">Pair a device</span>
+          <span class="direction-btn-sub">show your QR code</span>
+        </button>
+        <button class="direction-btn" data-mode="send">
+          <span class="direction-btn-label">Add device</span>
+          <span class="direction-btn-sub">scan a QR code</span>
+        </button>
+      </div>
+
+      <!-- Demo section -->
+      <hr style="border:none;border-top:1px solid var(--line);margin:0 0 1rem">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Demo</div>
+      <!-- Resume session chip -->
       <div id="resume-session-bar" class="hidden" style="
         margin-bottom: 1.25rem;
         padding: .75rem 1rem;
@@ -1967,17 +1970,6 @@
           <div style="font-size:12px;color:rgba(255,255,255,.8)" id="resume-session-sub">Connected — tap to continue</div>
         </div>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-      </div>
-
-      <div class="direction-actions" id="mode-group">
-        <button class="direction-btn" data-mode="receive">
-          <span class="direction-btn-label">Pair a device</span>
-          <span class="direction-btn-sub">show your QR code</span>
-        </button>
-        <button class="direction-btn" data-mode="send">
-          <span class="direction-btn-label">Add device</span>
-          <span class="direction-btn-sub">scan a QR code</span>
-        </button>
       </div>
     </div>
   </section>
@@ -2184,17 +2176,7 @@
   <button class="group-status-retry hidden" id="group-status-retry">Try now</button>
 </div>
 
-<!-- Collaborate FAB — centered above bottom nav, start screen only -->
-<div id="collab-fab-wrap" class="hidden">
-  <button id="collab-fab" aria-label="Collaborate — show QR">
-    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="7" r="4"/>
-      <path d="M4 20c0-4 3.6-7 8-7"/>
-      <line x1="16" y1="16" x2="20" y2="16"/>
-      <line x1="18" y1="14" x2="18" y2="18"/>
-    </svg>
-  </button>
-</div>
+
 
 
 
@@ -3036,6 +3018,7 @@ const TrysteroRoomManager = {
       GroupReconnectManager.onConnected();
       renderTopbarConnections();
       renderResumeBar();
+      renderHomeGroupMembers();
       if (!GroupStore.exists()) {
         showConnectionBar();
         setConnectionBarStatus('connected');
@@ -3055,11 +3038,11 @@ const TrysteroRoomManager = {
       GroupReconnectManager.onDisconnected();
       renderTopbarConnections();
       renderResumeBar();
+      renderHomeGroupMembers();
       hideConnectingOverlay();
     });
 
     t.on('peer-left', (peerId) => {
-      // Remove from peerInfo if this peerId matches a known device
       for (const [deviceId, info] of this._peerInfo) {
         if (info._peerId === peerId) {
           this._peerInfo.delete(deviceId);
@@ -3067,12 +3050,12 @@ const TrysteroRoomManager = {
         }
       }
       renderTopbarConnections();
+      renderHomeGroupMembers();
     });
 
     t.on('peer-info', (info) => {
       if (info && info.deviceId) {
         this._peerInfo.set(info.deviceId, info);
-        // Update stored role if peer sent one
         if (GroupStore.isKnown(info.deviceId) && info.role !== undefined) {
           const group = GroupStore.load();
           if (group) {
@@ -3085,6 +3068,7 @@ const TrysteroRoomManager = {
       renderTopbarConnections();
       renderConnectionBarPeer();
       renderResumeBar();
+      renderHomeGroupMembers();
     });
 
     // Demo features — note and lamp over the group room
@@ -3821,7 +3805,6 @@ function goToStep(index, direction) {
   showScreen(currentScreenId(), dir);
   updateNavBar();
   onEnterScreen(currentScreenId());
-  updateCollabFab();
 }
 function nextStep() { goToStep(currentStep + 1, 'forward'); }
 function prevStep() { goToStep(currentStep - 1, 'back'); }
@@ -3915,7 +3898,7 @@ async function onEnterScreen(screenId) {
     refreshHomeList();
     renderResumeBar();
     renderGroupStatusBar();
-    updateCollabFab();
+    renderHomeGroupMembers();
   } else if (screenId === 'pick') {
     // Adjust title based on context
     const titleEl = document.querySelector('[data-screen="pick"] .screen-title');
@@ -4014,18 +3997,53 @@ async function refreshPickList() {
   updateNavBar();
 }
 $('pick-new-btn').addEventListener('click', () => showSessionModal(null, 'pick'));
+function renderHomeGroupMembers() {
+  const el = $('home-group-members');
+  if (!el) return;
+
+  if (!GroupStore.exists()) { el.innerHTML = ''; return; }
+
+  const members   = GroupStore.getMembers();
+  const connected = TrysteroRoomManager.getConnectedMembers();
+
+  el.innerHTML = members.map(m => {
+    const isOnline  = m.deviceId === DEVICE_ID ||
+      connected.some(c => c.info && c.info.deviceId === m.deviceId);
+    const cached    = TrysteroRoomManager._peerInfo.get(m.deviceId);
+    const emoji     = (m.deviceId === DEVICE_ID ? identity?.emoji : (cached?.emoji || m.emoji)) || '?';
+    const color     = (m.deviceId === DEVICE_ID ? identity?.color : (cached?.color || m.color)) || null;
+    const nickname  = (m.deviceId === DEVICE_ID ? identity?.nickname : (cached?.nickname || m.nickname)) || '?';
+    const role      = (m.deviceId === DEVICE_ID ? identity?.role : (cached?.role || m.role)) || null;
+    const isYou     = m.deviceId === DEVICE_ID;
+
+    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+      ${renderDeviceSVG(emoji, { size: 32, color })}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--ink)">${nickname}${isYou ? ' <span style="opacity:.4;font-weight:400;font-size:11px">(you)</span>' : ''}</div>
+        ${role ? `<div style="font-size:11px;color:var(--accent)">${role}</div>` : ''}
+      </div>
+      <span style="font-size:11px;font-weight:600;color:${isOnline ? 'var(--ok)' : 'var(--dim)'}">${isOnline ? '● Online' : '○ Offline'}</span>
+    </div>`;
+  }).join('');
+}
+
 $('home-new-btn').addEventListener('click', () => showSessionModal(null, 'start'));
+$('home-view-all-btn').addEventListener('click', () => showSessionsModal());
 
 async function refreshHomeList() {
   const list = $('home-session-list');
   if (!list) return;
   list.innerHTML = '';
   const sessions = await listSessions();
-  for (const s of sessions) {
+  const recent = sessions.slice(0, 3);
+  for (const s of recent) {
     const frag = renderSessionRow(s, {
       container: list,
       selectedId: null,
-      onRowClick: () => {}, // no selection on home screen
+      onRowClick: async (sel) => {
+        const full = await getSession(sel.id);
+        if (full) showItemsModal(full);
+      },
       onAfterChange: () => {
         refreshHomeList();
         refreshSessionsCount();
@@ -5040,40 +5058,28 @@ function renderResumeBar() {
   const avatars = $('resume-session-avatars');
   const label   = $('resume-session-label');
   const sub     = $('resume-session-sub');
-  if (!bar || !identity) { bar && bar.classList.add('hidden'); return; }
-
-  const groupExists    = GroupStore.exists();
-  const groupConnected = TrysteroRoomManager.isConnected();
-  const groupPeers     = TrysteroRoomManager.getConnectedMembers();
-  const transferConnected = activeTransfer && !!activeTransfer._remotePeerId;
-
-  // Show resume bar if group exists OR if there's an active PeerJS/Raw connection
-  if (!groupExists && !transferConnected) {
-    bar.classList.add('hidden');
-    return;
-  }
+  if (!bar) return;
 
   bar.classList.remove('hidden');
+
+  const groupPeers     = TrysteroRoomManager.getConnectedMembers();
+  const transferConnected = activeTransfer && !!activeTransfer._remotePeerId;
 
   const SIZE = 28;
   const peers = groupPeers.filter(m => m.info).map(m => m.info);
   if (peers.length === 0 && remotePeerInfo) peers.push(remotePeerInfo);
 
-  // Avatar: always show own avatar; add peer avatar if connected
   if (peers.length > 0) {
     const first = peers[0];
     avatars.innerHTML =
-      renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
+      renderDeviceSVG(identity ? identity.emoji : '?', { size: SIZE, color: identity ? identity.color : null }) +
       renderDeviceSVG(first.emoji || '?', { size: SIZE, color: first.color });
-    label.textContent = peers.length === 1
-      ? (first.nickname || 'Peer')
-      : `${peers.length} connected`;
+    label.textContent = peers.length === 1 ? (first.nickname || 'Peer') : `${peers.length} connected`;
     sub.textContent = 'Connected — tap to continue';
   } else {
-    // Group exists but no peers — show own identity + demo label
-    avatars.innerHTML = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
-    label.textContent = `${identity.emoji} ${identity.nickname}`;
-    sub.textContent   = 'Demo — tap to open';
+    avatars.innerHTML = renderDeviceSVG(identity ? identity.emoji : '?', { size: SIZE, color: identity ? identity.color : null });
+    label.textContent = 'Demo';
+    sub.textContent   = 'Tap to open or wait for other collaborators';
   }
 }
 
@@ -6080,6 +6086,7 @@ async function loadIdentity() {
   identity = await getPref('identity');
   updateIdentityBadge();
   renderGroupStatusBar();
+  renderResumeBar();
   return identity;
 }
 function hasIdentity() {
@@ -7015,23 +7022,6 @@ document.getElementById('group-status-retry').addEventListener('click', () => {
   GroupReconnectManager.forceRetry();
 });
 
-// =====================================================================
-// Collaborate FAB — show/hide based on screen, open QR overlay on tap
-// =====================================================================
-function updateCollabFab() {
-  const wrap = $('collab-fab-wrap');
-  if (!wrap) return;
-  wrap.classList.toggle('hidden', currentScreenId() !== 'start');
-}
-
-document.getElementById('collab-fab').addEventListener('click', () => {
-  // Same as tapping "Pair a device" — show QR in the existing flow
-  currentMode    = 'receive';
-  currentBackend = 'trystero';
-  const idx = FLOWS['receive-trystero'].indexOf('show-qr');
-  goToStep(idx, 'forward');
-});
-
 document.getElementById('topbar-identity').addEventListener('click', () => {
   showMyDevicePanel();
 });
@@ -7341,7 +7331,8 @@ window.addEventListener('load', async () => {
   try { await refreshSessionsCount(); } catch (e) { log('Session count failed: ' + e.message, 'err'); }
   try { await loadIdentity(); } catch (e) { log('Identity load failed: ' + e.message, 'err'); }
   try { await refreshHomeList(); } catch (e) { log('Home list failed: ' + e.message, 'err'); }
-  updateCollabFab();
+  renderResumeBar();
+  renderHomeGroupMembers();
   // Wire the live-note panel inputs once (event listeners survive screen
   // changes). The panels themselves are toggled visible/hidden as the
   // user moves between screens.
