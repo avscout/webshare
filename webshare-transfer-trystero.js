@@ -22,55 +22,45 @@
   'use strict';
 
   const TRYSTERO_APP_ID = 'webshare-tudelft-v1';
-  // Pin to a stable version; the /nostr subpath is the Nostr strategy.
-  const TRYSTERO_CDN    = 'https://esm.sh/trystero@0.21.8/nostr';
+  // 0.23.0 is the current stable. Nostr is the default strategy —
+  // no /nostr subpath needed in this version.
+  const TRYSTERO_CDN    = 'https://esm.sh/trystero@0.23.0';
 
   // Pre-fetch the Trystero module as soon as this script loads so the
   // first _joinRoom() call doesn't have to wait for a network round-trip.
-  // The import() result is cached by the browser module registry; the
-  // actual _joinRoom call re-uses the cached module instantly.
   let _trysteroModulePromise = null;
   function _prefetchTrystero() {
     if (!_trysteroModulePromise) {
       _trysteroModulePromise = import(TRYSTERO_CDN).catch(() => {
-        _trysteroModulePromise = null; // allow retry on failure
+        _trysteroModulePromise = null;
       });
     }
     return _trysteroModulePromise;
   }
-  // Start prefetch immediately on script load.
   _prefetchTrystero();
 
-  // Public Nostr relays used for signaling. All fully open — no signup,
-  // no payment required for writing. Trystero connects to all simultaneously;
-  // more relays = better redundancy across geographies and operators.
+  // Public Nostr relays — all fully open, no signup or payment required.
   const NOSTR_RELAY_URLS = [
-    'wss://nos.lol',               // community-run, stable
-    'wss://relay.snort.social',    // Snort client relay, stable
-    'wss://relay.nostr.band',      // nostr.band, good uptime
-    'wss://relay.primal.net',      // Primal client relay, well-maintained
-    'wss://nostr.mom',             // long-running open relay
+    'wss://nos.lol',
+    'wss://relay.snort.social',
+    'wss://relay.nostr.band',
+    'wss://relay.primal.net',
+    'wss://nostr.mom',
   ];
 
-  // Free public TURN servers (Open Relay Project / metered.ca).
-  // Required for WebRTC connectivity behind strict NATs — without TURN,
-  // devices on mobile networks or corporate Wi-Fi often can't connect.
-  // PeerJS provides these automatically; for Trystero we supply them explicitly.
-  const RTC_CONFIG = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      {
-        urls: [
-          'turn:openrelay.metered.ca:80',
-          'turn:openrelay.metered.ca:443',
-          'turn:openrelay.metered.ca:443?transport=tcp',
-        ],
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-    ],
-  };
+  // TURN servers for WebRTC NAT traversal. Using turnConfig (not rtcConfig)
+  // so Trystero's own default STUN servers are preserved alongside these.
+  const TURN_CONFIG = [
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ];
   // Must cover: ICE timeout (~30s) + reconnect time after screen-on.
   // 5 minutes handles typical field use (set phone down briefly, pick back up).
   const LEAVE_GRACE_MS = 5 * 60 * 1000;
@@ -249,9 +239,9 @@
       this._log('ok', 'Trystero loaded — joining room…');
 
       this._room = joinRoom({
-        appId    : TRYSTERO_APP_ID,
-        relayUrls: NOSTR_RELAY_URLS,
-        rtcConfig: RTC_CONFIG,
+        appId      : TRYSTERO_APP_ID,
+        relayUrls  : NOSTR_RELAY_URLS,
+        turnConfig : TURN_CONFIG,
       }, roomCode);
 
       // Log relay connection status after a short delay so sockets have
