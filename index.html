@@ -3658,6 +3658,18 @@ async function onEnterScreen(screenId) {
     refreshSessionsCount();
     renderResumeBar();
   } else if (screenId === 'pick') {
+    // Adjust title based on context
+    const titleEl = document.querySelector('[data-screen="pick"] .screen-title');
+    const subtitleEl = document.querySelector('[data-screen="pick"] .screen-subtitle');
+    if (titleEl && GroupStore.exists()) {
+      titleEl.textContent = 'Reports';
+      if (subtitleEl) subtitleEl.textContent = TrysteroRoomManager.isConnected()
+        ? 'Synced with group — changes appear on all devices.'
+        : 'Create or view reports. Changes sync when connected.';
+    } else if (titleEl) {
+      titleEl.textContent = 'Pick a report to send';
+      if (subtitleEl) subtitleEl.textContent = 'Select an existing report, or create a new one.';
+    }
     await refreshPickList();
   } else if (screenId === 'show-qr') {
     qrVisible = true;
@@ -3955,6 +3967,14 @@ async function onScanResult(data) {
     const password = params.pw;
     const invitedBy = params.invitedBy;
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+
+    // If we're already connected to this group room, don't reconnect
+    if (TrysteroRoomManager._room && TrysteroRoomManager.isConnected()
+        && GroupStore.getRoomCode() === roomCode) {
+      log('Already connected to this group room.', 'info');
+      restartToStart();
+      return;
+    }
     showConnectingOverlay('Connecting to relays…');
     try {
       // If we don't have a group yet, create one from the scanned QR
@@ -4762,13 +4782,17 @@ function renderResumeBar() {
   sub.textContent = 'Connected — tap to continue';
 }
 
-$('resume-session-bar').addEventListener('click', () => {
-  // For Trystero: no pick/transfer flow — just show sync status or sessions
-  if (currentBackend === 'trystero' || (GroupStore.exists() && TrysteroRoomManager.isConnected())) {
-    // Navigate to the browse/sessions view
-    showMyDevicePanel();
+$('resume-session-bar').addEventListener('click', async () => {
+  // For Trystero: navigate to pick screen (reports overview + demo features)
+  if (GroupStore.exists()) {
+    currentMode    = 'send';
+    currentBackend = 'trystero';
+    await refreshPickList();
+    const pickIdx = FLOWS['send-trystero'].indexOf('pick');
+    if (pickIdx !== -1) goToStep(pickIdx, 'forward');
     return;
   }
+  // PeerJS / Raw
   if (!activeTransfer || !activeTransfer._remotePeerId) return;
   const targetScreen = (currentMode === 'receive') ? 'transfer' : 'pick';
   const idx = activeFlow().indexOf(targetScreen);
@@ -6217,11 +6241,12 @@ async function showMyDevicePanel() {
                   return inviter ? `Invited by ${inviter.nickname || '?'}` : 'External invite';
                 })()
               : 'Founding member';
+            const isYou = p.deviceId === DEVICE_ID;
             return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft)">
               <span style="flex-shrink:0">${renderDeviceSVG(emoji, { size: 40, color })}</span>
               <div style="flex:1;min-width:0">
-                <div style="font-weight:600;font-size:14px">${p.nickname || '?'}</div>
-                <div style="font-size:12px;color:var(--dim)">${connected ? '● Online' : 'Last seen: ' + lastSeen}</div>
+                <div style="font-weight:600;font-size:14px">${p.nickname || '?'}${isYou ? ' <span style="opacity:.5;font-weight:400">(you)</span>' : ''}</div>
+                <div style="font-size:12px;color:var(--dim)">${isYou ? '● Online' : connected ? '● Online' : 'Last seen: ' + lastSeen}</div>
                 <div style="font-size:11px;color:var(--dim);opacity:.7">${invitedLabel}</div>
               </div>
               <button class="mydev-unpair-btn" data-deviceid="${p.deviceId}"
