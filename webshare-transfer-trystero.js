@@ -25,13 +25,32 @@
   // Pin to a stable version; the /nostr subpath is the Nostr strategy.
   const TRYSTERO_CDN    = 'https://esm.sh/trystero@0.21.8/nostr';
 
-  // Public Nostr relays used for signaling. Explicit list bypasses Trystero's
-  // internal appId-based relay selection (which changed in newer versions).
+  // Pre-fetch the Trystero module as soon as this script loads so the
+  // first _joinRoom() call doesn't have to wait for a network round-trip.
+  // The import() result is cached by the browser module registry; the
+  // actual _joinRoom call re-uses the cached module instantly.
+  let _trysteroModulePromise = null;
+  function _prefetchTrystero() {
+    if (!_trysteroModulePromise) {
+      _trysteroModulePromise = import(TRYSTERO_CDN).catch(() => {
+        _trysteroModulePromise = null; // allow retry on failure
+      });
+    }
+    return _trysteroModulePromise;
+  }
+  // Start prefetch immediately on script load.
+  _prefetchTrystero();
+
+  // Public Nostr relays used for signaling. All fully open — no signup,
+  // no payment required for writing. Trystero connects to all simultaneously;
+  // more relays = better redundancy across geographies and operators.
   const NOSTR_RELAY_URLS = [
-    'wss://relay.damus.io',
-    'wss://nos.lol',
-    'wss://relay.snort.social',
-    'wss://nostr.wine',
+    'wss://nos.lol',               // community-run, stable
+    'wss://relay.snort.social',    // Snort client relay, stable
+    'wss://relay.nostr.band',      // nostr.band, good uptime
+    'wss://relay.primal.net',      // Primal client relay, well-maintained
+    'wss://nostr.mom',             // long-running open relay
+    'wss://relay.damus.io',        // Damus app relay, widely used
   ];
 
   // How long to wait after a peer leaves before declaring a fatal disconnect.
@@ -203,19 +222,37 @@
     // -----------------------------------------------------------------------
 
     async _joinRoom(roomCode) {
-      this._log('info', 'Loading Trystero (Nostr backend)…');
+      this._log('info', 'Connecting to Nostr relays…');
       let joinRoom;
       try {
-        ({ joinRoom } = await import(TRYSTERO_CDN));
+        ({ joinRoom } = await _prefetchTrystero());
       } catch (e) {
         throw new Error('Failed to load Trystero: ' + (e.message || e));
       }
-      this._log('ok', 'Trystero loaded — connecting to Nostr relays…');
+      this._log('ok', 'Trystero loaded — joining room…');
 
       this._room = joinRoom({
         appId    : TRYSTERO_APP_ID,
         relayUrls: NOSTR_RELAY_URLS,
       }, roomCode);
+
+      // Log relay connection status after a short delay so sockets have
+      // had time to connect or fail. getRelaySockets() returns a Map of
+      // url → WebSocket; we check .readyState (1 = OPEN, 3 = CLOSED).
+      setTimeout(() => {
+        if (!this._room) return;
+        try {
+          const sockets = this._room.getRelaySockets();
+          sockets.forEach((ws, url) => {
+            const state = ws.readyState === 1 ? 'connected'
+                        : ws.readyState === 0 ? 'connecting'
+                        : ws.readyState === 2 ? 'closing'
+                        : 'closed';
+            const level = ws.readyState === 1 ? 'ok' : ws.readyState === 0 ? 'info' : 'err';
+            this._log(level, `Relay ${url} — ${state}`);
+          });
+        } catch {}
+      }, 3000);
 
       // Each makeAction returns [senderFn, receiverHandlerRegistrar].
       // Guard against API shape changes in future Trystero versions.

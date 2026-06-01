@@ -131,6 +131,36 @@
   }
   .topbar .identity-badge-svg svg { display: block; flex-shrink: 0; }
 
+  /* ===== Connecting overlay ===== */
+  /* Full-screen overlay over the stage during connection setup.
+     Visible on both sides: receiver while startReceiving() loads,
+     sender while connect() waits for the peer. */
+  .connecting-overlay {
+    position: absolute; inset: 0;
+    background: rgba(255,255,255,0.92);
+    z-index: 50;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  @media (prefers-color-scheme: dark) {
+    .connecting-overlay { background: rgba(24,24,24,0.92); }
+  }
+  .connecting-overlay.visible { opacity: 1; pointer-events: auto; }
+  .connecting-spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.75s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .connecting-message {
+    font-size: 15px; font-weight: 600;
+    color: var(--ink-soft); letter-spacing: 0.01em;
+  }
+
   /* ===== Topbar connection state — built into the identity badge ===== */
   /* When connected, the badge expands to show [local] & [remote] name.
      Multiple connections: avatars stack with overlap. */
@@ -1808,6 +1838,12 @@
 <!-- STAGE -->
 <main class="stage" id="stage">
 
+  <!-- Connecting overlay — shown while connection is being established -->
+  <div class="connecting-overlay" id="connecting-overlay" aria-live="polite" aria-label="Connecting">
+    <div class="connecting-spinner"></div>
+    <div class="connecting-message" id="connecting-message">Connecting…</div>
+  </div>
+
   <!-- ============ START SCREEN ============ -->
   <section class="screen active" data-screen="start">
     <div class="screen-header">
@@ -3422,8 +3458,7 @@ function onLeaveScreen(screenId) {
 async function onEnterScreen(screenId) {
   log(`→ ${screenId}`, 'info');
   if (screenId === 'start') {
-    // Returning to start resets the transfer (and the live note panels,
-    // via disposeActiveTransfer → resetNotePanels).
+    hideConnectingOverlay();
     disposeActiveTransfer();
     selectedSessionId = null;
     // Tear down the connection bar — there is no active link anymore.
@@ -3523,24 +3558,22 @@ async function setupShowQRScreen() {
 
   // What we're showing depends on (mode, backend, position)
   if (currentMode === 'receive' && currentBackend === 'peerjs') {
-    // Show peer ID for sender to scan
     $('show-qr-title').textContent = 'Share with the sender';
     $('show-qr-subtitle').textContent = 'On the sending device, scan this QR.';
-    // Connection bar stays hidden on show-qr. The QR + title already
-    // communicate "waiting for someone to scan". When pairing starts,
-    // the library's 'connected' event reveals the bar with the peer.
-    // Start the transfer if not already
+    const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'peerjs';
+    if (needsInit) showConnectingOverlay('Setting up…');
     await ensureReceiveTransfer();
-    // The transfer's 'show-qr' event will fill in the QR
   } else if (currentMode === 'receive' && currentBackend === 'trystero') {
     $('show-qr-title').textContent = 'Share room code with sender';
     $('show-qr-subtitle').textContent = 'On the sending device, scan this QR or type the code below.';
+    const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'trystero';
+    if (needsInit) showConnectingOverlay('Connecting to relays…');
     await ensureReceiveTransfer();
-    // TrysteroTransfer emits show-qr with kind:'peerid' — same handler as PeerJS
   } else if (currentMode === 'receive' && currentBackend === 'raw') {
     $('show-qr-title').textContent = 'Scan this with the sender';
     $('show-qr-subtitle').textContent = 'On the sending device, point its camera at this animated QR.';
-    // Bar stays hidden until 'connected'.
+    const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'raw';
+    if (needsInit) showConnectingOverlay('Setting up…');
     await ensureReceiveTransfer();
   } else if (currentMode === 'send' && currentBackend === 'raw') {
     // This is the 'answer QR' step
@@ -3654,23 +3687,17 @@ async function onScanResult(data) {
   const isRawReceiver    = currentMode === 'receive' && currentBackend === 'raw';
 
   if (isPeerJSSender) {
-    // 'data' could be either a bare peer ID (legacy QR or manual entry)
-    // or a URL like https://avscout.github.io/webshare?join={peerId}
-    // (current QR format). extractPeerIdFromScan handles both.
     const peerId = extractPeerIdFromScan(data);
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+    showConnectingOverlay('Connecting…');
     try {
-      // Connect now. Library fires 'connected' event when channel opens.
-      // We advance to the pick screen — the user picks their session
-      // there, then Continue triggers the actual send() in
-      // setupTransferScreen.
       await activeTransfer.connect(peerId);
-      // Pairing succeeded → move to pick screen so user can choose a session
+      hideConnectingOverlay();
       const pickIdx = activeFlow().indexOf('pick');
       if (pickIdx !== -1) goToStep(pickIdx, 'forward');
     } catch (err) {
+      hideConnectingOverlay();
       log('Connect failed: ' + err.message, 'err');
-      // Go to transfer screen to show the error — same pattern as before
       const transferIdx = activeFlow().indexOf('transfer');
       if (transferIdx !== -1) goToStep(transferIdx, 'forward');
       $('transfer-title').textContent = 'Something went wrong';
@@ -3678,14 +3705,16 @@ async function onScanResult(data) {
       showProgressRestartButton('Disconnect');
     }
   } else if (isTrysteroSender) {
-    // 'data' is the room code (possibly wrapped in a ?join= URL with &backend=trystero)
     const roomCode = extractPeerIdFromScan(data);
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+    showConnectingOverlay('Connecting to relays…');
     try {
       await activeTransfer.connect(roomCode);
+      hideConnectingOverlay();
       const pickIdx = activeFlow().indexOf('pick');
       if (pickIdx !== -1) goToStep(pickIdx, 'forward');
     } catch (err) {
+      hideConnectingOverlay();
       log('Trystero connect failed: ' + err.message, 'err');
       const transferIdx = activeFlow().indexOf('transfer');
       if (transferIdx !== -1) goToStep(transferIdx, 'forward');
@@ -4045,11 +4074,8 @@ async function ensureSendTransfer() {
 function showConnectionBar() {
   const bar = $('connection-bar');
   bar.classList.remove('hidden');
-  // Force the entrance animation to restart by reflow so re-showing
-  // (e.g. after a hide cycle) animates in again, not silently appearing.
   void bar.offsetWidth;
   renderConnectionBarPeer();
-  // The Back button label depends on bar visibility — refresh.
   updateNavBar();
 }
 
@@ -4058,6 +4084,18 @@ function hideConnectionBar() {
   bar.classList.add('hidden');
   renderTopbarConnections();
   updateNavBar();
+}
+
+function showConnectingOverlay(message = 'Connecting…') {
+  const el = $('connecting-overlay');
+  if (!el) return;
+  $('connecting-message').textContent = message;
+  el.classList.add('visible');
+}
+
+function hideConnectingOverlay() {
+  const el = $('connecting-overlay');
+  if (el) el.classList.remove('visible');
 }
 
 // Set the bar's current state. Only the four live states actually update
@@ -4185,6 +4223,7 @@ function wirePeerInfoListener(t) {
   // connected state. Peer-info usually arrives ms later and updates the
   // nickname in place via the listener above.
   t.on('connected', () => {
+    hideConnectingOverlay();
     showConnectionBar();
     setConnectionBarStatus('connected');
   });
@@ -4194,6 +4233,7 @@ function wirePeerInfoListener(t) {
   // Persistent Trystero rooms do NOT navigate — they stay open waiting
   // for the peer to come back.
   t.on('disconnected', () => {
+    hideConnectingOverlay();
     setConnectionBarStatus('disconnected');
     if (!t.persistent) handleRemoteDisconnect();
   });
@@ -4427,6 +4467,7 @@ function wireTransferToReceiveUI(t) {
   t.on('log', ({ level, message }) => log(message, level));
   t.on('show-qr', ({ kind, text, chunks }) => {
     if (currentScreenId() !== 'show-qr') return;  // not yet on this screen, ignore
+    hideConnectingOverlay();
     if (kind === 'peerid') {
       $('show-qr-peerid').textContent = text;
       $('show-qr-peerid').classList.remove('hidden');
@@ -5817,10 +5858,13 @@ async function showMyDevicePanel() {
           const pairings = PairingStore.getAll();
           if (pairings.length === 0) return '';
           const rows = pairings.map(p => {
-            const connected = TrysteroRoomManager.isConnected(p.deviceId);
-            const lastSeen = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
+            const connected  = TrysteroRoomManager.isConnected(p.deviceId);
+            const cached     = TrysteroRoomManager._peerInfo.get(p.deviceId);
+            const emoji      = (cached && cached.emoji) || p.emoji || '?';
+            const color      = (cached && cached.color) || p.color || null;
+            const lastSeen   = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
             return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft)">
-              <span style="flex-shrink:0">${renderDeviceSVG(p.emoji || '?', { size: 40, color: p.color })}</span>
+              <span style="flex-shrink:0">${renderDeviceSVG(emoji, { size: 40, color })}</span>
               <div style="flex:1;min-width:0">
                 <div style="font-weight:600;font-size:14px">${p.nickname || '?'}</div>
                 <div style="font-size:12px;color:var(--dim)">${connected ? '● Online' : 'Last seen: ' + lastSeen}</div>
