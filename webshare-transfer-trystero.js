@@ -297,6 +297,7 @@
       setTimeout(() => {
         if (!this._room) return;
         try {
+          if (typeof this._room.getRelaySockets !== 'function') return;
           const sockets = this._room.getRelaySockets();
           let connected = 0, total = 0;
           sockets.forEach((ws, url) => {
