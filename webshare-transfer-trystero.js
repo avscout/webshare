@@ -271,19 +271,34 @@
 
       this._room = joinRoom(config, roomCode);
 
-      // Log relay status after 3s
+      // Log relay status after 3s with a clear summary.
+      // Shows which relays are up/down and warns loudly if none connect.
       setTimeout(() => {
         if (!this._room) return;
         try {
           const sockets = this._room.getRelaySockets();
+          let connected = 0, total = 0;
           sockets.forEach((ws, url) => {
+            total++;
             const state = ws.readyState === 1 ? 'connected'
                         : ws.readyState === 0 ? 'connecting'
                         : ws.readyState === 2 ? 'closing' : 'closed';
             const level = ws.readyState === 1 ? 'ok' : ws.readyState === 0 ? 'info' : 'err';
+            if (ws.readyState === 1) connected++;
             this._log(level, `Relay ${url} — ${state}`);
           });
-        } catch {}
+      if (total === 0) {
+            this._log('err', 'No relays found — Trystero may not be loaded correctly.');
+          } else if (connected === 0) {
+            this._log('err', `⚠ No relays reachable (0/${total}) — check network. Peer discovery will not work.`);
+            this.emit('relay-status', { connected: 0, total });
+          } else {
+            this._log('ok', `${connected}/${total} relays connected — room ready.`);
+            this.emit('relay-status', { connected, total });
+          }
+        } catch (e) {
+          this._log('err', 'Could not check relay status: ' + e.message);
+        }
       }, 3000);
 
       const _makeAction = (name) => {

@@ -159,6 +159,104 @@
     color: var(--ink-soft);
   }
 
+  /* ===== Holy Grail — source data card ===== */
+  @keyframes rainbow-border {
+    0%   { border-color: #e24b4a; }
+    16%  { border-color: #ef9f27; }
+    33%  { border-color: #639922; }
+    50%  { border-color: #378add; }
+    66%  { border-color: #7f77dd; }
+    83%  { border-color: #d4537e; }
+    100% { border-color: #e24b4a; }
+  }
+  @keyframes grail-float {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-4px); }
+  }
+  .grail-card {
+    border-radius: var(--border-radius-lg, 10px);
+    background: var(--bg);
+    padding: 18px 16px 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    margin-bottom: 1rem;
+  }
+  @keyframes rainbow-spin {
+    to { --angle: 360deg; }
+  }
+  @property --angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+  }
+  .grail-icon {
+    border-radius: 14px;
+    animation: grail-float 3s ease-in-out infinite, rainbow-spin 2s linear infinite;
+    overflow: hidden;
+    line-height: 0;
+    font-size: 0;
+    padding: 3px;
+    background: conic-gradient(from var(--angle),
+      #e24b4a, #ef9f27, #639922, #378add, #7f77dd, #d4537e, #e24b4a);
+  }
+  .grail-meta { text-align: center; }
+  .grail-name { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .grail-sub  { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .grail-hash { font-size: 11px; font-family: monospace; color: var(--dim); margin-top: 2px; }
+  .grail-members { font-size: 12px; color: var(--accent); margin-top: 2px; }
+  /* Source upload drop zone */
+  .source-dropzone {
+    border: 2px dashed var(--line); border-radius: 10px;
+    padding: 28px 16px; text-align: center;
+    cursor: pointer; margin-bottom: 1rem;
+    color: var(--dim); font-size: 13px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .source-dropzone:hover, .source-dropzone.dragover {
+    border-color: var(--accent); background: var(--bg-subtle);
+  }
+  /* View creation panel */
+  .source-panel {
+    background: var(--bg); border: 0.5px solid var(--line);
+    border-radius: 10px; padding: 14px; margin-bottom: 1rem;
+  }
+  .source-panel-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 12px; }
+  .source-search {
+    width: 100%; box-sizing: border-box;
+    font-size: 13px; padding: 6px 10px;
+    border: 0.5px solid var(--line); border-radius: 6px;
+    background: var(--bg-subtle); color: var(--ink);
+    margin-bottom: 6px; font-family: var(--sans);
+  }
+  .source-checklist {
+    max-height: 130px; overflow-y: auto;
+    border: 0.5px solid var(--line); border-radius: 6px;
+    margin-bottom: 10px;
+  }
+  .source-checklist label {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; font-size: 13px; color: var(--ink);
+    cursor: pointer; border-bottom: 0.5px solid var(--line);
+    user-select: none;
+  }
+  .source-checklist label:last-child { border-bottom: none; }
+  .source-match { font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+
+  /* ===== Status tab bar ===== */
+  .status-tabs {
+    display: flex; gap: 0; margin-bottom: 1rem;
+    border-bottom: 2px solid var(--line);
+  }
+  .status-tab {
+    flex: 1; padding: 8px 4px; text-align: center;
+    font-size: 11px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--dim);
+    background: none; border: none; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: color 0.15s, border-color 0.15s;
+    font-family: var(--sans);
+  }
+  .status-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
   /* ===== Connecting overlay ===== */
   /* Full-screen overlay over the stage during connection setup.
      Visible on both sides: receiver while startReceiving() loads,
@@ -469,7 +567,7 @@
     border: 1px solid var(--line); margin-bottom: 14px;
     max-height: 50vh; overflow-y: auto; background: var(--bg);
   }
-  .session-list:empty::before { content: 'No reports yet.'; display: block; padding: 16px; color: var(--dim); font-style: italic; }
+  .session-list:empty::before { content: 'No tasks yet.'; display: block; padding: 16px; color: var(--dim); font-style: italic; }
   .session-row { display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; transition: background 0.12s; align-items: center; }
   .session-row:last-child { border-bottom: none; }
   .session-row:hover { background: var(--bg-subtle); }
@@ -729,7 +827,7 @@
   .items-modal-origin { flex-shrink: 0; }
   .items-modal-origin svg { display: block; }
   .items-modal-title {
-    flex: 1; min-width: 0;
+    flex: 1; min-width: 0; overflow: hidden;
   }
   .items-modal-subtitle {
     color: var(--dim); font-size: 12px; margin-top: 2px;
@@ -741,71 +839,68 @@
   .items-group-head {
     position: sticky; top: 0;
     background: var(--bg);
-    padding: 12px 18px 8px;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: var(--dim);
+    padding: 10px 18px 8px;
+    display: flex; align-items: center; justify-content: space-between;
     border-bottom: 1px solid var(--line-soft);
     z-index: 1;
   }
+  .items-group-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  .items-group-count {
+    font-size: 11px; font-weight: 600; color: var(--dim);
+    background: var(--bg-subtle); border: 1px solid var(--line);
+    border-radius: 20px; padding: 2px 10px; letter-spacing: .04em;
+    text-transform: uppercase;
+  }
   .items-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 18px;
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 18px;
     border-bottom: 1px solid var(--line-soft);
   }
   .items-row:last-child { border-bottom: none; }
-  .items-row .item-info {
-    flex: 1; min-width: 0;
+  .item-status-icon {
+    flex-shrink: 0; margin-top: 1px;
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    background: #2ea84a;
+    display: flex; align-items: center; justify-content: center;
   }
-  .items-row .item-title {
-    display: flex; align-items: baseline; gap: 6px;
-    min-width: 0;
+  .item-status-icon svg { display: block; }
+  .items-row .item-info { flex: 1; min-width: 0; }
+  .item-title-row {
+    display: flex; align-items: baseline; gap: 5px;
+    flex-wrap: wrap;
   }
-  .items-row .item-title-text {
-    font-weight: 600;
-    color: var(--ink);
-    text-transform: capitalize;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    min-width: 0;
+  .item-title-text {
+    font-size: 14px; font-weight: 600; color: var(--ink);
   }
-  /* Display ID as a faint superscript suffix to the title. Tiny,
-     dim, monospace so it reads as "metadata, ignore unless you need
-     it." Raised relative to the title baseline like a real superscript;
-     doesn't compete with the title for ellipsis. */
-  .items-row .item-id-suffix {
-    flex-shrink: 0;
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--dim);
-    font-weight: 400;
-    align-self: flex-start;
-    margin-top: -2px;
+  .item-num {
+    font-size: 12px; color: var(--dim); font-weight: 400;
   }
-  .items-row .item-meta {
-    color: var(--dim); font-size: 12px; margin-top: 2px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  .item-notes-count {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 12px; color: var(--dim); margin-left: 2px;
   }
-  .items-row .item-time {
-    font-size: 11px; color: var(--dim);
-    flex-shrink: 0;
+  .item-sub-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 3px;
   }
-  /* Vertical status bar on the left of each row. Green when found,
-     red when missing, invisible when the item has no found state.
-     The bar is fixed-width so the columns align across rows
-     regardless of state. */
-  .items-row .item-status-bar {
-    flex-shrink: 0;
-    width: 3px;
-    height: 28px;
-    border-radius: 2px;
-    background: transparent;
+  .item-avatar-sm {
+    width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
   }
-  .items-row .item-status-bar.found   { background: var(--ok); }
-  .items-row .item-status-bar.missing { background: var(--warn); }
+  .item-meta-text {
+    font-size: 12px; color: var(--dim);
+  }
+  .item-right {
+    flex-shrink: 0; text-align: right;
+    font-size: 11px; color: var(--dim); line-height: 1.4;
+  }
+  .items-row .item-status-bar { display: none; }
   .items-empty {
-    padding: 32px 18px;
-    text-align: center;
-    color: var(--dim);
-    font-style: italic;
+    padding: 32px 18px; text-align: center;
+    color: var(--dim); font-style: italic;
   }
 
   /* Segmented sort toolbar at the top of the items modal body. Three
@@ -1786,6 +1881,7 @@
     .modal { max-width: 480px; margin: 0 auto; }
   }
 </style>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body class="preboot">
 
@@ -1822,7 +1918,7 @@
       </div>
 
       <div class="ob-disc-section">
-        <div class="ob-disc-heading">How pairing works</div>
+        <div class="ob-disc-heading">How inviting works</div>
         <p>The first time you connect two devices, one shows a QR code and the other scans it. After that, the devices recognise each other and connect automatically whenever both are open — no scanning needed again.</p>
       </div>
 
@@ -1917,8 +2013,11 @@
         </div>
       </div>
 
-      <!-- Recent reports -->
-      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Recent reports</div>
+      <!-- Source data section -->
+      <div id="source-section" style="margin-bottom:0"></div>
+
+      <!-- Recent tasks -->
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Recent tasks</div>
       <div class="session-list" id="home-session-list" style="margin-bottom:1rem"></div>
 
       <!-- Two-button toolbar -->
@@ -1927,30 +2026,39 @@
           flex:1; min-height:44px; padding:10px 14px;
           font-family:var(--sans); font-size:13px; font-weight:700;
           letter-spacing:.04em; text-transform:uppercase;
-          background:#fff; color:var(--accent);
-          border:1px solid var(--accent); cursor:pointer;">New report</button>
+          background:var(--accent); color:#fff;
+          border:1px solid var(--accent); cursor:pointer;">New task</button>
         <button id="home-view-all-btn" style="
           flex:1; min-height:44px; padding:10px 14px;
           font-family:var(--sans); font-size:13px; font-weight:700;
           letter-spacing:.04em; text-transform:uppercase;
           background:var(--accent); color:#fff;
-          border:1px solid var(--accent); cursor:pointer;">View all</button>
+          border:1px solid var(--accent); cursor:pointer;">View all tasks</button>
       </div>
 
       <!-- My group section -->
       <hr style="border:none;border-top:1px solid var(--line);margin:0 0 1rem">
       <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.75rem">My group</div>
       <div id="home-group-members"></div>
-      <p class="user-only-paragraph" style="font-size:13px;color:var(--dim);margin:0 0 .75rem">Pair devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
-      <div class="direction-actions" id="mode-group">
-        <button class="direction-btn" data-mode="receive">
-          <span class="direction-btn-label">Pair a device</span>
-          <span class="direction-btn-sub">show your QR code</span>
-        </button>
-        <button class="direction-btn" data-mode="send">
-          <span class="direction-btn-label">Add device</span>
-          <span class="direction-btn-sub">scan a QR code</span>
-        </button>
+      <div id="home-pair-section">
+        <p class="user-only-paragraph" style="font-size:13px;color:var(--dim);margin:0 0 .75rem">Invite devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
+        <div class="direction-actions" id="mode-group">
+          <button class="direction-btn" data-mode="receive">
+            <span class="direction-btn-label">Invite a device</span>
+            <span class="direction-btn-sub">show your invite code</span>
+          </button>
+          <button class="direction-btn" data-mode="send">
+            <span class="direction-btn-label">Join a group</span>
+            <span class="direction-btn-sub">scan an invite code</span>
+          </button>
+        </div>
+      </div>
+      <div id="home-add-another" class="hidden" style="margin-bottom:1rem">
+        <button id="home-add-another-btn" style="
+          background:none;border:none;padding:0;
+          font-size:13px;color:var(--accent);
+          text-decoration:underline;text-decoration-style:dotted;
+          cursor:pointer;font-family:var(--sans)">+ Invite another device</button>
       </div>
 
       <!-- Demo section -->
@@ -1977,12 +2085,12 @@
   <!-- ============ PICK SESSION (SEND ONLY) ============ -->
   <section class="screen hidden" data-screen="pick">
     <div class="screen-header">
-      <h1 class="screen-title">Pick a report to send</h1>
+      <h1 class="screen-title">Pick a job to send</h1>
       <p class="screen-subtitle">Select an existing report, or create a new one.</p>
     </div>
     <div class="screen-content">
       <div class="list-toolbar">
-        <button class="primary" id="pick-new-btn">New report</button>
+        <button class="primary" id="pick-new-btn">New task</button>
       </div>
       <div class="session-list" id="pick-session-list"></div>
 
@@ -1991,7 +2099,7 @@
            .note-peer-text shows what the PEER is typing (constantly
            overwritten, not appended). -->
       <div class="note-panel hidden" id="pick-note-panel">
-        <div class="demo-eyebrow">⚙ Demo features</div>
+        <div class="demo-eyebrow">Live collaboration</div>
         <div class="lamp-row" data-lamp-toggle role="button" tabindex="0" aria-pressed="false">
           <div class="lamp-bulb" data-lamp-bulb aria-hidden="true"></div>
           <div class="lamp-label">
@@ -2000,11 +2108,11 @@
           </div>
         </div>
         <div class="note-section">
-          <div class="note-eyebrow">Note to peer</div>
+          <div class="note-eyebrow">Send a note</div>
           <textarea class="note-input" data-note-input rows="2" placeholder="Type a quick note…" autocomplete="off"></textarea>
         </div>
         <div class="note-section">
-          <div class="note-eyebrow"><span data-peer-label>Peer</span> is writing</div>
+          <div class="note-eyebrow"><span data-peer-label>Others</span> are writing</div>
           <div class="note-peer-text is-empty" data-note-peer>Nothing yet…</div>
         </div>
       </div>
@@ -2077,7 +2185,7 @@
           <div class="mydev-sessions-row">
             <div class="mydev-sessions-count">
               <span id="transfer-sessions-count">0</span>
-              <span class="mydev-sessions-label" id="transfer-sessions-label">reports on this device</span>
+              <span class="mydev-sessions-label" id="transfer-sessions-label">tasks on this device</span>
             </div>
             <button class="mydev-browse-btn" id="transfer-browse-btn">Browse →</button>
           </div>
@@ -2088,7 +2196,7 @@
              so both sides have a place to exchange a quick live-updating
              note. Hidden by default; shown when receiver is connected. -->
         <div class="note-panel hidden" id="transfer-note-panel">
-          <div class="demo-eyebrow">⚙ Demo features</div>
+          <div class="demo-eyebrow">Live collaboration</div>
           <div class="lamp-row" data-lamp-toggle role="button" tabindex="0" aria-pressed="false">
             <div class="lamp-bulb" data-lamp-bulb aria-hidden="true"></div>
             <div class="lamp-label">
@@ -2195,7 +2303,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '9';
+  const LOCAL_VERSION = '10';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -2259,16 +2367,87 @@ $('log-dock-head').addEventListener('click', () => $('log-dock').classList.toggl
 const SESSION_DB = 'webshare-demo-sessions';
 function openSessionDb() {
   return new Promise((res, rej) => {
-    const req = indexedDB.open(SESSION_DB, 1);
+    const req = indexedDB.open(SESSION_DB, 2);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('source'))   db.createObjectStore('source',   { keyPath: 'id' });
     };
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
   });
 }
 function txPromise(tx) { return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error); }); }
+
+// ── Source data (imported Excel) ─────────────────────────────────────────────
+async function getSource() {
+  const db = await openSessionDb();
+  const tx = db.transaction('source', 'readonly');
+  const r  = tx.objectStore('source').get('current');
+  const result = await new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  db.close();
+  return result || null;
+}
+
+async function saveSource(data) {
+  const db = await openSessionDb();
+  const tx = db.transaction('source', 'readwrite');
+  tx.objectStore('source').put({ id: 'current', ...data });
+  await txPromise(tx);
+  db.close();
+}
+
+async function clearSource() {
+  const db = await openSessionDb();
+  const tx = db.transaction('source', 'readwrite');
+  tx.objectStore('source').delete('current');
+  await txPromise(tx);
+  db.close();
+}
+
+// Simple hash for version comparison — djb2 on JSON string
+function hashData(obj) {
+  const str = JSON.stringify(obj);
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
+  return (h >>> 0).toString(16).slice(0, 8);
+}
+
+// Parse an Excel row into a structured asset object
+function parseSourceRow(row, headers) {
+  const get = (name) => {
+    const idx = headers.findIndex(h => h && h.toString().trim().toLowerCase() === name.toLowerCase());
+    return idx >= 0 ? row[idx] : null;
+  };
+  const eqTypeRaw = get('Equipment Type') || '';
+  // Extract id and type from URL: /admin/data/led/2674/change/ → { type:'led', id:'2674' }
+  const match = String(eqTypeRaw).match(/\/admin\/data\/([^/]+)\/(\d+)\//);
+  if (!match) return null;
+  const [, eqType, eqId] = match;
+  const spaceNum = String(get('Space Number') || '').trim();
+  const building = spaceNum.split('.')[0] || '';
+  const dateVal = (v) => {
+    if (!v) return null;
+    if (v instanceof Date) return v.toISOString().split('T')[0];
+    return String(v).split('T')[0];
+  };
+  return {
+    id             : eqId,
+    type           : eqType,
+    building       : building,
+    room           : spaceNum,
+    roomName       : String(get('Space Name') || '').trim(),
+    model          : String(get('Model') || '').trim(),
+    dateInOperation: dateVal(get('Date in Operation')),
+    dateOfReplacement: dateVal(get('Date of Replacement')),
+    costs          : get('Costs') || null,
+    hostname       : get('Hostname') || null,
+    ipAddress      : get('IP\u00a0Address') || get('IP Address') || null,
+    macAddress     : get('Mac Address') || null,
+    sn             : get('Sn') || null,
+    comments       : String(get('Comments') || '').trim() || null,
+  };
+}
 
 // Raw list — all sessions including tombstones (for sync)
 async function listSessionsRaw() {
@@ -2279,13 +2458,19 @@ async function listSessionsRaw() {
   return all;
 }
 
-// Public list — excludes tombstones, sorted newest first
-async function listSessions() {
+// Public list — filter by status, sorted newest-modified first.
+// Sessions without a status field are treated as 'open' (backwards compat).
+// Sessions with old deleted:true are treated as 'archived'.
+async function listSessions(status = 'open') {
   const all = await listSessionsRaw();
   return all
-    .filter(s => !s.deleted)
-    .sort((a, b) => (new Date(b.modifiedAt).getTime()) - (new Date(a.modifiedAt).getTime()));
+    .filter(s => {
+      const st = s.deleted ? 'archived' : (s.status || 'open');
+      return st === status;
+    })
+    .sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
 }
+
 async function getSession(id) {
   if (id == null) return undefined;
   const db = await openSessionDb();
@@ -2306,31 +2491,81 @@ async function _putSessionRaw(session) {
 
 // Public put — sets syncedAt + deviceId, broadcasts delta to group
 async function putSession(session) {
-  session.syncedAt = Date.now();
-  session.deviceId = DEVICE_ID;
+  session.syncedAt  = Date.now();
+  session.deviceId  = DEVICE_ID;
+  if (!session.status) session.status = 'open';
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readwrite');
   tx.objectStore('sessions').put(session);
   await txPromise(tx); db.close();
-  // Broadcast to Trystero group
   if (currentBackend === 'trystero' || GroupStore.exists()) {
     SyncManager.broadcastDelta(session);
   }
 }
 
-// Public delete — tombstone instead of hard delete, broadcasts delta
-async function deleteSession(id) {
+// Change status of a session (open → closed → archived)
+async function setSessionStatus(id, newStatus) {
   const existing = await getSession(id);
   if (!existing) return;
-  const tombstone = {
-    ...existing,
-    deleted  : true,
-    syncedAt : Date.now(),
-    deviceId : DEVICE_ID,
-  };
-  await _putSessionRaw(tombstone);
+
+  let updated = { ...existing, status: newStatus, modifiedAt: new Date().toISOString() };
+
+  if (newStatus === 'archived') {
+    // Strip data — keep only metadata + trimmed history + item count
+    const origin = (existing.history || []).find(e =>
+      e.kind === 'created-here' || e.kind === 'received');
+    const itemCount = dataRecordCount(existing.data); // preserve count before wiping
+    updated = {
+      id        : existing.id,
+      name      : existing.name,
+      status    : 'archived',
+      itemCount : itemCount,
+      createdAt : existing.createdAt,
+      modifiedAt: new Date().toISOString(),
+      syncedAt  : Date.now(),
+      deviceId  : DEVICE_ID,
+      data      : null,
+      history   : [
+        ...(origin ? [origin] : []),
+        { kind: 'archived', at: new Date().toISOString(),
+          peer: identity ? { emoji: identity.emoji, nickname: identity.nickname,
+                             color: identity.color, deviceId: DEVICE_ID } : null },
+      ],
+    };
+  } else {
+    updated.syncedAt = Date.now();
+    updated.deviceId = DEVICE_ID;
+  }
+
+  await _putSessionRaw(updated);
   if (currentBackend === 'trystero' || GroupStore.exists()) {
-    SyncManager.broadcastDelta(tombstone);
+    SyncManager.broadcastDelta(updated);
+  }
+  return updated;
+}
+
+const ARCHIVE_DATA_WIPE_DAYS = 30;
+
+// Cleanup: wipe data from archived sessions when all group members have
+// seen the archive AND 30 days have passed since archiving.
+// Metadata is kept forever — only data:null is set.
+async function cleanupArchivedSessions() {
+  if (!GroupStore.exists()) return;
+  const members = GroupStore.getMembers();
+  if (!members.length) return;
+  const all = await listSessionsRaw();
+  const archived = all.filter(s => (s.status === 'archived' || s.deleted) && s.data !== null);
+  for (const s of archived) {
+    const archivedAt   = s.syncedAt || 0;
+    const wipeAfter    = archivedAt + ARCHIVE_DATA_WIPE_DAYS * 24 * 60 * 60 * 1000;
+    const allSeen      = members.every(m => (m.lastSeenAt || 0) > archivedAt);
+    const thirtyDaysUp = Date.now() > wipeAfter;
+    if (allSeen && thirtyDaysUp) {
+      const wiped = { ...s, data: null, status: 'archived' };
+      delete wiped.deleted;
+      await _putSessionRaw(wiped);
+      log(`Archive data wiped for "${s.name || s.id}"`, 'info');
+    }
   }
 }
 
@@ -2398,7 +2633,8 @@ function describeEvent(ev) {
       return `imported from file${action}`;
     }
     case 'renamed': return ev.to ? `renamed to "${ev.to}"` : 'renamed';
-    case 'edited': return 'data edited';
+    case 'edited':  return 'data edited';
+    case 'archived': return ev.peer ? `archived by ${ev.peer.emoji || ''} ${ev.peer.nickname || 'unknown'}`.trim() : 'archived';
     default: return ev.kind || '';
   }
 }
@@ -2503,10 +2739,35 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
     </button>`;
   row.querySelector('.name').textContent = s.name;
   row.querySelector('.id').textContent = s.id;
-  const cnt = dataRecordCount(s.data);
+  const cnt = s.status === 'archived' && s.data === null
+    ? (s.itemCount || 0)
+    : dataRecordCount(s.data);
   row.querySelector('.count').textContent = `${cnt} item${cnt === 1 ? '' : 's'}`;
   row.querySelector('.origin-label').textContent = origin.label;
   row.querySelector('.origin-name').textContent = origin.nickname;
+
+  // Status badge — only for closed, not archived (user is already in that tab)
+  const status = s.status || 'open';
+  if (status === 'done') {
+    const badge = document.createElement('span');
+    badge.style.cssText = `font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-left:6px;vertical-align:middle`;
+    badge.textContent = 'done';
+    row.querySelector('.name').after(badge);
+  }
+
+  // Wipe timer for archived reports
+  if (status === 'archived') {
+    const wipe = archiveWipeStatus(s);
+    const timer = document.createElement('div');
+    timer.style.cssText = 'font-size:11px;color:var(--dim);margin-top:2px';
+    if (wipe.state === 'wiped') {
+      timer.style.fontStyle = 'italic';
+      timer.textContent = 'Data wiped';
+    } else {
+      timer.textContent = wipe.reason;
+    }
+    row.querySelector('.meta').appendChild(timer);
+  }
 
   // Panel below the row, hidden by default. Re-built each time the
   // user opens an action so it always reflects current data.
@@ -2574,7 +2835,7 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
       </div>` : '';
     openWith('edit', `
       <div class="panel-head">
-        <span>Edit report</span>
+        <span>Edit task</span>
         <button type="button" class="panel-close" data-pact="close" aria-label="Close">×</button>
       </div>
       <div class="panel-field">
@@ -2654,11 +2915,38 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
     openWith('history', `<div class="panel-head"><span>History</span><button type="button" class="panel-close" data-pact="close" aria-label="Close">×</button></div>${listHTML}`);
   }
 
-  async function doDelete() {
-    if (!confirm(`Delete "${s.name}"?`)) return;
-    await deleteSession(s.id);
-    log('Deleted.', 'ok');
+  async function doSetStatus(newStatus) {
+    const labels = { closed: 'Close', archived: 'Archive' };
+    const confirmMsg = newStatus === 'archived'
+      ? `Archive "${s.name}"? The report data will be removed, only metadata is kept.`
+      : null;
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    await setSessionStatus(s.id, newStatus);
+    log(`Task ${newStatus}.`, 'ok');
     if (typeof onAfterChange === 'function') onAfterChange();
+  }
+
+  const currentStatus = s.status || 'open';
+  const statusMenuItems = [];
+  if (currentStatus === 'open') {
+    statusMenuItems.push(
+      { label: 'Mark as done', onClick: () => doSetStatus('done'),
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>` },
+      { label: 'Archive', onClick: () => doSetStatus('archived'), danger: true,
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>` },
+    );
+  } else if (currentStatus === 'done') {
+    statusMenuItems.push(
+      { label: 'Reopen', onClick: () => doSetStatus('open'),
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/></svg>` },
+      { label: 'Archive', onClick: () => doSetStatus('archived'), danger: true,
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>` },
+    );
+  } else if (currentStatus === 'archived') {
+    statusMenuItems.push(
+      { label: 'Unarchive', onClick: () => doSetStatus('done'),
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><polyline points="9 12 12 9 15 12"/><line x1="12" y1="9" x2="12" y2="16"/></svg>` },
+    );
   }
 
   // -------- Kebab menu — opens an anchored floating menu listing all
@@ -2677,7 +2965,7 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
       { label: 'Edit',    onClick: doEdit,    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>` },
       { label: 'Export',  onClick: doExport,  icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>` },
       { label: 'History', onClick: doHistory, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/><polyline points="12 7 12 12 15 14"/></svg>` },
-      { label: 'Delete',  onClick: doDelete,  danger: true, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>` },
+      ...statusMenuItems,
     ]);
   });
 
@@ -3030,6 +3318,8 @@ const TrysteroRoomManager = {
       renderTopbarConnections();
       renderResumeBar();
       renderHomeGroupMembers();
+      refreshMyDeviceMembers();
+      refreshMyDeviceMembers();
       if (!GroupStore.exists()) {
         showConnectionBar();
         setConnectionBarStatus('connected');
@@ -3050,6 +3340,7 @@ const TrysteroRoomManager = {
       renderTopbarConnections();
       renderResumeBar();
       renderHomeGroupMembers();
+      refreshMyDeviceMembers();
       hideConnectingOverlay();
     });
 
@@ -3062,6 +3353,7 @@ const TrysteroRoomManager = {
       }
       renderTopbarConnections();
       renderHomeGroupMembers();
+      refreshMyDeviceMembers();
     });
 
     t.on('peer-info', (info) => {
@@ -3080,6 +3372,7 @@ const TrysteroRoomManager = {
       renderConnectionBarPeer();
       renderResumeBar();
       renderHomeGroupMembers();
+      refreshMyDeviceMembers();
     });
 
     // Demo features — note and lamp over the group room
@@ -3210,7 +3503,7 @@ function renderGroupStatusBar(state) {
     const dot = bar.querySelector('.group-status-dot');
     if (dot) { dot.style.background = 'var(--dim)'; dot.style.animation = ''; }
     retryEl.classList.add('hidden');
-    textEl.textContent = 'Not paired — scan or show a QR code to collaborate';
+    textEl.textContent = 'Not connected — show or scan an invite code to collaborate';
     return;
   }
 
@@ -3258,31 +3551,34 @@ const SyncManager = {
   // Merge a single incoming session into local IDB.
   async _merge(incoming) {
     if (!incoming || !incoming.id) return;
+
+    // Backwards compat: old deleted:true → status:'archived'
+    if (incoming.deleted && !incoming.status) {
+      incoming = { ...incoming, status: 'archived' };
+    }
+
     const existing = await getSession(incoming.id);
 
     if (!existing) {
-      // Brand new — store it (even if it's a tombstone — respects remote delete)
       await _putSessionRaw(incoming);
-      if (!incoming.deleted) {
+      if (incoming.status !== 'archived') {
         refreshSessionsCount();
-        log(`Sync: received new report "${incoming.name || incoming.id}".`, 'ok');
+        log(`Sync: received new task "${incoming.name || incoming.id}".`, 'ok');
       }
       return;
     }
 
-    const inTs  = incoming.syncedAt  || 0;
-    const exTs  = existing.syncedAt  || 0;
+    const inTs  = incoming.syncedAt || 0;
+    const exTs  = existing.syncedAt || 0;
 
-    // Tie-break on deviceId when timestamps are equal
     const inWins = inTs > exTs ||
       (inTs === exTs && (incoming.deviceId || '') > (existing.deviceId || ''));
 
     if (inWins) {
       await _putSessionRaw(incoming);
       refreshSessionsCount();
-      log(`Sync: updated report "${incoming.name || incoming.id}".`, 'info');
+      log(`Sync: updated task "${incoming.name || incoming.id}".`, 'info');
     }
-    // else: local version is newer — ignore incoming
   },
 
   // Receive a full state dump from a peer (on first connect or sync-request)
@@ -3302,8 +3598,10 @@ const SyncManager = {
   // Refresh session count and pick list if currently visible
   _refreshUI() {
     refreshSessionsCount();
-    if (currentScreenId() === 'pick') refreshPickList();
+    if (currentScreenId() === 'pick')  refreshPickList();
     if (currentScreenId() === 'start') refreshHomeList();
+    if (_liveSessionsModalRefresh) _liveSessionsModalRefresh();
+    if (_liveItemsModalRefresh)    _liveItemsModalRefresh();
   },
 
   // Send all local sessions (including tombstones) to a specific peer
@@ -3312,7 +3610,7 @@ const SyncManager = {
     if (!t) return;
     const all = await listSessionsRaw();
     t.sendSyncFull(all, targetPeerId);
-    log(`Sync: sent ${all.length} reports to peer.`, 'info');
+    log(`Sync: sent ${all.length} tasks to peer.`, 'info');
   },
 
   // Broadcast a single session to all connected peers
@@ -3545,11 +3843,27 @@ function formatRelative(date) {
   if (!date) return '—';
   const d = new Date(date), ms = Date.now() - d.getTime();
   const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
+  if (m < 1)    return 'just now';
+  if (m < 60)   return `${m} min ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return d.toLocaleDateString();
+  if (h < 24)   return `${h}h ago`;
+  const days = Math.floor(h / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7)   return `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5)  return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+  return `${Math.floor(months / 12)} year${Math.floor(months / 12) === 1 ? '' : 's'} ago`;
+}
+
+// Returns { text, urgency: 'ok'|'warn'|'danger' } for last-seen displays
+function formatLastSeen(timestamp) {
+  if (!timestamp) return { text: 'never', urgency: 'danger' };
+  const days = (Date.now() - timestamp) / (1000 * 60 * 60 * 24);
+  const text = formatRelative(new Date(timestamp));
+  const urgency = days < 1 ? 'ok' : days < 14 ? 'neutral' : days < 30 ? 'warn' : 'danger';
+  return { text, urgency };
 }
 
 // Merge two rooms objects from local + incoming during a 'merged'
@@ -3907,20 +4221,22 @@ async function onEnterScreen(screenId) {
     hideConnectionBar();
     refreshSessionsCount();
     refreshHomeList();
+    renderSourceSection();
     renderResumeBar();
     renderGroupStatusBar();
     renderHomeGroupMembers();
+      refreshMyDeviceMembers();
+    renderHomePairSection();
   } else if (screenId === 'pick') {
-    // Adjust title based on context
-    const titleEl = document.querySelector('[data-screen="pick"] .screen-title');
+    const titleEl    = document.querySelector('[data-screen="pick"] .screen-title');
     const subtitleEl = document.querySelector('[data-screen="pick"] .screen-subtitle');
     if (titleEl && GroupStore.exists()) {
       titleEl.textContent = 'Reports';
       if (subtitleEl) subtitleEl.textContent = TrysteroRoomManager.isConnected()
-        ? 'Synced with group — changes appear on all devices.'
-        : 'Create or view reports. Changes sync when connected.';
+        ? 'Live — synced with your group.'
+        : 'Offline — syncs when others come online.';
     } else if (titleEl) {
-      titleEl.textContent = 'Pick a report to send';
+      titleEl.textContent = 'Pick a job to send';
       if (subtitleEl) subtitleEl.textContent = 'Select an existing report, or create a new one.';
     }
     await refreshPickList();
@@ -4008,6 +4324,52 @@ async function refreshPickList() {
   updateNavBar();
 }
 $('pick-new-btn').addEventListener('click', () => showSessionModal(null, 'pick'));
+function refreshMyDeviceMembers() {
+  const section = $('mydev-group-members-section');
+  if (!section || !GroupStore.exists()) return;
+  const members = GroupStore.getMembers();
+  const rows = members.map(p => {
+    const cachedInfo = TrysteroRoomManager._peerInfo.get(p.deviceId);
+    const emoji    = (p.deviceId === DEVICE_ID ? identity?.emoji : (cachedInfo?.emoji || p.emoji)) || '?';
+    const color    = (p.deviceId === DEVICE_ID ? identity?.color : (cachedInfo?.color || p.color)) || null;
+    const nickname = (p.deviceId === DEVICE_ID ? identity?.nickname : (cachedInfo?.nickname || p.nickname)) || '?';
+    const role     = (p.deviceId === DEVICE_ID ? identity?.role : (cachedInfo?.role || p.role)) || null;
+    const isYou    = p.deviceId === DEVICE_ID;
+    const connected = isYou || TrysteroRoomManager.getConnectedMembers().some(m => m.info?.deviceId === p.deviceId);
+    const ls        = connected ? null : formatLastSeen(p.lastSeenAt);
+    const statusColor = connected ? 'var(--ok)' : ls?.urgency === 'warn' ? '#d4a017' : ls?.urgency === 'danger' ? '#c0392b' : 'var(--dim)';
+    const statusText  = isYou ? '● Online' : connected ? '● Online' : ls ? ls.text : 'never';
+    const roleLabel = role || (!isYou && p.invitedBy ? (() => {
+      const inviter = members.find(m => m.deviceId === p.invitedBy);
+      return inviter ? `Invited by ${inviter.nickname || '?'}` : '';
+    })() : '');
+    return `<div class="mydev-member-row">
+      <div class="mydev-member-avatar">${renderDeviceSVG(emoji, { size: 36, color })}</div>
+      <div class="mydev-member-info">
+        <div style="font-weight:600;font-size:14px">${nickname}${isYou ? ' <span style="opacity:.5;font-weight:400">(you)</span>' : ''}</div>
+        <div style="font-size:12px;color:${statusColor};font-weight:500">${statusText}</div>
+        ${roleLabel ? `<div style="font-size:11px;color:var(--accent);font-weight:500">${roleLabel}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  section.innerHTML = `<div class="mydev-section-head">Group members (${members.length})</div>${rows}`;
+}
+
+// Returns info about when the data wipe will happen for an archived session.
+// { state: 'pending'|'ready'|'wiped', daysLeft, wipeDate }
+function archiveWipeStatus(session) {
+  if (session.data === null) return { state: 'wiped' };
+  const archivedAt = session.syncedAt || 0;
+  const wipeAt     = archivedAt + ARCHIVE_DATA_WIPE_DAYS * 24 * 60 * 60 * 1000;
+  const members    = GroupStore.exists() ? GroupStore.getMembers() : [];
+  const allSeen    = members.length > 0 && members.every(m => (m.lastSeenAt || 0) > archivedAt);
+  const daysLeft   = Math.ceil((wipeAt - Date.now()) / (24 * 60 * 60 * 1000));
+  const wipeDate   = new Date(wipeAt).toLocaleDateString();
+  if (!allSeen)      return { state: 'pending', daysLeft, wipeDate, reason: `Some members haven't been online since archiving` };
+  if (daysLeft > 0)  return { state: 'pending', daysLeft, wipeDate, reason: `Data wipe in ${daysLeft} day${daysLeft === 1 ? '' : 's'}` };
+  return { state: 'ready', daysLeft: 0, wipeDate };
+}
+
 function renderHomeGroupMembers() {
   const el = $('home-group-members');
   if (!el) return;
@@ -4026,6 +4388,9 @@ function renderHomeGroupMembers() {
     const nickname  = (m.deviceId === DEVICE_ID ? identity?.nickname : (cached?.nickname || m.nickname)) || '?';
     const role      = (m.deviceId === DEVICE_ID ? identity?.role : (cached?.role || m.role)) || null;
     const isYou     = m.deviceId === DEVICE_ID;
+    const ls        = isOnline ? null : formatLastSeen(m.lastSeenAt);
+    const statusColor = isOnline ? 'var(--ok)' : ls?.urgency === 'warn' ? '#d4a017' : ls?.urgency === 'danger' ? '#c0392b' : 'var(--dim)';
+    const statusText  = isOnline ? '● Online' : ls ? ls.text : 'never';
 
     return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
       ${renderDeviceSVG(emoji, { size: 32, color })}
@@ -4033,25 +4398,264 @@ function renderHomeGroupMembers() {
         <div style="font-size:13px;font-weight:600;color:var(--ink)">${nickname}${isYou ? ' <span style="opacity:.4;font-weight:400;font-size:11px">(you)</span>' : ''}</div>
         ${role ? `<div style="font-size:11px;color:var(--accent)">${role}</div>` : ''}
       </div>
-      <span style="font-size:11px;font-weight:600;color:${isOnline ? 'var(--ok)' : 'var(--dim)'}">${isOnline ? '● Online' : '○ Offline'}</span>
+      <span style="font-size:11px;font-weight:600;color:${statusColor};flex-shrink:0">${statusText}</span>
     </div>`;
   }).join('');
 }
 
-$('home-new-btn').addEventListener('click', () => showSessionModal(null, 'start'));
+function renderHomePairSection() {
+  const pairSection  = $('home-pair-section');
+  const addAnother   = $('home-add-another');
+  if (!pairSection || !addAnother) return;
+  const hasGroup = GroupStore.exists();
+  pairSection.classList.toggle('hidden', hasGroup);
+  addAnother.classList.toggle('hidden', !hasGroup);
+}
+
+$('home-add-another-btn').addEventListener('click', () => {
+  currentMode    = 'receive';
+  currentBackend = 'trystero';
+  const idx = FLOWS['receive-trystero'].indexOf('show-qr');
+  goToStep(idx, 'forward');
+});
+
+// ── Source data UI ────────────────────────────────────────────────────────────
+
+let _sourceData = null; // in-memory cache
+
+async function loadSourceData() {
+  _sourceData = await getSource();
+  renderSourceSection();
+}
+
+function renderSourceSection() {
+  const el = $('source-section');
+  if (!el) return;
+
+  if (!_sourceData) {
+    el.innerHTML = `
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem;display:flex;align-items:center;gap:8px">
+        <span>Source data</span>
+        <span style="width:1px;height:12px;background:var(--line);display:inline-block"></span>
+        <span>Floor data</span>
+      </div>
+      <div class="source-dropzone" id="source-dropzone">
+        <div style="font-size:24px;margin-bottom:6px">📂</div>
+        <div style="font-weight:600;color:var(--ink);margin-bottom:4px">Import Excel file</div>
+        <div>Drop your .xlsx here or tap to browse</div>
+        <input type="file" id="source-file-input" accept=".xlsx" style="display:none">
+      </div>`;
+    _wireSourceDropzone();
+    return;
+  }
+
+  const src = _sourceData;
+  const buildings = [...new Set(src.rows.map(r => r.building).filter(Boolean))].sort();
+  const eqTypes   = [...new Set(src.rows.map(r => r.type).filter(Boolean))].sort();
+  const memberCount   = GroupStore.exists() ? GroupStore.getMembers().length : 0;
+  const sameHashCount = GroupStore.exists()
+    ? GroupStore.getMembers().filter(m => m.sourceHash === src.hash).length
+    : 0;
+
+  el.innerHTML = `
+    <div style="display:flex;gap:0;margin-bottom:1rem">
+      <div style="flex:1;min-width:0;padding-right:12px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Source data</div>
+        <div class="grail-card" id="grail-card">
+          <div class="grail-icon" id="source-browse-btn" style="cursor:pointer">${_grailIcon()}</div>
+          <div class="grail-meta" id="source-browse-title" style="cursor:pointer;width:100%;text-align:center">
+            <div class="grail-name" style="font-size:12px;word-break:break-all">${src.filename}</div>
+            <div class="grail-sub">Imported ${new Date(src.uploadedAt).toLocaleDateString()} · ${src.rows.length.toLocaleString()} rows</div>
+            <div style="display:inline-flex;align-items:center;background:transparent;border:1.5px solid var(--line);border-radius:5px;padding:3px 8px;gap:1px;margin-top:4px">
+              <span style="color:var(--dim);font-weight:700;font-size:12px;margin-right:2px">#</span>${
+              src.hash.split('').map(c => {
+                const v = parseInt(c, 16);
+                const colors = ['#e53935','#e8711a','#f0a500','#85b800','#2ea84a','#00897b','#1e88e5','#1565c0','#7b1fa2','#ad1457','#d81b60','#c62828','#00838f','#1976d2','#f57c00','#6a1b9a'];
+                return `<span style="color:${colors[v]};font-weight:700;font-size:12px">${c}</span>`;
+              }).join('')}
+            </div>
+            ${memberCount > 1 ? `<div class="grail-members">${sameHashCount} of ${memberCount} members have this version</div>` : ''}
+          </div>
+          <input type="file" id="source-file-input" accept=".xlsx" style="display:none">
+        </div>
+      </div>
+      <div style="width:1px;background:var(--line);flex-shrink:0;margin:0 4px"></div>
+      <div style="flex:1;min-width:0;padding-left:12px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Floor data</div>
+        <div style="color:var(--dim);font-size:13px">— not yet configured</div>
+      </div>
+    </div>`;
+
+  _sourceState = { buildings: new Set(), eqTypes: new Set(), allBuildings: buildings, allEqTypes: eqTypes };
+
+  $('source-browse-btn').addEventListener('click', () => showSourceModal());
+  $('source-browse-title').addEventListener('click', () => showSourceModal());
+  $('source-file-input').addEventListener('change', (e) => _handleSourceFile(e.target.files[0]));
+}
+
+let _sourceState = null;
+
+function _grailIcon() {
+  return `<div style="border-radius:11px;overflow:hidden;line-height:0"><svg width="52" height="52" viewBox="0 0 52 52" fill="none">
+    <rect width="52" height="52" rx="10" fill="#EAF3DE"/>
+    <rect x="13" y="11" width="22" height="30" rx="3" fill="#97C459" opacity="0.4"/>
+    <rect x="17" y="11" width="22" height="30" rx="3" fill="#97C459" opacity="0.6"/>
+    <rect x="21" y="11" width="22" height="30" rx="3" fill="#639922"/>
+    <rect x="25" y="18" width="12" height="2" rx="1" fill="#EAF3DE"/>
+    <rect x="25" y="23" width="8"  height="2" rx="1" fill="#EAF3DE" opacity="0.7"/>
+    <rect x="25" y="28" width="10" height="2" rx="1" fill="#EAF3DE" opacity="0.7"/>
+    <rect x="25" y="33" width="6"  height="2" rx="1" fill="#EAF3DE" opacity="0.5"/>
+  </svg></div>`;
+}
+
+function _renderSourceChecklist(key, items) {
+  const listEl = $(key === 'b' ? 'b-checklist' : 'e-checklist');
+  if (!listEl || !_sourceState) return;
+  const sel = key === 'b' ? _sourceState.buildings : _sourceState.eqTypes;
+  const q   = ($(key + '-search')?.value || '').toLowerCase();
+  const filtered = items.filter(i => i.toLowerCase().includes(q));
+  listEl.innerHTML = filtered.map(item => `
+    <label>
+      <input type="checkbox" ${sel.has(item) ? 'checked' : ''} data-item="${item}">
+      ${item}
+    </label>`).join('');
+  listEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const set = key === 'b' ? _sourceState.buildings : _sourceState.eqTypes;
+      cb.checked ? set.add(cb.dataset.item) : set.delete(cb.dataset.item);
+      _updateSourceMatch();
+    });
+  });
+}
+
+function _updateSourceMatch() {
+  if (!_sourceState || !_sourceData) return;
+  const { buildings, eqTypes } = _sourceState;
+  const bSel = document.getElementById('b-sel-count');
+  const eSel = document.getElementById('e-sel-count');
+  if (bSel) bSel.textContent = buildings.size ? `· ${buildings.size} selected` : '';
+  if (eSel) eSel.textContent = eqTypes.size ? `· ${eqTypes.size} selected` : '';
+
+  const matchEl = $('source-match');
+  const btn     = $('create-view-btn');
+  const hasBoth = buildings.size > 0 && eqTypes.size > 0;
+  if (!hasBoth) {
+    if (matchEl) matchEl.textContent = 'Select buildings and equipment to see matches';
+    if (btn) btn.disabled = true;
+    return;
+  }
+  const matches = _sourceData.rows.filter(r =>
+    buildings.has(r.building) && eqTypes.has(r.type));
+  if (matchEl) matchEl.textContent = `${matches.length} item${matches.length === 1 ? '' : 's'} match`;
+  if (btn) btn.disabled = matches.length === 0;
+}
+
+function _wireSourcePanel() {
+  const bSearch = $('b-search');
+  const eSearch = $('e-search');
+  if (bSearch) bSearch.addEventListener('input', () => _renderSourceChecklist('b', _sourceState.allBuildings));
+  if (eSearch) eSearch.addEventListener('input', () => _renderSourceChecklist('e', _sourceState.allEqTypes));
+
+  const createBtn = $('create-view-btn');
+  if (createBtn) createBtn.addEventListener('click', async () => {
+    if (!_sourceState || !_sourceData) return;
+    const { buildings, eqTypes } = _sourceState;
+    const matches = _sourceData.rows.filter(r =>
+      buildings.has(r.building) && eqTypes.has(r.type));
+    if (!matches.length) return;
+
+    const bLabel = [...buildings].sort().join(', ');
+    const eLabel = [...eqTypes].sort().join(', ');
+    const name = `${eLabel} — ${bLabel}`;
+
+    // Build data object keyed by asset id
+    const data = {};
+    matches.forEach(r => { data[r.id] = { ...r, status: null }; });
+
+    const session = {
+      id        : 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      name,
+      status    : 'open',
+      data,
+      createdAt : new Date().toISOString(),
+      modifiedAt: new Date().toISOString(),
+      history   : [],
+      sourceHash: _sourceData.hash,
+      sourceFile: _sourceData.filename,
+    };
+    appendHistoryEvent(session, {
+      kind: 'created-here',
+      peer: identity ? { emoji: identity.emoji, nickname: identity.nickname,
+                         color: identity.color, deviceId: DEVICE_ID } : null,
+    });
+    await putSession(session);
+    await refreshHomeList();
+    await refreshSessionsCount();
+    log(`View created: ${name}`, 'ok');
+  });
+}
+
+function _wireSourceDropzone() {
+  const dz = $('source-dropzone');
+  const fi = $('source-file-input');
+  if (!dz || !fi) return;
+  dz.addEventListener('click', () => fi.click());
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', (e) => {
+    e.preventDefault(); dz.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) _handleSourceFile(f);
+  });
+  fi.addEventListener('change', (e) => _handleSourceFile(e.target.files[0]));
+}
+
+async function _handleSourceFile(file) {
+  if (!file) return;
+  if (!window.XLSX) {
+    log('SheetJS not loaded yet — try again in a moment', 'err');
+    return;
+  }
+  try {
+    const buf  = await file.arrayBuffer();
+    const wb   = window.XLSX.read(buf, { type: 'array', cellDates: true });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    if (rows.length < 2) { log('File appears empty', 'err'); return; }
+
+    const headers = rows[0];
+    const parsed  = rows.slice(1).map(r => parseSourceRow(r, headers)).filter(Boolean);
+    if (!parsed.length) { log('No valid rows found — check the file format', 'err'); return; }
+
+    const hash = hashData(parsed);
+    const src  = { filename: file.name, uploadedAt: Date.now(), hash, rows: parsed };
+    await saveSource(src);
+    _sourceData = src;
+    renderSourceSection();
+    log(`Source imported: ${parsed.length} rows`, 'ok');
+  } catch (e) {
+    log('Import failed: ' + e.message, 'err');
+  }
+}
+
+$('home-new-btn').addEventListener('click', () => {
+  if (_sourceData) showCreateJobModal();
+  else showSessionModal(null, 'start');
+});
 $('home-view-all-btn').addEventListener('click', () => showSessionsModal());
 
 async function refreshHomeList() {
   const list = $('home-session-list');
   if (!list) return;
   list.innerHTML = '';
-  const sessions = await listSessions();
-  const recent = sessions.slice(0, 3);
+  const sessions = await listSessions('open');
+  const recent   = sessions.slice(0, 3);
   for (const s of recent) {
     const frag = renderSessionRow(s, {
       container: list,
       selectedId: null,
       onRowClick: async (sel) => {
+        if (sel.status === 'archived') return; // no detail view for archived
         const full = await getSession(sel.id);
         if (full) showItemsModal(full);
       },
@@ -4064,7 +4668,7 @@ async function refreshHomeList() {
     list.appendChild(frag);
   }
   if (sessions.length === 0) {
-    list.innerHTML = '<div style="text-align:center;padding:2rem 0;color:var(--dim);font-size:14px">No reports yet — tap New report to start.</div>';
+    list.innerHTML = '<div style="text-align:center;padding:2rem 0;color:var(--dim);font-size:14px">No open tasks yet — tap New task to start.</div>';
   }
 }
 
@@ -4286,48 +4890,32 @@ async function onScanResult(data) {
     const invitedBy = params.invitedBy;
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
 
-    // If we're already connected to this group room, don't reconnect
-    if (TrysteroRoomManager._room && TrysteroRoomManager.isConnected()
-        && GroupStore.getRoomCode() === roomCode) {
-      log('Already connected to this group room.', 'info');
+    // Already in this group — nothing to do
+    if (GroupStore.exists() && GroupStore.getRoomCode() === roomCode) {
+      log('Already in this group room — skipping rejoin.', 'info');
       restartToStart();
       return;
     }
-    showConnectingOverlay('Connecting to relays…');
-    try {
-      // If we don't have a group yet, create one from the scanned QR
-      if (!GroupStore.exists() && roomCode && password) {
-        GroupStore.create(roomCode, password);
-      }
-      // Store invitedBy in peerInfo for this session so the host sees it
-      if (invitedBy && !GroupStore.isKnown(DEVICE_ID)) {
-        _pendingInvitedBy = invitedBy;
-      }
-      await activeTransfer.connect(roomCode);
-      hideConnectingOverlay();
-      // Wait for peer-info to arrive before reinit — ensures GroupStore has
-      // the remote member before the persistent room's onPeerAccept fires.
-      await new Promise(resolve => {
-        if (remotePeerInfo) return resolve();
-        const timeout = setTimeout(resolve, 3000);
-        const unsub = activeTransfer.on('peer-info', () => {
-          clearTimeout(timeout); unsub(); resolve();
-        });
-      });
-      // After first pairing: reinit the room manager with the new group
-      if (!TrysteroRoomManager._room) {
-        await TrysteroRoomManager.reinit();
-      }
-      // Navigate to start — no pick/transfer flow for Trystero
-      restartToStart();
-    } catch (err) {
-      hideConnectingOverlay();
-      _pendingInvitedBy = null;
-      log('Trystero connect failed: ' + err.message, 'err');
-      // Don't navigate to transfer screen — setupTransferScreen would try
-      // to send automatically. Just go back to start and show the error.
-      restartToStart();
+
+    // Create group from scanned QR and navigate home immediately —
+    // connection happens in background via TrysteroRoomManager.
+    if (!GroupStore.exists() && roomCode && password) {
+      GroupStore.create(roomCode, password);
     }
+    if (invitedBy && !GroupStore.isKnown(DEVICE_ID)) {
+      _pendingInvitedBy = invitedBy;
+    }
+
+    restartToStart();
+    renderGroupStatusBar('connecting');
+
+    // Connect in background
+    TrysteroRoomManager.init()
+      .then(() => renderGroupStatusBar())
+      .catch(e => {
+        log('Group connect failed: ' + e.message, 'err');
+        GroupReconnectManager._scheduleRetry();
+      });
   } else if (isRawSender || isRawReceiver) {
     // 'data' is a QR chunk — feed back to library; library will advance via events
     try {
@@ -4482,7 +5070,7 @@ function setTransferStatus(text, kind = '') {
 //                              renderSessionRow so icons (Edit/Export/
 //                              History/Delete) come along automatically.
 //   "OTHER REPORTS" eyebrow header
-//   N other reports on this device · Browse →
+//   N other tasks on this device · Browse →
 //
 // "Other" excludes anything in the just-transferred list. If there are
 // no just-transferred entries (skip path), the JUST RECEIVED section is
@@ -4544,7 +5132,7 @@ async function revealPostTransferSessions() {
   // "Other reports" = everything not just-transferred in this session.
   const otherCount = sessions.filter(s => !transfersById.has(s.id)).length;
   $('transfer-sessions-count').textContent = otherCount;
-  $('transfer-sessions-label').textContent = (otherCount === 1 ? 'report' : 'reports') + ' on this device';
+  $('transfer-sessions-label').textContent = (otherCount === 1 ? 'report' : 'jobs') + ' on this device';
   // Hide the whole "Other reports" panel when there's nothing else —
   // showing "0 other reports" is just noise.
   if (otherCount > 0) {
@@ -5141,6 +5729,299 @@ async function activateKnownPairing() {
   log('Group is connected.', 'ok');
 }
 
+function showSourceModal() {
+  if (!_sourceData) return;
+  const rows = _sourceData.rows;
+
+  let sortMode = 'building';
+  let query    = '';
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal items-modal">
+      <div class="modal-head items-modal-head">
+        <div class="items-modal-origin">${_grailIcon()}</div>
+        <div class="items-modal-title">
+          <h3 style="margin:0">${escapeHTML(_sourceData.filename)}</h3>
+          <div class="items-modal-subtitle">
+            <span class="origin-label">imported</span>
+            <span class="origin-name">${new Date(_sourceData.uploadedAt).toLocaleDateString()}</span>
+            <span> · </span>
+            <span class="items-modal-count">${rows.length.toLocaleString()} assets</span>
+          </div>
+        </div>
+        <button class="close" id="source-modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="items-search">
+        <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="source-modal-search" placeholder="Filter by type, building, room, model…" autocomplete="off">
+        <button class="items-search-clear hidden" id="source-modal-clear" type="button" aria-label="Clear">×</button>
+      </div>
+      <div class="items-sort-toolbar">
+        <button class="items-sort-btn active" data-sort="building">Building</button>
+        <button class="items-sort-btn" data-sort="type">Type</button>
+        <button class="items-sort-btn" data-sort="room">Room</button>
+      </div>
+      <div class="modal-body" id="source-modal-body"></div>
+      <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end">
+        <button id="source-modal-replace" style="background:#c0392b;color:#fff;border:1px solid #a93226;padding:8px 16px;font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:pointer">Replace source file</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  // Hidden file input for replace
+  const fi = document.createElement('input');
+  fi.type = 'file'; fi.accept = '.xlsx';
+  fi.addEventListener('change', async (e) => {
+    await _handleSourceFile(e.target.files[0]);
+    backdrop.remove();
+  });
+
+  backdrop.querySelector('#source-modal-replace').addEventListener('click', () => fi.click());
+  backdrop.querySelector('#source-modal-close').addEventListener('click', () => backdrop.remove());
+
+  const bodyEl    = backdrop.querySelector('#source-modal-body');
+  const searchEl  = backdrop.querySelector('#source-modal-search');
+  const clearEl   = backdrop.querySelector('#source-modal-clear');
+
+  searchEl.addEventListener('input', () => {
+    query = searchEl.value.trim().toLowerCase();
+    clearEl.classList.toggle('hidden', !query);
+    render();
+  });
+  clearEl.addEventListener('click', () => {
+    searchEl.value = query = '';
+    clearEl.classList.add('hidden');
+    render();
+  });
+
+  backdrop.querySelectorAll('.items-sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sortMode = btn.dataset.sort;
+      backdrop.querySelectorAll('.items-sort-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    });
+  });
+
+  function render() {
+    let filtered = query
+      ? rows.filter(r => [r.type, r.building, r.room, r.roomName, r.model, r.id]
+          .some(v => v && String(v).toLowerCase().includes(query)))
+      : rows;
+
+    const sorted = [...filtered].sort((a, b) => {
+      const ka = sortMode === 'building' ? a.building
+               : sortMode === 'type'     ? a.type
+               : a.room;
+      const kb = sortMode === 'building' ? b.building
+               : sortMode === 'type'     ? b.type
+               : b.room;
+      return (ka || '').localeCompare(kb || '');
+    });
+
+    // Group by sort key
+    const groups = {};
+    sorted.forEach(r => {
+      const key = sortMode === 'building' ? (r.building || '—')
+                : sortMode === 'type'     ? (r.type || '—')
+                : (r.room || '—');
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    });
+
+    bodyEl.innerHTML = Object.entries(groups).map(([group, items]) => `
+      <div style="display:flex;align-items:center;padding:14px 16px 6px 16px;gap:6px">
+        <div style="flex:1;font-size:11px;font-weight:600;letter-spacing:0.15em;color:var(--dim);text-transform:uppercase">${escapeHTML(
+          sortMode === 'building' ? 'Building ' + group :
+          sortMode === 'type'     ? group :
+          'Room ' + group)}</div>
+        <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--dim);text-transform:uppercase;background:var(--bg-subtle);padding:3px 10px;border-radius:999px">${items.length} item${items.length === 1 ? '' : 's'}</div>
+      </div>
+      ${items.map((r, i) => {
+        const isLast = i === items.length - 1;
+        return `
+        <div style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch">
+          <div style="display:flex;align-items:center;flex-shrink:0">
+            <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+              <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a1 1 0 0 0 .8.7l6.1 0l-4.9 3.6a1 1 0 0 0-.4 1.1l1.9 5.8l-4.9-3.6a1 1 0 0 0-1.2 0l-4.9 3.6l1.9-5.8a1 1 0 0 0-.4-1.1l-4.9-3.6l6.1 0a1 1 0 0 0 .8-.7l1.9-5.8z"/></svg>
+              </div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
+            <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
+              <div style="font-size:15px;font-weight:600;color:var(--ink)">${escapeHTML(r.model || r.type || '—')}</div>
+              <div style="font-size:12px;color:var(--dim);font-weight:400">#${escapeHTML(r.id)}</div>
+            </div>
+            <div style="font-size:12px;color:var(--dim);margin-top:3px">
+              <span>${escapeHTML(r.type || '—')}</span>
+              ${r.roomName ? `<span style="font-family:var(--mono);margin-left:4px">· ${escapeHTML(r.roomName)}</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0;text-align:right">
+            ${r.dateInOperation ? `<div style="font-size:12px;color:var(--dim)">${escapeHTML(r.dateInOperation)}</div>` : ''}
+            ${r.dateOfReplacement ? `<div style="font-size:11px;color:var(--dim);margin-top:3px">↺ ${escapeHTML(r.dateOfReplacement)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    `).join('');
+
+    // Update tab counts
+    ['building','type','room'].forEach(key => {
+      const btn = backdrop.querySelector(`.items-sort-btn[data-sort="${key}"]`);
+      if (!btn) return;
+      const uniqueKeys = new Set(filtered.map(r =>
+        key === 'building' ? r.building : key === 'type' ? r.type : r.room
+      ));
+      const label = key.charAt(0).toUpperCase() + key.slice(1);
+      btn.textContent = `${label} ${uniqueKeys.size}`;
+    });
+  }
+
+  render();
+}
+
+function showCreateJobModal() {
+  const src = _sourceData;
+  if (!src) return;
+
+  const buildings = [...new Set(src.rows.map(r => r.building).filter(Boolean))].sort();
+  const eqTypes   = [...new Set(src.rows.map(r => r.type).filter(Boolean))].sort();
+  const selB = new Set();
+  const selE = new Set();
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal" style="display:flex;flex-direction:column;max-height:90vh">
+      <div class="modal-head" style="display:flex;align-items:center;justify-content:space-between">
+        <h3 style="margin:0;font-size:16px">New task</h3>
+        <button class="close" id="cj-close">×</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;padding:14px 16px;flex:1">
+        <div style="margin-bottom:14px">
+          <label class="field-label" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);display:block;margin-bottom:5px">Job title</label>
+          <input type="text" id="cj-title" class="field-input"
+            placeholder="e.g. Fire extinguisher check Q1 2026"
+            autocomplete="off" style="width:100%;box-sizing:border-box;font-size:14px;padding:8px 10px;border:0.5px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-family:var(--sans)">
+        </div>
+
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-bottom:4px">
+            Buildings <span id="cj-b-count" style="color:var(--accent)"></span>
+          </div>
+          <input class="source-search" id="cj-b-search" placeholder="Search buildings…" autocomplete="off">
+          <div class="source-checklist" id="cj-b-list"></div>
+        </div>
+
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-bottom:4px">
+            Equipment types <span id="cj-e-count" style="color:var(--accent)"></span>
+          </div>
+          <input class="source-search" id="cj-e-search" placeholder="Search types…" autocomplete="off">
+          <div class="source-checklist" id="cj-e-list"></div>
+        </div>
+
+        <div id="cj-match" style="font-size:12px;color:var(--dim);margin-bottom:10px">Select buildings and equipment to see matches</div>
+      </div>
+      <div class="modal-footer">
+        <button id="cj-cancel" style="flex:1">Cancel</button>
+        <button id="cj-create" class="primary" style="flex:2" disabled>Create task</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector('#cj-close').addEventListener('click', close);
+  backdrop.querySelector('#cj-cancel').addEventListener('click', close);
+
+  // Render a checklist
+  function renderList(key, items, sel) {
+    const listEl = backdrop.querySelector(`#cj-${key}-list`);
+    const q = (backdrop.querySelector(`#cj-${key}-search`)?.value || '').toLowerCase();
+    const filtered = items.filter(i => i.toLowerCase().includes(q));
+    listEl.innerHTML = filtered.map(item => `
+      <label>
+        <input type="checkbox" ${sel.has(item) ? 'checked' : ''} data-item="${item}">
+        ${item}
+      </label>`).join('');
+    listEl.querySelectorAll('input').forEach(cb => {
+      cb.addEventListener('change', () => {
+        cb.checked ? sel.add(cb.dataset.item) : sel.delete(cb.dataset.item);
+        updateMatch();
+      });
+    });
+  }
+
+  function updateMatch() {
+    backdrop.querySelector('#cj-b-count').textContent = selB.size ? `· ${selB.size} selected` : '';
+    backdrop.querySelector('#cj-e-count').textContent = selE.size ? `· ${selE.size} selected` : '';
+    const matchEl = backdrop.querySelector('#cj-match');
+    const btn     = backdrop.querySelector('#cj-create');
+    if (!selB.size || !selE.size) {
+      matchEl.textContent = 'Select buildings and equipment to see matches';
+      btn.disabled = true;
+      return;
+    }
+    const n = src.rows.filter(r => selB.has(r.building) && selE.has(r.type)).length;
+    matchEl.textContent = `${n} item${n === 1 ? '' : 's'} match`;
+    btn.disabled = n === 0;
+  }
+
+  backdrop.querySelector('#cj-b-search').addEventListener('input', () => renderList('b', buildings, selB));
+  backdrop.querySelector('#cj-e-search').addEventListener('input', () => renderList('e', eqTypes, selE));
+  renderList('b', buildings, selB);
+  renderList('e', eqTypes, selE);
+
+  // Auto-suggest title when selection changes
+  backdrop.querySelector('#cj-b-list').addEventListener('change', () => _suggestJobTitle(backdrop, selB, selE));
+  backdrop.querySelector('#cj-e-list').addEventListener('change', () => _suggestJobTitle(backdrop, selB, selE));
+
+  backdrop.querySelector('#cj-create').addEventListener('click', async () => {
+    const titleInput = backdrop.querySelector('#cj-title');
+    const name = titleInput.value.trim();
+    if (!name) { titleInput.focus(); titleInput.style.borderColor = 'var(--accent)'; return; }
+
+    const matches = src.rows.filter(r => selB.has(r.building) && selE.has(r.type));
+    const data = {};
+    matches.forEach(r => { data[r.id] = { ...r, status: null }; });
+
+    const session = {
+      id        : 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      name,
+      status    : 'open',
+      data,
+      createdAt : new Date().toISOString(),
+      modifiedAt: new Date().toISOString(),
+      history   : [],
+      sourceHash: src.hash,
+      sourceFile: src.filename,
+    };
+    appendHistoryEvent(session, {
+      kind: 'created-here',
+      peer: identity ? { emoji: identity.emoji, nickname: identity.nickname,
+                         color: identity.color, deviceId: DEVICE_ID } : null,
+    });
+    await putSession(session);
+    await refreshHomeList();
+    await refreshSessionsCount();
+    close();
+    log(`Task created: ${name}`, 'ok');
+  });
+}
+
+function _suggestJobTitle(backdrop, selB, selE) {
+  const titleInput = backdrop.querySelector('#cj-title');
+  if (titleInput.value.trim()) return; // don't overwrite if user typed something
+  if (!selB.size && !selE.size) return;
+  const bPart = selB.size === 1 ? `building ${[...selB][0]}` : selB.size > 1 ? `${selB.size} buildings` : '';
+  const ePart = selE.size === 1 ? [...selE][0] : selE.size > 1 ? `${selE.size} equipment types` : '';
+  const parts = [ePart, bPart].filter(Boolean);
+  if (parts.length) titleInput.value = parts.join(' — ');
+}
+
 function wireTransferToReceiveUI(t) {
   t.on('log', ({ level, message }) => log(message, level));
   t.on('show-qr', ({ kind, text, chunks }) => {
@@ -5498,36 +6379,51 @@ async function exportReport(session) {
 // it'll fetch fresh.
 let mostRecentSessionCount = 0;
 async function refreshSessionsCount() {
-  const all = await listSessions();
-  mostRecentSessionCount = all.length;
+  const open   = await listSessions('open');
+  const closed = await listSessions('done');
+  const total  = open.length + closed.length;
+  mostRecentSessionCount = total;
   const countEl = document.getElementById('mydev-session-count');
-  if (countEl) countEl.textContent = all.length;
+  if (countEl) countEl.textContent = total;
 }
 
 // Opens the standard Sessions modal — list of all reports on this
 // device, each with the kebab menu for per-row actions.
 //
 // Options:
-//   hideNewReport: when true, omit the modal-footer "New report"
+//   hideNewReport: when true, omit the modal-footer "New task"
 //     button. Used when the modal is reached from the receiver-done
 //     screen via "Browse →" — the receiver landed here to look at
 //     reports they got, not to create a new one. Defaults to false
 //     so other callers (My device → Browse, etc.) still show it.
+// Live refresh hooks for open modals — set by showSessionsModal / showItemsModal
+let _liveSessionsModalRefresh = null;
+let _liveItemsModalRefresh    = null;
+
 async function showSessionsModal({ hideNewReport = false } = {}) {
+  let activeTab = 'open';
+
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal">
       <div class="modal-head">
-        <h3>Reports on this device</h3>
+        <h3>Tasks</h3>
         <button class="close" id="sm-close">×</button>
+      </div>
+      <div style="padding:0 16px">
+        <div class="status-tabs" id="sm-tabs">
+          <button class="status-tab active" data-status="open">Open</button>
+          <button class="status-tab" data-status="done">Done</button>
+          <button class="status-tab" data-status="archived">Archived</button>
+        </div>
       </div>
       <div class="modal-body">
         <div class="session-list" id="sm-list"></div>
       </div>
       ${hideNewReport ? '' : `
       <div class="modal-footer">
-        <button class="primary" id="sm-new" style="background:var(--accent);color:#fff;border-color:var(--accent);">New report</button>
+        <button class="primary" id="sm-new" style="background:var(--accent);color:#fff;border-color:var(--accent);">New task</button>
       </div>`}
     </div>`;
   document.body.appendChild(backdrop);
@@ -5535,18 +6431,18 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
   async function render() {
     const list = backdrop.querySelector('#sm-list');
     list.innerHTML = '';
-    const sessions = await listSessions();
+    const sessions = await listSessions(activeTab);
+    if (sessions.length === 0) {
+      const labels = { open: 'No open tasks', done: 'No done tasks', archived: 'No archived tasks' };
+      list.innerHTML = `<div style="text-align:center;padding:2rem 0;color:var(--dim);font-size:14px">${labels[activeTab]}</div>`;
+      return;
+    }
     for (const s of sessions) {
       const frag = renderSessionRow(s, {
         container: list,
-        onAfterChange: async () => {
-          await refreshSessionsCount();
-          render();
-        },
+        onAfterChange: async () => { await refreshSessionsCount(); render(); },
         onRowClick: async (sel) => {
-          // Tap-to-browse: open the items modal for this report. The
-          // sessions modal stays open behind it; closing the items
-          // modal returns the user here.
+          if (sel.status === 'archived') return;
           const full = await getSession(sel.id);
           if (full) showItemsModal(full);
         },
@@ -5554,16 +6450,28 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
       list.appendChild(frag);
     }
   }
-  await render();
 
-  backdrop.querySelector('#sm-close').addEventListener('click', () => backdrop.remove());
-  // Bind New report only when the button is rendered (omitted when
-  // hideNewReport is true).
+  backdrop.querySelectorAll('#sm-tabs .status-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTab = btn.dataset.status;
+      backdrop.querySelectorAll('#sm-tabs .status-tab').forEach(b => b.classList.toggle('active', b === btn));
+      render();
+    });
+  });
+
+  await render();
+  _liveSessionsModalRefresh = render;
+
+  backdrop.querySelector('#sm-close').addEventListener('click', () => {
+    _liveSessionsModalRefresh = null;
+    backdrop.remove();
+  });
   const newBtn = backdrop.querySelector('#sm-new');
   if (newBtn) {
     newBtn.addEventListener('click', () => {
       backdrop.remove();
-      showSessionModal(null, 'modal');
+      if (_sourceData) showCreateJobModal();
+      else showSessionModal(null, 'modal');
     });
   }
 }
@@ -5643,7 +6551,19 @@ function showItemsModal(session) {
       <div class="modal-body" id="items-body"></div>
     </div>`;
   document.body.appendChild(backdrop);
-  backdrop.querySelector('#items-close').addEventListener('click', () => backdrop.remove());
+  backdrop.querySelector('#items-close').addEventListener('click', () => {
+    _liveItemsModalRefresh = null;
+    backdrop.remove();
+  });
+
+  // Live refresh — when a sync-delta updates this session, re-open with fresh data
+  _liveItemsModalRefresh = async () => {
+    const updated = await getSession(session.id);
+    if (!updated) return;
+    _liveItemsModalRefresh = null;
+    backdrop.remove();
+    showItemsModal(updated);
+  };
 
   const bodyEl = backdrop.querySelector('#items-body');
   const searchInput = backdrop.querySelector('#items-search-input');
@@ -5690,16 +6610,37 @@ function showItemsModal(session) {
       return;
     }
     bodyEl.innerHTML = filtered.map(g => {
-      const itemCount = g.items.length;
+      const itemCount  = g.items.length;
+      const noteCount  = g.items.reduce((n, e) => {
+        const notes = e.item.notes;
+        return n + (Array.isArray(notes) ? notes.length : notes ? 1 : 0);
+      }, 0);
+      const countPill = noteCount > 0
+        ? `${itemCount} item${itemCount === 1 ? '' : 's'} · ${noteCount} note${noteCount === 1 ? '' : 's'}`
+        : `${itemCount} item${itemCount === 1 ? '' : 's'}`;
       return `
-        <div class="items-group-head">
-          <span class="items-group-label">${escapeHTML(g.label)}</span>
-          <span class="items-group-count">${itemCount} item${itemCount === 1 ? '' : 's'}</span>
+        <div style="display:flex;align-items:center;padding:14px 16px 6px 16px;gap:6px">
+          <div style="flex:1;font-size:11px;font-weight:600;letter-spacing:0.15em;color:var(--dim);text-transform:uppercase">${escapeHTML(g.label)}</div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--dim);text-transform:uppercase;background:var(--bg-subtle);padding:3px 10px;border-radius:999px">${countPill}</div>
         </div>
         ${sortMode === 'room' ? roomPhotosHTML(rooms[g.roomKey]) : ''}
         ${g.items.map(e => itemRowHTML(e, sortMode)).join('')}
       `;
     }).join('');
+
+    // Update tab counts with number of groups
+    const groupCounts = { room: new Set(), time: new Set(), object: new Set() };
+    flat.filter(e => itemMatches(e.item)).forEach(e => {
+      groupCounts.room.add(e.item.room || '—');
+      groupCounts.time.add(e.item.createdAt ? dateBucket(e.item.createdAt).label : '—');
+      groupCounts.object.add(e.item.category || e.item.type || '—');
+    });
+    backdrop.querySelectorAll('.items-sort-btn').forEach(btn => {
+      const key = btn.dataset.sort;
+      const labels = { room: 'Room', time: 'Date', object: 'Object' };
+      const count = groupCounts[key]?.size || 0;
+      btn.textContent = `${labels[key] || key} ${count}`;
+    });
   }
 
   // Toolbar buttons swap the sort mode. The search term stays so a
@@ -5842,31 +6783,48 @@ document.addEventListener('click', (e) => {
 // in as a faint suffix to the title ("Monitor #1") so it's findable
 // without taking visual weight.
 function itemRowHTML(entry, sortMode) {
-  const item = entry.item;
-  const title = item.category || 'item';
-  const metaParts = [];
-  if (sortMode !== 'room' && item.room) metaParts.push(`Room ${item.room}`);
-  if (item.serial) metaParts.push(item.serial);
-  const meta = metaParts.join(' · ');
-  // Found bar: green when found is truthy, red when explicitly false.
-  // When the field is missing entirely, no bar — the item shape may
-  // not have a found/missing concept.
-  let statusClass = '';
-  if (item.found === true) statusClass = 'found';
-  else if (item.found === false) statusClass = 'missing';
-  // Relative timestamp on the right — only when not grouped by time.
-  const when = (sortMode !== 'time' && item.createdAt) ? formatRelative(item.createdAt) : '';
+  const item  = entry.item;
+  const title = item.model || item.category || item.type || 'Item';
+  const noteCount = item.notes ? (Array.isArray(item.notes) ? item.notes.length : 1) : 0;
+  const typePart = item.type || item.category || '';
+  const idPart   = item.serial || item.id || '';
+  const when     = item.createdAt || item.dateInOperation;
+  let dateStr = '', timeStr = '';
+  if (when) {
+    const d = new Date(when);
+    dateStr = d.toLocaleDateString();
+    timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  const avatarEmoji = item._creatorEmoji || '?';
+  const avatarColor = item._creatorColor || '#eee';
+
   return `
-    <div class="items-row">
-      <span class="item-status-bar ${statusClass}" aria-hidden="true"></span>
-      <div class="item-info">
-        <div class="item-title">
-          <span class="item-title-text">${escapeHTML(String(title))}</span>
-          <span class="item-id-suffix">#${entry.displayNum}</span>
+    <div style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:stretch">
+      <div style="display:flex;align-items:center;flex-shrink:0">
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:center;flex-shrink:0">
+          <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a1 1 0 0 0 .8.7l6.1 0l-4.9 3.6a1 1 0 0 0-.4 1.1l1.9 5.8l-4.9-3.6a1 1 0 0 0-1.2 0l-4.9 3.6l1.9-5.8a1 1 0 0 0-.4-1.1l-4.9-3.6l6.1 0a1 1 0 0 0 .8-.7l1.9-5.8z"/></svg>
+          </div>
+          <div style="width:20px;height:20px;border-radius:50%;background:${avatarColor};display:flex;align-items:center;justify-content:center;font-size:11px">${avatarEmoji}</div>
         </div>
-        ${meta ? `<div class="item-meta">${escapeHTML(meta)}</div>` : ''}
       </div>
-      ${when ? `<div class="item-time">${escapeHTML(when)}</div>` : ''}
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
+        <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
+          <div style="font-size:15px;font-weight:600;color:var(--ink)">${escapeHTML(title)}</div>
+          <div style="font-size:12px;color:var(--dim);font-weight:400">#${entry.displayNum}</div>
+          ${noteCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;margin-left:4px;color:var(--dim);font-size:12px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 20l7-7"/><path d="M13 20v-6a1 1 0 0 1 1-1h6v-7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/></svg>
+            ${noteCount}</span>` : ''}
+        </div>
+        <div style="font-size:12px;color:var(--dim);margin-top:3px">
+          ${typePart ? `<span>${escapeHTML(typePart)}</span>` : ''}
+          ${idPart ? `<span style="font-family:var(--mono);margin-left:4px">· ${escapeHTML(idPart)}</span>` : ''}
+        </div>
+      </div>
+      ${dateStr ? `<div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0">
+        <div style="font-size:12px;color:var(--dim);text-align:right">${escapeHTML(dateStr)}</div>
+        <div style="font-size:12px;color:var(--dim);text-align:right;margin-top:3px">${escapeHTML(timeStr)}</div>
+      </div>` : ''}
     </div>`;
 }
 
@@ -6012,7 +6970,7 @@ function showSessionModal(existing, returnTo) {
   backdrop.innerHTML = `
     <div class="modal">
       <div class="modal-head">
-        <h3>${isNew ? 'New report' : 'Edit report'}</h3>
+        <h3>${isNew ? 'New task' : 'Edit task'}</h3>
         <button class="close" id="m-cancel">×</button>
       </div>
       <div class="modal-body">
@@ -6590,7 +7548,7 @@ async function showMyDevicePanel() {
               </button>
             </div>`;
           }).join('');
-          return `<div class="mydev-section">
+          return `<div class="mydev-section" id="mydev-group-members-section">
             <div class="mydev-section-head">Group members (${members.length})</div>
             ${rows}
           </div>`;
@@ -6601,7 +7559,7 @@ async function showMyDevicePanel() {
           <div class="mydev-sessions-row">
             <div class="mydev-sessions-count">
               <span id="mydev-session-count">${sessionsCount}</span>
-              <span class="mydev-sessions-label">${sessionsCount === 1 ? 'report' : 'reports'} on this device</span>
+              <span class="mydev-sessions-label">${sessionsCount === 1 ? 'report' : 'jobs'} on this device</span>
             </div>
             <button class="mydev-browse-btn" id="mydev-browse-btn">Browse →</button>
           </div>
@@ -7268,7 +8226,7 @@ $('sent-disconnect-btn').addEventListener('click', restartToStart);
 // Browse from the post-transfer summary row opens the standard sessions
 // modal so the user can manage all reports. The receiver just landed
 // here to look at reports they got — they didn't come to create one,
-// so the "New report" button is omitted from this entry point. The
+// so the "New task" button is omitted from this entry point. The
 // My device → Browse entry still shows it (default behavior).
 $('transfer-browse-btn').addEventListener('click', () => showSessionsModal({ hideNewReport: true }));
 
@@ -7342,8 +8300,12 @@ window.addEventListener('load', async () => {
   try { await refreshSessionsCount(); } catch (e) { log('Session count failed: ' + e.message, 'err'); }
   try { await loadIdentity(); } catch (e) { log('Identity load failed: ' + e.message, 'err'); }
   try { await refreshHomeList(); } catch (e) { log('Home list failed: ' + e.message, 'err'); }
+  try { await loadSourceData(); } catch (e) { log('Source load failed: ' + e.message, 'err'); }
   renderResumeBar();
   renderHomeGroupMembers();
+      refreshMyDeviceMembers();
+  renderHomePairSection();
+  cleanupArchivedSessions().catch(() => {});
   // Wire the live-note panel inputs once (event listeners survive screen
   // changes). The panels themselves are toggled visible/hidden as the
   // user moves between screens.
