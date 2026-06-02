@@ -3593,6 +3593,16 @@ const SourceSyncManager = {
   // Peer sent us their source-info — decide if we need to request it
   receiveInfo({ hash, uploadedAt, filename, rowCount } = {}, peerId) {
     if (!hash) return;
+    // Update this peer's known hash in GroupStore by matching peerId → deviceId
+    let deviceId = null;
+    for (const [did, info] of TrysteroRoomManager._peerInfo) {
+      if (info && info._peerId === peerId) { deviceId = did; break; }
+    }
+    if (deviceId) {
+      GroupStore.setSourceHash(deviceId, hash);
+      renderSourceSection();
+    }
+
     const own = _sourceData;
     // Request if we have no source, or peer has a newer version
     if (!own || uploadedAt > own.uploadedAt) {
@@ -3626,6 +3636,13 @@ const SourceSyncManager = {
       log(`Source: received source from peer but ours is newer — ignoring.`, 'info');
       return;
     }
+    // Find sender's deviceId and update their hash too
+    let deviceId = null;
+    for (const [did, info] of TrysteroRoomManager._peerInfo) {
+      if (info && info._peerId === peerId) { deviceId = did; break; }
+    }
+    if (deviceId) GroupStore.setSourceHash(deviceId, hash);
+
     const src = { filename, uploadedAt, hash, rows };
     await saveSource(src);
     _sourceData = src;
