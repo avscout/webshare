@@ -2569,7 +2569,24 @@ async function cleanupArchivedSessions() {
   }
 }
 
-// ---------- Session history ----------
+function cleanupGhostMembers() {
+  if (!GroupStore.exists()) return;
+  const DAYS_365 = 365 * 24 * 60 * 60 * 1000;
+  const group = GroupStore.load();
+  if (!group) return;
+  const cutoff = Date.now() - DAYS_365;
+  const before = group.members.length;
+  group.members = group.members.filter(m => {
+    if (m.deviceId === DEVICE_ID) return true; // never remove self
+    return (m.lastSeenAt || m.joinedAt || 0) > cutoff;
+  });
+  if (group.members.length < before) {
+    GroupStore._save(group);
+    log(`Cleaned up ${before - group.members.length} inactive member(s) not seen in 365 days.`, 'info');
+  }
+}
+
+
 // Each session has an optional `history` array of events tracking its
 // provenance and transfer activity. Three event kinds:
 //   - created-here: session was newly created on this device
@@ -3200,10 +3217,8 @@ const GroupStore = {
     try { localStorage.setItem(this._key, JSON.stringify(group)); } catch {}
   },
   exists() { return !!this.load(); },
-  // Create a new group (called on first pairing — receiver side).
   create(roomCode, password) {
-    this._save({ roomCode, password, members: [] });
-    // Add self as founding member
+    this._save({ roomCode, password, members: [], removed: [] });
     if (typeof identity !== 'undefined' && identity) {
       this.addMember({
         deviceId : DEVICE_ID,
@@ -3215,7 +3230,6 @@ const GroupStore = {
       });
     }
   },
-  // Ensure the local device is in the members list — call after identity loads
   ensureSelf() {
     if (!this.exists() || !identity || this.isKnown(DEVICE_ID)) return;
     this.addMember({
@@ -3230,18 +3244,61 @@ const GroupStore = {
   addMember({ deviceId, nickname, emoji, color, invitedBy, role }) {
     const group = this.load();
     if (!group) return;
-    group.members = group.members.filter(m => m.deviceId !== deviceId);
-    group.members.push({
-      deviceId,
-      nickname  : nickname  || '?',
-      emoji     : emoji     || '📱',
-      color     : color     || null,
-      role      : role      || null,
-      invitedBy : invitedBy || null,
-      joinedAt  : Date.now(),
-      lastSeenAt: Date.now(),
-    });
+    if (!group.removed) group.removed = [];
+    // Don't re-add if tombstoned
+    if (group.removed.some(r => r.deviceId === deviceId)) return;
+    const existing = group.members.find(m => m.deviceId === deviceId);
+    if (existing) {
+      // Only update info if newer joinedAt (avoids overwriting with stale data)
+      group.members = group.members.map(m => m.deviceId === deviceId
+        ? { ...m, nickname: nickname || m.nickname, emoji: emoji || m.emoji,
+            color: color || m.color, role: role || m.role, lastSeenAt: Date.now() }
+        : m);
+    } else {
+      group.members.push({
+        deviceId,
+        nickname  : nickname  || '?',
+        emoji     : emoji     || '📱',
+        color     : color     || null,
+        role      : role      || null,
+        invitedBy : invitedBy || null,
+        joinedAt  : Date.now(),
+        lastSeenAt: Date.now(),
+      });
+    }
     this._save(group);
+  },
+  // Merge incoming member list from peer — respects tombstones and joinedAt
+  mergeMemberList(incoming) {
+    const group = this.load();
+    if (!group) return;
+    if (!group.removed) group.removed = [];
+    let changed = false;
+    for (const m of incoming) {
+      if (!m || !m.deviceId) continue;
+      // Skip if tombstoned locally
+      if (group.removed.some(r => r.deviceId === m.deviceId)) continue;
+      const existing = group.members.find(e => e.deviceId === m.deviceId);
+      if (!existing) {
+        group.members.push({ ...m, lastSeenAt: m.lastSeenAt || Date.now() });
+        changed = true;
+      } else {
+        // Only update profile fields if incoming joinedAt is newer
+        const incomingJoinedAt = m.joinedAt || 0;
+        const localJoinedAt   = existing.joinedAt || 0;
+        if (incomingJoinedAt > localJoinedAt) {
+          Object.assign(existing, {
+            nickname: m.nickname || existing.nickname,
+            emoji   : m.emoji    || existing.emoji,
+            color   : m.color    || existing.color,
+            role    : m.role     || existing.role,
+          });
+          changed = true;
+        }
+      }
+    }
+    if (changed) this._save(group);
+    return changed;
   },
   touch(deviceId) {
     const group = this.load();
@@ -3260,6 +3317,11 @@ const GroupStore = {
   removeMember(deviceId) {
     const group = this.load();
     if (!group) return;
+    if (!group.removed) group.removed = [];
+    // Add tombstone so peer can't re-add via mbr-sync
+    if (!group.removed.some(r => r.deviceId === deviceId)) {
+      group.removed.push({ deviceId, removedAt: Date.now() });
+    }
     group.members = group.members.filter(m => m.deviceId !== deviceId);
     this._save(group);
   },
@@ -3267,6 +3329,14 @@ const GroupStore = {
     if (!deviceId) return false;
     const group = this.load();
     return !!group && group.members.some(m => m.deviceId === deviceId);
+  },
+  isRemoved(deviceId) {
+    const group = this.load();
+    return !!group && (group.removed || []).some(r => r.deviceId === deviceId);
+  },
+  getRemovedIds() {
+    const group = this.load();
+    return (group?.removed || []).map(r => r.deviceId);
   },
   getMembers()  { const g = this.load(); return g ? g.members : []; },
   getRoomCode() { const g = this.load(); return g ? g.roomCode : null; },
@@ -3311,12 +3381,18 @@ const TrysteroRoomManager = {
           return true;
         }
         if (qrVisible) {
-          GroupStore.addMember({
+          const newMember = {
             deviceId,
             nickname : info && info.nickname,
             emoji    : info && info.emoji,
             color    : info && info.color,
             invitedBy: info && info.invitedBy,
+          };
+          GroupStore.addMember(newMember);
+          // Broadcast full member list to all existing peers so they know the new member
+          if (t) t.sendMbrSync({
+            members: GroupStore.getMembers(),
+            removed: GroupStore.getRemovedIds(),
           });
           return true;
         }
@@ -3345,6 +3421,14 @@ const TrysteroRoomManager = {
       }
       t.sendSyncRequest(peerId);
       SourceSyncManager.broadcastInfo(peerId);
+      // Share full member list so new peer knows everyone
+      if (GroupStore.exists()) {
+        const members = GroupStore.getMembers();
+        if (members.length > 0) t.sendMbrSync({
+          members,
+          removed: GroupStore.getRemovedIds(),
+        }, peerId);
+      }
     });
 
     t.on('reconnected', () => {
@@ -3408,6 +3492,25 @@ const TrysteroRoomManager = {
     t.onSourceInfo    = (data, peerId)   => SourceSyncManager.receiveInfo(data, peerId);
     t.onSourceRequest = (peerId)         => SourceSyncManager.sendDataTo(peerId);
     t.onSourceData    = (data, peerId)   => SourceSyncManager.receiveData(data, peerId);
+
+    // Wire member sync — receives full member list + tombstones from peer
+    t.onMbrSync = (data) => {
+      if (!data) return;
+      const members = Array.isArray(data.members) ? data.members : (Array.isArray(data) ? data : [data]);
+      const removedIds = Array.isArray(data.removed) ? data.removed : [];
+      // Apply tombstones first — remove any locally known members that peer has removed
+      for (const deviceId of removedIds) {
+        if (deviceId !== DEVICE_ID && GroupStore.isKnown(deviceId)) {
+          GroupStore.removeMember(deviceId);
+          log(`Member sync: removed ${deviceId.slice(0,8)} (tombstoned by peer).`, 'info');
+        }
+      }
+      const changed = GroupStore.mergeMemberList(members);
+      if (changed || removedIds.length > 0) {
+        renderHomeGroupMembers();
+        refreshMyDeviceMembers();
+      }
+    };
 
     await t.joinPersistentRoom(roomCode);
     this._room = t;
@@ -8483,6 +8586,7 @@ window.addEventListener('load', async () => {
       refreshMyDeviceMembers();
   renderHomePairSection();
   cleanupArchivedSessions().catch(() => {});
+  cleanupGhostMembers();
   // Wake lock — keeps the screen/tab alive so P2P stays connected.
   // Active by default, invisible in production, shown in dev mode.
   initWakeLock();

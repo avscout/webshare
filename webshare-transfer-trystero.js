@@ -125,6 +125,7 @@
       this._sendSourceInfoAction  = null;
       this._sendSourceReqAction   = null;
       this._sendSourceDataAction  = null;
+      this._sendMbrSyncAction     = null;
 
       // Config
       this.persistent   = persistent;
@@ -138,6 +139,7 @@
       this.onSourceInfo   = null;  // ({ hash, uploadedAt }, fromPeerId) => void
       this.onSourceRequest = null; // (fromPeerId) => void
       this.onSourceData   = null;  // ({ filename, uploadedAt, hash, rows }, fromPeerId) => void
+      this.onMbrSync      = null;  // (member, fromPeerId) => void
     }
 
     // -----------------------------------------------------------------------
@@ -202,6 +204,11 @@
     sendSourceData(data, targetPeerId) {
       if (!this._sendSourceDataAction) return;
       try { this._sendSourceDataAction(data, targetPeerId || undefined); } catch {}
+    }
+
+    sendMbrSync(member, targetPeerId) {
+      if (!this._sendMbrSyncAction || this._connectedPeers.size === 0) return;
+      try { this._sendMbrSyncAction(member, targetPeerId || undefined); } catch {}
     }
 
     _startHeartbeat() { /* Trystero handles keep-alives internally */ }
@@ -348,6 +355,7 @@
       const [sendSourceInfo,  onSourceInfo]  = _makeAction('src-info');
       const [sendSourceReq,   onSourceReq]   = _makeAction('src-req');
       const [sendSourceData,  onSourceData]  = _makeAction('src-data');
+      const [sendMbrSync,     onMbrSync]     = _makeAction('mbr-sync');
 
       this._sendPayloadAction     = sendPayload;
       this._sendAckAction         = sendAck;
@@ -360,6 +368,7 @@
       this._sendSourceInfoAction  = (data, targetId) => sendSourceInfo(data, targetId);
       this._sendSourceReqAction   = (data, targetId) => sendSourceReq(data, targetId);
       this._sendSourceDataAction  = (data, targetId) => sendSourceData(data, targetId);
+      this._sendMbrSyncAction     = (data) => sendMbrSync(data);
 
       // Peer lifecycle
       this._room.onPeerJoin(id  => this._onPeerJoin(id));
@@ -467,6 +476,11 @@
       onSourceData((data, peerId) => {
         if (this._rejectedPeers.has(peerId)) return;
         if (this.onSourceData) this.onSourceData(data, peerId);
+      });
+
+      onMbrSync((data, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
+        if (this.onMbrSync) this.onMbrSync(data, peerId);
       });
     }
 
