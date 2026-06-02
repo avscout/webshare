@@ -122,6 +122,9 @@
       this._sendSyncFullAction    = null;
       this._sendSyncDeltaAction   = null;
       this._sendSyncRequestAction = null;
+      this._sendSourceInfoAction  = null;
+      this._sendSourceReqAction   = null;
+      this._sendSourceDataAction  = null;
 
       // Config
       this.persistent   = persistent;
@@ -129,9 +132,12 @@
       this.onPeerAccept = onPeerAccept;
 
       // Sync callbacks — set externally by TrysteroRoomManager / SyncManager
-      this.onSyncFull    = null;  // (sessions, fromPeerId) => void
-      this.onSyncDelta   = null;  // (session,  fromPeerId) => void
-      this.onSyncRequest = null;  // (fromPeerId) => void
+      this.onSyncFull     = null;  // (sessions, fromPeerId) => void
+      this.onSyncDelta    = null;  // (session,  fromPeerId) => void
+      this.onSyncRequest  = null;  // (fromPeerId) => void
+      this.onSourceInfo   = null;  // ({ hash, uploadedAt }, fromPeerId) => void
+      this.onSourceRequest = null; // (fromPeerId) => void
+      this.onSourceData   = null;  // ({ filename, uploadedAt, hash, rows }, fromPeerId) => void
     }
 
     // -----------------------------------------------------------------------
@@ -181,6 +187,21 @@
     sendSyncRequest(targetPeerId) {
       if (!this._sendSyncRequestAction) return;
       try { this._sendSyncRequestAction({}, targetPeerId || undefined); } catch {}
+    }
+
+    sendSourceInfo(data, targetPeerId) {
+      if (!this._sendSourceInfoAction) return;
+      try { this._sendSourceInfoAction(data, targetPeerId || undefined); } catch {}
+    }
+
+    sendSourceRequest(targetPeerId) {
+      if (!this._sendSourceReqAction) return;
+      try { this._sendSourceReqAction({}, targetPeerId || undefined); } catch {}
+    }
+
+    sendSourceData(data, targetPeerId) {
+      if (!this._sendSourceDataAction) return;
+      try { this._sendSourceDataAction(data, targetPeerId || undefined); } catch {}
     }
 
     _startHeartbeat() { /* Trystero handles keep-alives internally */ }
@@ -323,6 +344,9 @@
       const [sendSyncFull,    onSyncFull]    = _makeAction('sync-full');
       const [sendSyncDelta,   onSyncDelta]   = _makeAction('sync-delta');
       const [sendSyncRequest, onSyncRequest] = _makeAction('sync-request');
+      const [sendSourceInfo,  onSourceInfo]  = _makeAction('source-info');
+      const [sendSourceReq,   onSourceReq]   = _makeAction('source-request');
+      const [sendSourceData,  onSourceData]  = _makeAction('source-data');
 
       this._sendPayloadAction     = sendPayload;
       this._sendAckAction         = sendAck;
@@ -332,6 +356,9 @@
       this._sendSyncFullAction    = (data, targetId) => sendSyncFull(data, targetId);
       this._sendSyncDeltaAction   = (data) => sendSyncDelta(data);
       this._sendSyncRequestAction = (data, targetId) => sendSyncRequest(data, targetId);
+      this._sendSourceInfoAction  = (data, targetId) => sendSourceInfo(data, targetId);
+      this._sendSourceReqAction   = (data, targetId) => sendSourceReq(data, targetId);
+      this._sendSourceDataAction  = (data, targetId) => sendSourceData(data, targetId);
 
       // Peer lifecycle
       this._room.onPeerJoin(id  => this._onPeerJoin(id));
@@ -424,6 +451,21 @@
       onSyncRequest((_, peerId) => {
         if (this._rejectedPeers.has(peerId)) return;
         if (this.onSyncRequest) this.onSyncRequest(peerId);
+      });
+
+      onSourceInfo((data, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
+        if (this.onSourceInfo) this.onSourceInfo(data, peerId);
+      });
+
+      onSourceReq((_, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
+        if (this.onSourceRequest) this.onSourceRequest(peerId);
+      });
+
+      onSourceData((data, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
+        if (this.onSourceData) this.onSourceData(data, peerId);
       });
     }
 

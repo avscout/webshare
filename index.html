@@ -2209,7 +2209,7 @@
             <textarea class="note-input" data-note-input rows="2" placeholder="Type a quick note…" autocomplete="off"></textarea>
           </div>
           <div class="note-section">
-            <div class="note-eyebrow"><span data-peer-label>Peer</span> is writing</div>
+            <div class="note-eyebrow"><span data-peer-label>Peers</span> are writing</div>
             <div class="note-peer-text is-empty" data-note-peer>Nothing yet…</div>
           </div>
         </div>
@@ -3250,6 +3250,13 @@ const GroupStore = {
       m.deviceId === deviceId ? { ...m, lastSeenAt: Date.now() } : m);
     this._save(group);
   },
+  setSourceHash(deviceId, hash) {
+    const group = this.load();
+    if (!group) return;
+    group.members = group.members.map(m =>
+      m.deviceId === deviceId ? { ...m, sourceHash: hash } : m);
+    this._save(group);
+  },
   removeMember(deviceId) {
     const group = this.load();
     if (!group) return;
@@ -3337,6 +3344,7 @@ const TrysteroRoomManager = {
         setConnectionBarStatus('connected');
       }
       t.sendSyncRequest(peerId);
+      SourceSyncManager.broadcastInfo(peerId);
     });
 
     t.on('reconnected', () => {
@@ -3395,6 +3403,11 @@ const TrysteroRoomManager = {
     t.onSyncFull    = (sessions, peerId) => SyncManager.receiveFull(sessions, peerId);
     t.onSyncDelta   = (session,  peerId) => SyncManager.receiveDelta(session, peerId);
     t.onSyncRequest = (peerId)           => SyncManager.sendFullTo(peerId);
+
+    // Wire source sync callbacks
+    t.onSourceInfo    = (data, peerId)   => SourceSyncManager.receiveInfo(data, peerId);
+    t.onSourceRequest = (peerId)         => SourceSyncManager.sendDataTo(peerId);
+    t.onSourceData    = (data, peerId)   => SourceSyncManager.receiveData(data, peerId);
 
     await t.joinPersistentRoom(roomCode);
     this._room = t;
@@ -3558,6 +3571,70 @@ function renderGroupStatusBar(state) {
 // Conflict resolution: highest syncedAt wins.
 // Tie-break: lexicographically higher deviceId wins (deterministic).
 // =====================================================================
+// ── Source sync ───────────────────────────────────────────────────────────────
+// On connect: sender broadcasts source-info (hash + uploadedAt).
+// Receiver compares with own source; if missing or older, requests source-data.
+// Sender responds with full JSON — rows can be large but WebRTC handles it.
+
+const SourceSyncManager = {
+  // Called after connecting to a new peer — broadcast our source info
+  broadcastInfo(targetPeerId) {
+    if (!_sourceData) return;
+    const t = TrysteroRoomManager._room;
+    if (!t) return;
+    t.sendSourceInfo({
+      hash      : _sourceData.hash,
+      uploadedAt: _sourceData.uploadedAt,
+      filename  : _sourceData.filename,
+      rowCount  : _sourceData.rows.length,
+    }, targetPeerId);
+  },
+
+  // Peer sent us their source-info — decide if we need to request it
+  receiveInfo({ hash, uploadedAt, filename, rowCount } = {}, peerId) {
+    if (!hash) return;
+    const own = _sourceData;
+    // Request if we have no source, or peer has a newer version
+    if (!own || uploadedAt > own.uploadedAt) {
+      log(`Source: peer has ${filename || 'a source file'} (${rowCount} rows) — requesting…`, 'info');
+      const t = TrysteroRoomManager._room;
+      if (t) t.sendSourceRequest(peerId);
+    } else {
+      log(`Source: already have same or newer version — skipping.`, 'info');
+    }
+  },
+
+  // Peer requested our source data — send it
+  async sendDataTo(peerId) {
+    if (!_sourceData) return;
+    const t = TrysteroRoomManager._room;
+    if (!t) return;
+    log(`Source: sending source data to peer (${_sourceData.rows.length} rows)…`, 'info');
+    t.sendSourceData({
+      filename  : _sourceData.filename,
+      uploadedAt: _sourceData.uploadedAt,
+      hash      : _sourceData.hash,
+      rows      : _sourceData.rows,
+    }, peerId);
+  },
+
+  // Peer sent us their full source data — save it
+  async receiveData({ filename, uploadedAt, hash, rows } = {}, peerId) {
+    if (!hash || !rows || !rows.length) return;
+    // Don't replace if we already have a newer version
+    if (_sourceData && _sourceData.uploadedAt >= uploadedAt) {
+      log(`Source: received source from peer but ours is newer — ignoring.`, 'info');
+      return;
+    }
+    const src = { filename, uploadedAt, hash, rows };
+    await saveSource(src);
+    _sourceData = src;
+    GroupStore.setSourceHash(DEVICE_ID, hash);
+    renderSourceSection();
+    log(`Source: received and saved "${filename}" (${rows.length} rows) from peer.`, 'ok');
+  },
+};
+
 const SyncManager = {
 
   // Merge a single incoming session into local IDB.
@@ -4443,6 +4520,7 @@ let _sourceData = null; // in-memory cache
 
 async function loadSourceData() {
   _sourceData = await getSource();
+  if (_sourceData) GroupStore.setSourceHash(DEVICE_ID, _sourceData.hash);
   renderSourceSection();
 }
 
@@ -4654,6 +4732,7 @@ async function _handleSourceFile(file) {
     const src  = { filename: file.name, uploadedAt: Date.now(), hash, rows: parsed };
     await saveSource(src);
     _sourceData = src;
+    GroupStore.setSourceHash(DEVICE_ID, hash);
     renderSourceSection();
     log(`Source imported: ${parsed.length} rows`, 'ok');
   } catch (e) {
@@ -5557,8 +5636,19 @@ function setPeerNoteText(text) {
 }
 
 function updateNotePanelPeerLabel() {
-  const name = (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname : 'Peer';
-  for (const el of _allNotePeerLabels()) el.textContent = name;
+  const connected = TrysteroRoomManager ? TrysteroRoomManager.getConnectedMembers().length : 0;
+  const multiple  = connected > 1;
+  const name = multiple ? `${connected} peers`
+             : (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname
+             : 'Peer';
+  const verb = multiple ? 'are' : 'is';
+  for (const el of _allNotePeerLabels()) {
+    el.textContent = name;
+    const parent = el.closest('.note-eyebrow');
+    if (parent) parent.childNodes.forEach(n => {
+      if (n.nodeType === 3) n.textContent = ` ${verb} writing`;
+    });
+  }
 }
 
 function resetNotePanels() {
@@ -6072,7 +6162,10 @@ function wireTransferToReceiveUI(t) {
     if (t._uiBackend === 'trystero') {
       // Trystero: no transfer screen — request sync from new peer
       hideConnectingOverlay();
-      if (typeof peerId === 'string') t.sendSyncRequest(peerId);
+      if (typeof peerId === 'string') {
+        t.sendSyncRequest(peerId);
+        SourceSyncManager.broadcastInfo(peerId);
+      }
       return;
     }
     if (currentScreenId() !== 'transfer') goToStep(activeFlow().indexOf('transfer'), 'forward');
