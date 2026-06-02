@@ -1443,7 +1443,7 @@
      The Data safety card uses .ok / .at-risk modifiers to color the
      left border + headline label. */
   .mydev-card {
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: flex-start; gap: 14px;
     padding: 14px;
     border: 1px solid var(--line);
     border-left-width: 4px;
@@ -4584,9 +4584,24 @@ function refreshMyDeviceMembers() {
         <div style="font-size:12px;color:${statusColor};font-weight:500">${statusText}</div>
         ${roleLabel ? `<div style="font-size:11px;color:var(--accent);font-weight:500">${roleLabel}</div>` : ''}
       </div>
+      ${!isYou ? `<button class="mydev-unpair-btn" data-deviceid="${p.deviceId}" style="
+        background:none;border:1px solid var(--line);border-radius:4px;
+        padding:4px 8px;font-size:11px;color:var(--dim);cursor:pointer;flex-shrink:0">Remove</button>` : ''}
     </div>`;
   }).join('');
   section.innerHTML = `<div class="mydev-section-head">Group members (${members.length})</div>${rows}`;
+
+  // Re-wire remove buttons after innerHTML update
+  section.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (confirm('Remove this device from the group? They will need to scan again to rejoin.')) {
+        GroupStore.removeMember(btn.dataset.deviceid);
+        renderTopbarConnections();
+        refreshMyDeviceMembers();
+        renderHomeGroupMembers();
+      }
+    });
+  });
 }
 
 // Returns info about when the data wipe will happen for an archived session.
