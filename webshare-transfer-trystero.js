@@ -22,7 +22,7 @@
   // esm.run is jsDelivr's ESM CDN — the officially recommended way to load
   // Trystero in a browser without a bundler.
   // 0.21.8/nostr is pinned to the version confirmed working.
-  const TRYSTERO_CDN    = 'https://esm.run/trystero@0.21.8/nostr';
+  const TRYSTERO_CDN    = 'https://esm.run/trystero@0.23.0/nostr';
 
   // Pre-fetch the Trystero module as soon as this script loads so the
   // first _joinRoom() call doesn't have to wait for a network round-trip.
