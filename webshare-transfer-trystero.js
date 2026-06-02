@@ -291,7 +291,7 @@
 
       const config = {
         appId      : TRYSTERO_APP_ID,
-        relayUrls  : NOSTR_RELAY_URLS,
+        relayConfig: { urls: NOSTR_RELAY_URLS },
         turnConfig : TURN_CONFIG,
       };
       if (this.password) config.password = this.password;
