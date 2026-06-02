@@ -162,6 +162,51 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .spinning { display:inline-block; animation: spin 0.7s linear infinite; }
 
+  @keyframes grail-bg-fade {
+    0%   { fill: #EAF3DE; }
+    14%  { fill: #FAEEDA; }
+    28%  { fill: #FBEAF0; }
+    42%  { fill: #E6F1FB; }
+    57%  { fill: #EEEDFE; }
+    71%  { fill: #E1F5EE; }
+    85%  { fill: #FAECE7; }
+    100% { fill: #EAF3DE; }
+  }
+  @keyframes grail-doc-fade {
+    0%   { fill: #639922; }
+    14%  { fill: #EF9F27; }
+    28%  { fill: #D4537E; }
+    42%  { fill: #378ADD; }
+    57%  { fill: #7F77DD; }
+    71%  { fill: #1D9E75; }
+    85%  { fill: #D85A30; }
+    100% { fill: #639922; }
+  }
+  @keyframes grail-doc-fade2 {
+    0%   { fill: #97C459; }
+    14%  { fill: #FAC775; }
+    28%  { fill: #ED93B1; }
+    42%  { fill: #85B7EB; }
+    57%  { fill: #AFA9EC; }
+    71%  { fill: #5DCAA5; }
+    85%  { fill: #F0997B; }
+    100% { fill: #97C459; }
+  }
+  @keyframes grail-line-fade {
+    0%   { stroke: #EAF3DE; }
+    14%  { stroke: #FAEEDA; }
+    28%  { stroke: #FBEAF0; }
+    42%  { stroke: #E6F1FB; }
+    57%  { stroke: #EEEDFE; }
+    71%  { stroke: #E1F5EE; }
+    85%  { stroke: #FAECE7; }
+    100% { stroke: #EAF3DE; }
+  }
+  .grail-anim-bg   { animation: grail-bg-fade   6s ease-in-out infinite; }
+  .grail-anim-doc  { animation: grail-doc-fade  6s ease-in-out infinite; }
+  .grail-anim-doc2 { animation: grail-doc-fade2 6s ease-in-out infinite; }
+  .grail-anim-line { animation: grail-line-fade 6s ease-in-out infinite; }
+
   /* ===== Holy Grail — source data card ===== */
   @keyframes rainbow-border {
     0%   { border-color: #e24b4a; }
@@ -4831,14 +4876,14 @@ let _sourceState = null;
 
 function _grailIcon() {
   return `<div style="border-radius:11px;overflow:hidden;line-height:0"><svg width="52" height="52" viewBox="0 0 52 52" fill="none">
-    <rect width="52" height="52" rx="10" fill="#EAF3DE"/>
-    <rect x="13" y="11" width="22" height="30" rx="3" fill="#97C459" opacity="0.4"/>
-    <rect x="17" y="11" width="22" height="30" rx="3" fill="#97C459" opacity="0.6"/>
-    <rect x="21" y="11" width="22" height="30" rx="3" fill="#639922"/>
-    <rect x="25" y="18" width="12" height="2" rx="1" fill="#EAF3DE"/>
-    <rect x="25" y="23" width="8"  height="2" rx="1" fill="#EAF3DE" opacity="0.7"/>
-    <rect x="25" y="28" width="10" height="2" rx="1" fill="#EAF3DE" opacity="0.7"/>
-    <rect x="25" y="33" width="6"  height="2" rx="1" fill="#EAF3DE" opacity="0.5"/>
+    <rect class="grail-anim-bg" width="52" height="52" rx="10" fill="#EAF3DE"/>
+    <rect x="13" y="11" width="22" height="30" rx="3" fill="#97C459" opacity="0.3" style="animation:grail-doc-fade2 6s ease-in-out infinite;animation-delay:-1.5s"/>
+    <rect x="17" y="11" width="22" height="30" rx="3" fill="#97C459" opacity="0.5" style="animation:grail-doc-fade2 6s ease-in-out infinite;animation-delay:-0.8s"/>
+    <rect class="grail-anim-doc" x="21" y="11" width="22" height="30" rx="3" fill="#639922"/>
+    <line x1="25" y1="19" x2="37" y2="19" stroke="#EAF3DE" stroke-width="2" stroke-linecap="round" style="animation:grail-line-fade 6s ease-in-out infinite;animation-delay:-2s"/>
+    <line x1="25" y1="24" x2="33" y2="24" stroke="#EAF3DE" stroke-width="2" stroke-linecap="round" opacity="0.8" style="animation:grail-line-fade 6s ease-in-out infinite;animation-delay:-2.8s"/>
+    <line x1="25" y1="29" x2="35" y2="29" stroke="#EAF3DE" stroke-width="2" stroke-linecap="round" opacity="0.7" style="animation:grail-line-fade 6s ease-in-out infinite;animation-delay:-3.5s"/>
+    <line x1="25" y1="34" x2="31" y2="34" stroke="#EAF3DE" stroke-width="2" stroke-linecap="round" opacity="0.5" style="animation:grail-line-fade 6s ease-in-out infinite;animation-delay:-4.2s"/>
   </svg></div>`;
 }
 
