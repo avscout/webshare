@@ -159,6 +159,9 @@
     color: var(--ink-soft);
   }
 
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinning { display:inline-block; animation: spin 0.7s linear infinite; }
+
   /* ===== Holy Grail — source data card ===== */
   @keyframes rainbow-border {
     0%   { border-color: #e24b4a; }
@@ -3741,6 +3744,12 @@ const SourceSyncManager = {
       log(`Source: received source from peer but ours is newer — ignoring.`, 'info');
       return;
     }
+    // Verify hash integrity before saving
+    const computedHash = hashData(rows);
+    if (computedHash !== hash) {
+      log(`Source: hash mismatch — data may be corrupt, ignoring.`, 'err');
+      return;
+    }
     // Find sender's deviceId and update their hash too
     let deviceId = null;
     for (const [did, info] of TrysteroRoomManager._peerInfo) {
@@ -4642,6 +4651,23 @@ $('home-add-another-btn').addEventListener('click', () => {
 
 let _sourceData = null; // in-memory cache
 
+async function _sourceRefresh(btn) {
+  if (!btn) return;
+  const span = document.createElement('span');
+  span.className = 'spinning';
+  span.textContent = '↻';
+  btn.textContent = '';
+  btn.appendChild(span);
+  btn.disabled = true;
+
+  // Broadcast our source info to all peers and wait briefly for responses
+  if (_sourceData) SourceSyncManager.broadcastInfo();
+
+  // Wait 2s for any incoming source-info responses, then re-render
+  await new Promise(r => setTimeout(r, 2000));
+  renderSourceSection();
+}
+
 async function loadSourceData() {
   _sourceData = await getSource();
   if (_sourceData) GroupStore.setSourceHash(DEVICE_ID, _sourceData.hash);
@@ -4691,15 +4717,31 @@ function renderSourceSection() {
           <div class="grail-meta" id="source-browse-title" style="cursor:pointer;width:100%;text-align:center">
             <div class="grail-name" style="font-size:12px;word-break:break-all">${src.filename}</div>
             <div class="grail-sub">Imported ${new Date(src.uploadedAt).toLocaleDateString()} · ${src.rows.length.toLocaleString()} rows</div>
-            <div style="display:inline-flex;align-items:center;background:transparent;border:1.5px solid var(--line);border-radius:5px;padding:3px 8px;gap:1px;margin-top:4px">
-              <span style="color:var(--dim);font-weight:700;font-size:12px;margin-right:2px">#</span>${
-              src.hash.split('').map(c => {
-                const v = parseInt(c, 16);
-                const colors = ['#e53935','#e8711a','#f0a500','#85b800','#2ea84a','#00897b','#1e88e5','#1565c0','#7b1fa2','#ad1457','#d81b60','#c62828','#00838f','#1976d2','#f57c00','#6a1b9a'];
-                return `<span style="color:${colors[v]};font-weight:700;font-size:12px">${c}</span>`;
-              }).join('')}
+            <div style="display:inline-flex;align-items:center;gap:4px;margin-top:4px">
+              <div style="display:inline-flex;align-items:center;background:transparent;border:1.5px solid var(--line);border-radius:5px;padding:3px 8px;gap:1px">
+                <span style="color:var(--dim);font-weight:700;font-size:12px;margin-right:2px">#</span>${
+                src.hash.split('').map(c => {
+                  const v = parseInt(c, 16);
+                  const colors = ['#e53935','#e8711a','#f0a500','#85b800','#2ea84a','#00897b','#1e88e5','#1565c0','#7b1fa2','#ad1457','#d81b60','#c62828','#00838f','#1976d2','#f57c00','#6a1b9a'];
+                  return `<span style="color:${colors[v]};font-weight:700;font-size:12px">${c}</span>`;
+                }).join('')}
+              </div>
+              <button id="source-refresh-btn" onclick="event.stopPropagation();_sourceRefresh(this)" style="
+                background:none;border:1.5px solid var(--line);border-radius:5px;
+                padding:3px 10px;cursor:pointer;color:var(--accent);font-size:15px;
+                font-weight:700;line-height:1;display:inline-flex;align-items:center">↻</button>
             </div>
-            ${memberCount > 1 ? `<div class="grail-members" style="display:flex;align-items:center;gap:6px">${sameHashCount} of ${memberCount} members have this version <button onclick="event.stopPropagation();renderSourceSection()" style="background:none;border:1px solid var(--accent);border-radius:4px;padding:2px 8px;cursor:pointer;color:var(--accent);font-size:13px;font-weight:700">↺</button></div>` : ''}
+            ${memberCount > 1 ? `<div class="grail-members" style="display:flex;align-items:center;gap:6px;margin-top:4px">
+              <span style="font-size:11px;color:var(--dim)">Owners:</span>
+              <div style="display:flex;gap:3px;align-items:center">
+                ${GroupStore.getMembers().filter(m => m.sourceHash === src.hash).map(m => {
+                  const cached = TrysteroRoomManager._peerInfo.get(m.deviceId);
+                  const emoji  = (m.deviceId === DEVICE_ID ? identity?.emoji : (cached?.emoji || m.emoji)) || '?';
+                  const color  = (m.deviceId === DEVICE_ID ? identity?.color : (cached?.color || m.color)) || null;
+                  return renderDeviceSVG(emoji, { size: 20, color });
+                }).join('')}
+              </div>
+            </div>` : ''}
           </div>
           <input type="file" id="source-file-input" accept=".xlsx" style="display:none">
         </div>
@@ -6139,7 +6181,7 @@ function showSourceModal() {
           </div>
           <div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0;text-align:right">
             ${r.dateInOperation ? `<div style="font-size:12px;color:var(--dim)">${escapeHTML(r.dateInOperation)}</div>` : ''}
-            ${r.dateOfReplacement ? `<div style="font-size:11px;color:var(--dim);margin-top:3px">↺ ${escapeHTML(r.dateOfReplacement)}</div>` : ''}
+            ${r.dateOfReplacement ? `<div style="font-size:11px;color:var(--dim);margin-top:3px">↻ ${escapeHTML(r.dateOfReplacement)}</div>` : ''}
           </div>
         </div>`;
       }).join('')}
