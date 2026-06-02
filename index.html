@@ -3708,6 +3708,12 @@ const SourceSyncManager = {
     }
     if (deviceId) {
       GroupStore.setSourceHash(deviceId, hash);
+      // Tell all other peers about this peer's hash so everyone stays in sync
+      const t = TrysteroRoomManager._room;
+      if (t) {
+        const member = GroupStore.getMembers().find(m => m.deviceId === deviceId);
+        if (member) t.sendMbrSync({ members: [member], removed: [] });
+      }
       renderSourceSection();
     }
 
@@ -7879,17 +7885,6 @@ async function showMyDevicePanel() {
             ${rows}
           </div>`;
         })()}
-
-        <div class="mydev-section">
-          <div class="mydev-section-head">Reports</div>
-          <div class="mydev-sessions-row">
-            <div class="mydev-sessions-count">
-              <span id="mydev-session-count">${sessionsCount}</span>
-              <span class="mydev-sessions-label">${sessionsCount === 1 ? 'report' : 'jobs'} on this device</span>
-            </div>
-            <button class="mydev-browse-btn" id="mydev-browse-btn">Browse →</button>
-          </div>
-        </div>
 
         <div class="mydev-section">
           <div class="mydev-section-head">Local storage safety</div>
