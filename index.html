@@ -2053,7 +2053,7 @@
           </button>
         </div>
       </div>
-      <div id="home-add-another" class="hidden" style="margin-bottom:1rem">
+      <div id="home-add-another" class="hidden" style="margin-bottom:1rem;text-align:right">
         <button id="home-add-another-btn" style="
           background:none;border:none;padding:0;
           font-size:13px;color:var(--accent);
@@ -2090,7 +2090,7 @@
     </div>
     <div class="screen-content">
       <div class="list-toolbar">
-        <button class="primary" id="pick-new-btn">New task</button>
+        <button class="primary" id="pick-new-btn">New demo task</button>
       </div>
       <div class="session-list" id="pick-session-list"></div>
 
@@ -3215,6 +3215,18 @@ const GroupStore = {
       });
     }
   },
+  // Ensure the local device is in the members list — call after identity loads
+  ensureSelf() {
+    if (!this.exists() || !identity || this.isKnown(DEVICE_ID)) return;
+    this.addMember({
+      deviceId : DEVICE_ID,
+      nickname : identity.nickname,
+      emoji    : identity.emoji,
+      color    : identity.color,
+      role     : identity.role || null,
+      invitedBy: null,
+    });
+  },
   addMember({ deviceId, nickname, emoji, color, invitedBy, role }) {
     const group = this.load();
     if (!group) return;
@@ -4032,7 +4044,7 @@ const FLOWS = {
   //      happens once per pairing.
   'send-peerjs':       ['start', 'scan-qr', 'pick', 'transfer'],
   'send-raw':          ['start', 'scan-qr', 'show-qr', 'pick', 'transfer'],
-  'send-trystero':     ['start', 'scan-qr', 'pick', 'transfer'],
+  'send-trystero':     ['start', 'pick', 'transfer'],
 };
 
 let currentBackend = 'trystero';
@@ -4231,7 +4243,7 @@ async function onEnterScreen(screenId) {
     const titleEl    = document.querySelector('[data-screen="pick"] .screen-title');
     const subtitleEl = document.querySelector('[data-screen="pick"] .screen-subtitle');
     if (titleEl && GroupStore.exists()) {
-      titleEl.textContent = 'Reports';
+      titleEl.textContent = 'Demoroom';
       if (subtitleEl) subtitleEl.textContent = TrysteroRoomManager.isConnected()
         ? 'Live — synced with your group.'
         : 'Offline — syncs when others come online.';
@@ -4323,7 +4335,13 @@ async function refreshPickList() {
   }
   updateNavBar();
 }
-$('pick-new-btn').addEventListener('click', () => showSessionModal(null, 'pick'));
+$('pick-new-btn').addEventListener('click', () => {
+  const today = new Date();
+  const month = today.toLocaleString('en', { month: 'short' }).toLowerCase();
+  const day   = today.getDate();
+  const defaultName = `demo-${month}-${day}`;
+  showSessionModal(null, 'pick', defaultName);
+});
 function refreshMyDeviceMembers() {
   const section = $('mydev-group-members-section');
   if (!section || !GroupStore.exists()) return;
@@ -4434,16 +4452,21 @@ function renderSourceSection() {
 
   if (!_sourceData) {
     el.innerHTML = `
-      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem;display:flex;align-items:center;gap:8px">
-        <span>Source data</span>
-        <span style="width:1px;height:12px;background:var(--line);display:inline-block"></span>
-        <span>Floor data</span>
-      </div>
-      <div class="source-dropzone" id="source-dropzone">
-        <div style="font-size:24px;margin-bottom:6px">📂</div>
-        <div style="font-weight:600;color:var(--ink);margin-bottom:4px">Import Excel file</div>
-        <div>Drop your .xlsx here or tap to browse</div>
-        <input type="file" id="source-file-input" accept=".xlsx" style="display:none">
+      <div style="display:flex;gap:0;margin-bottom:1rem">
+        <div style="flex:1;min-width:0;padding-right:12px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Source data</div>
+          <div class="source-dropzone" id="source-dropzone">
+            <div style="font-size:24px;margin-bottom:6px">📂</div>
+            <div style="font-weight:600;color:var(--ink);margin-bottom:4px">Import Excel file</div>
+            <div>Drop your .xlsx here or tap to browse</div>
+            <input type="file" id="source-file-input" accept=".xlsx" style="display:none">
+          </div>
+        </div>
+        <div style="width:1px;background:var(--line);flex-shrink:0;margin:0 4px"></div>
+        <div style="flex:1;min-width:0;padding-left:12px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Floor data</div>
+          <div style="color:var(--dim);font-size:13px">— not yet configured</div>
+        </div>
       </div>`;
     _wireSourceDropzone();
     return;
@@ -6936,18 +6959,15 @@ function parseDisplayNum(id, fallbackIndex) {
   return fallbackIndex + 1;
 }
 
-function showSessionModal(existing, returnTo) {
+function showSessionModal(existing, returnTo, defaultName) {
   const isNew = !existing;
   let session;
   if (existing) {
     session = existing;
   } else {
-    // Fresh session: generate items, then collect the rooms they
-    // reference and seed those rooms with placeholder photos. Rooms
-    // travel as a sibling field to data; receivers ship it along too.
     const data = exampleData();
     const roomNumbers = Object.values(data).map(item => item.room).filter(Boolean);
-    session = { name: suggestSessionName(), data, rooms: exampleRooms(roomNumbers) };
+    session = { name: defaultName || suggestSessionName(), data, rooms: exampleRooms(roomNumbers) };
   }
   // Render the history section. For new sessions there's nothing yet, so we
   // skip it entirely. For existing sessions, we show events in reverse
@@ -7054,6 +7074,7 @@ let identity = null;  // { emoji, nickname, device, color } or null if not set y
 async function loadIdentity() {
   identity = await getPref('identity');
   updateIdentityBadge();
+  GroupStore.ensureSelf();
   renderGroupStatusBar();
   renderResumeBar();
   return identity;
