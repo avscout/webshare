@@ -2669,6 +2669,44 @@ function describeEvent(ev) {
 // Locally-created with no subsequent receive → the current local
 // identity. Imported or legacy with no usable history → falls back to
 // the local identity since the report is on THIS device.
+// ── Task status icon — colored document + status badge ────────────────────────
+function taskStatusIcon(session, size = 36) {
+  const status = session.status || 'open';
+  // Derive a stable color from the task name/id
+  const PALETTE = [
+    { fill: '#FAEEDA', stroke: '#EF9F27' }, // amber
+    { fill: '#FBEAF0', stroke: '#D4537E' }, // pink
+    { fill: '#E1F5EE', stroke: '#1D9E75' }, // teal
+    { fill: '#EEEDFE', stroke: '#7F77DD' }, // purple
+    { fill: '#FAECE7', stroke: '#D85A30' }, // coral
+    { fill: '#E6F1FB', stroke: '#378ADD' }, // blue
+    { fill: '#EAF3DE', stroke: '#639922' }, // green
+    { fill: '#FCEBEB', stroke: '#E24B4A' }, // red
+  ];
+  const key = session.name || session.id || '';
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  const { fill, stroke } = PALETTE[hash % PALETTE.length];
+
+  // Status badge
+  const badgeColor = status === 'open' ? '#378ADD' : status === 'done' ? '#639922' : '#E24B4A';
+  const badge = status === 'open'
+    ? `<circle cx="18" cy="18" r="5" fill="${badgeColor}"/><circle cx="18" cy="18" r="2.5" fill="white"/>`
+    : status === 'done'
+    ? `<circle cx="18" cy="18" r="5" fill="${badgeColor}"/><path d="M15.5 18l2 2 3-3" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`
+    : `<circle cx="18" cy="18" r="5" fill="${badgeColor}"/><path d="M15.5 15.5h5v2.5h-5zM16 18v2.5h4V18" stroke="white" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+  const s = size;
+  const scale = s / 24;
+  return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" style="display:block;flex-shrink:0">
+    <rect x="4" y="2" width="13" height="17" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
+    <line x1="7" y1="7" x2="14" y2="7" stroke="${stroke}" stroke-width="1.2" stroke-linecap="round"/>
+    <line x1="7" y1="10" x2="14" y2="10" stroke="${stroke}" stroke-width="1.2" stroke-linecap="round"/>
+    <line x1="7" y1="13" x2="11" y2="13" stroke="${stroke}" stroke-width="1.2" stroke-linecap="round"/>
+    ${badge}
+  </svg>`;
+}
+
 function reportOrigin(session) {
   const h = session.history || [];
   // Scan in reverse, find the most recent received event (with a peer)
@@ -2739,7 +2777,7 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
   row.className = 'session-row' + (selectedId === s.id ? ' selected' : '');
   const origin = reportOrigin(s);
   row.innerHTML = `
-    <div class="session-row-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
+    <div class="session-row-origin">${taskStatusIcon(s, 36)}</div>
     <div class="info">
       <div class="name-line">
         <span class="name"></span>
@@ -4562,6 +4600,11 @@ function refreshMyDeviceMembers() {
   const section = $('mydev-group-members-section');
   if (!section || !GroupStore.exists()) return;
   const members = GroupStore.getMembers();
+
+  // Update header count
+  const head = section.querySelector('.mydev-section-head');
+  if (head) head.textContent = `Group members (${members.length})`;
+
   const rows = members.map(p => {
     const cachedInfo = TrysteroRoomManager._peerInfo.get(p.deviceId);
     const emoji    = (p.deviceId === DEVICE_ID ? identity?.emoji : (cachedInfo?.emoji || p.emoji)) || '?';
@@ -4589,9 +4632,12 @@ function refreshMyDeviceMembers() {
         padding:4px 8px;font-size:11px;color:var(--dim);cursor:pointer;flex-shrink:0">Remove</button>` : ''}
     </div>`;
   }).join('');
-  section.innerHTML = `<div class="mydev-section-head">Group members (${members.length})</div>${rows}`;
 
-  // Re-wire remove buttons after innerHTML update
+  // Only update the rows div, not the whole section
+  const rowsEl = $('mydev-group-members-rows') || section;
+  rowsEl.innerHTML = rows;
+
+  // Re-wire remove buttons
   section.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (confirm('Remove this device from the group? They will need to scan again to rejoin.')) {
@@ -6866,7 +6912,7 @@ function showItemsModal(session) {
   backdrop.innerHTML = `
     <div class="modal items-modal">
       <div class="modal-head items-modal-head">
-        <div class="items-modal-origin">${renderDeviceSVG(origin.emoji, { size: 36, color: origin.color })}</div>
+        <div class="items-modal-origin">${taskStatusIcon(session, 36)}</div>
         <div class="items-modal-title">
           <h3>${escapeHTML(session.name)}</h3>
           <div class="items-modal-subtitle">
@@ -7897,7 +7943,7 @@ async function showMyDevicePanel() {
           }).join('');
           return `<div class="mydev-section" id="mydev-group-members-section">
             <div class="mydev-section-head">Group members (${members.length})</div>
-            ${rows}
+            <div id="mydev-group-members-rows">${rows}</div>
           </div>`;
         })()}
 
