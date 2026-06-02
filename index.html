@@ -3479,11 +3479,11 @@ const GroupReconnectManager = {
     renderGroupStatusBar('connecting');
     try {
       await TrysteroRoomManager.reinit();
-      // Give Nostr relays 8s to connect and find peers before declaring waiting
+      // Give Nostr relays 5s to connect and find peers before declaring waiting
       setTimeout(() => {
         if (!TrysteroRoomManager.isConnected()) this._scheduleRetry();
         else renderGroupStatusBar();
-      }, 8000);
+      }, 5000);
     } catch (e) {
       this._scheduleRetry();
     }
@@ -3492,8 +3492,8 @@ const GroupReconnectManager = {
   _scheduleRetry() {
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) return;
-    // Exponential backoff: 10s, 20s, 40s, 60s max
-    const delay = Math.min(10000 * Math.pow(2, this._retryCount), 60000);
+    // Exponential backoff: 3s, 6s, 12s, 30s max
+    const delay = Math.min(3000 * Math.pow(2, this._retryCount), 30000);
     this._retryDelay = delay;
     this._retryCount++;
     renderGroupStatusBar('waiting');
@@ -3549,8 +3549,10 @@ function renderGroupStatusBar(state) {
       break;
     case 'waiting': {
       const secs = Math.round(GroupReconnectManager._retryDelay / 1000);
-      textEl.textContent = navigator.onLine ? `Reconnecting in ${secs}s…` : 'No network';
-      if (dot) { dot.style.background = '#d4a017'; dot.style.animation = ''; }
+      textEl.textContent = navigator.onLine
+        ? (secs <= 1 ? 'Connecting…' : `Reconnecting in ${secs}s…`)
+        : 'No network';
+      if (dot) { dot.style.background = '#d4a017'; dot.style.animation = secs <= 1 ? 'pulse-dot 1.2s ease-in-out infinite' : ''; }
       retryEl.classList.remove('hidden');
       break;
     }
@@ -3649,6 +3651,8 @@ const SourceSyncManager = {
     GroupStore.setSourceHash(DEVICE_ID, hash);
     renderSourceSection();
     log(`Source: received and saved "${filename}" (${rows.length} rows) from peer.`, 'ok');
+    // Tell all peers we now have this version too
+    SourceSyncManager.broadcastInfo();
   },
 };
 
@@ -4592,7 +4596,7 @@ function renderSourceSection() {
                 return `<span style="color:${colors[v]};font-weight:700;font-size:12px">${c}</span>`;
               }).join('')}
             </div>
-            ${memberCount > 1 ? `<div class="grail-members" style="display:flex;align-items:center;gap:6px">${sameHashCount} of ${memberCount} members have this version <button onclick="renderSourceSection()" style="background:none;border:none;padding:0;cursor:pointer;color:var(--accent);font-size:11px">↺</button></div>` : ''}
+            ${memberCount > 1 ? `<div class="grail-members" style="display:flex;align-items:center;gap:6px">${sameHashCount} of ${memberCount} members have this version <button onclick="event.stopPropagation();renderSourceSection()" style="background:none;border:1px solid var(--accent);border-radius:4px;padding:2px 8px;cursor:pointer;color:var(--accent);font-size:13px;font-weight:700">↺</button></div>` : ''}
           </div>
           <input type="file" id="source-file-input" accept=".xlsx" style="display:none">
         </div>
@@ -5705,6 +5709,42 @@ function getTransferForDemoFeatures() {
   }
   if (activeTransfer && activeTransfer._remotePeerId) return activeTransfer;
   return null;
+}
+
+// ── Wake lock — keeps tab alive for P2P ──────────────────────────────────────
+let _wakeLock = null;
+
+async function initWakeLock() {
+  // Keep-alive: prevents browser from suspending the tab
+  setInterval(() => {
+    // Tiny no-op that keeps the JS event loop active
+    if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
+      // Also nudge reconnect if needed
+      GroupReconnectManager.forceRetry && !TrysteroRoomManager.isConnected();
+    }
+  }, 30000);
+
+  if (!('wakeLock' in navigator)) {
+    if (DEV_MODE) log('Wake lock: not supported by this browser.', 'info');
+    return;
+  }
+  async function acquire() {
+    try {
+      _wakeLock = await navigator.wakeLock.request('screen');
+      if (DEV_MODE) log('Wake lock: active.', 'ok');
+      _wakeLock.addEventListener('release', () => {
+        if (DEV_MODE) log('Wake lock: released — reacquiring…', 'info');
+        _wakeLock = null;
+      });
+    } catch (e) {
+      if (DEV_MODE) log(`Wake lock: failed — ${e.message}`, 'err');
+    }
+  }
+  await acquire();
+  // Reacquire after tab becomes visible again
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !_wakeLock) acquire();
+  });
 }
 
 function setupNotePanels() {
@@ -7608,8 +7648,14 @@ async function showMyDevicePanel() {
       <div class="mydev-card">
         <div class="mydev-card-tile"><img src="icon-animated.svg" alt="" aria-hidden="true"></div>
         <div class="mydev-card-text">
-          <div class="mydev-card-label">Stay safer with the app</div>
-          <div class="mydev-card-explain">Installing FieldSync protects your reports from automatic cleanup when your device runs low on space.</div>
+          <div class="mydev-card-label">Stay connected with the app</div>
+          <div class="mydev-card-explain">Installing FieldSync as an app gives you three advantages over a browser tab:
+            <ul style="margin:6px 0 0 0;padding-left:16px;font-size:12px;line-height:1.7">
+              <li>Chrome won't suspend the app — P2P stays connected longer</li>
+              <li>Your data is protected from automatic browser cleanup</li>
+              <li>Acts as an anchor peer for your group when left open (ideal for workstations) — keeping others connected</li>
+            </ul>
+          </div>
         </div>
       </div>
       ${isAlreadyInstalled
@@ -8437,6 +8483,9 @@ window.addEventListener('load', async () => {
       refreshMyDeviceMembers();
   renderHomePairSection();
   cleanupArchivedSessions().catch(() => {});
+  // Wake lock — keeps the screen/tab alive so P2P stays connected.
+  // Active by default, invisible in production, shown in dev mode.
+  initWakeLock();
   // Wire the live-note panel inputs once (event listeners survive screen
   // changes). The panels themselves are toggled visible/hidden as the
   // user moves between screens.

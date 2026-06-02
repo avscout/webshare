@@ -1,7 +1,7 @@
 {
   "name": "FieldSync",
   "short_name": "FieldSync",
-  "description": "Collaborate on field reports, directly and privately. A TU Delft prototype.",
+  "description": "Field inspection task management with P2P sync. A TU Delft prototype.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
