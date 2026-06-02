@@ -41,7 +41,6 @@
   const NOSTR_RELAY_URLS = [
     'wss://nos.lol',
     'wss://relay.snort.social',
-    'wss://relay.nostr.band',
     'wss://relay.primal.net',
     'wss://nostr.mom',
   ];
@@ -299,12 +298,32 @@
 
       this._room = joinRoom(config, roomCode);
 
-      // Log relay status after 3s with a clear summary.
-      // Shows which relays are up/down and warns loudly if none connect.
+      // Log relay status after 3s — only in dev mode
       setTimeout(() => {
         if (!this._room) return;
+        if (!this._devMode) return;
         try {
-          if (typeof this._room.getRelaySockets !== 'function') return;
+          if (typeof this._room.getRelaySockets !== 'function') {
+            // Fallback: test each relay URL directly with a WebSocket
+            const self = this;
+            NOSTR_RELAY_URLS.forEach(url => {
+              const ws = new WebSocket(url);
+              const timer = setTimeout(() => {
+                ws.close();
+                console.warn(`[FieldSync relay] ${url} — timeout`);
+              }, 5000);
+              ws.onopen = () => {
+                clearTimeout(timer);
+                console.log(`[FieldSync relay] ${url} — connected ✓`);
+                ws.close();
+              };
+              ws.onerror = () => {
+                clearTimeout(timer);
+                console.warn(`[FieldSync relay] ${url} — failed ✗`);
+              };
+            });
+            return;
+          }
           const sockets = this._room.getRelaySockets();
           let connected = 0, total = 0;
           sockets.forEach((ws, url) => {

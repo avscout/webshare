@@ -3375,8 +3375,7 @@ const TrysteroRoomManager = {
       peerInfo    : buildLocalPeerInfo(),
       persistent  : true,
       password,
-      onPeerAccept: (deviceId, info) => {
-        if (GroupStore.isKnown(deviceId)) {
+      onPeerAccept: (deviceId, info) => {        if (GroupStore.isKnown(deviceId)) {
           GroupStore.touch(deviceId);
           return true;
         }
@@ -3512,6 +3511,7 @@ const TrysteroRoomManager = {
       }
     };
 
+    t._devMode = DEV_MODE;
     await t.joinPersistentRoom(roomCode);
     this._room = t;
   },
@@ -5818,12 +5818,16 @@ function getTransferForDemoFeatures() {
 let _wakeLock = null;
 
 async function initWakeLock() {
-  // Keep-alive: prevents browser from suspending the tab
+  // Keep-alive: prevents browser from suspending the tab + keeps P2P warm
   setInterval(() => {
-    // Tiny no-op that keeps the JS event loop active
-    if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
-      // Also nudge reconnect if needed
-      GroupReconnectManager.forceRetry && !TrysteroRoomManager.isConnected();
+    if (!GroupStore.exists()) return;
+    if (TrysteroRoomManager.isConnected()) {
+      // Refresh peer-info to keep WebRTC data channels warm
+      const t = TrysteroRoomManager._room;
+      if (t && t.peerInfo) {
+        t.peerInfo = buildLocalPeerInfo();
+        try { t._sendPeerInfoAction && t._sendPeerInfoAction({ info: t.peerInfo }); } catch {}
+      }
     }
   }, 30000);
 
