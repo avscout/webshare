@@ -345,9 +345,9 @@
       const [sendSyncFull,    onSyncFull]    = _makeAction('sync-full');
       const [sendSyncDelta,   onSyncDelta]   = _makeAction('sync-delta');
       const [sendSyncRequest, onSyncRequest] = _makeAction('sync-request');
-      const [sendSourceInfo,  onSourceInfo]  = _makeAction('source-info');
-      const [sendSourceReq,   onSourceReq]   = _makeAction('source-request');
-      const [sendSourceData,  onSourceData]  = _makeAction('source-data');
+      const [sendSourceInfo,  onSourceInfo]  = _makeAction('src-info');
+      const [sendSourceReq,   onSourceReq]   = _makeAction('src-req');
+      const [sendSourceData,  onSourceData]  = _makeAction('src-data');
 
       this._sendPayloadAction     = sendPayload;
       this._sendAckAction         = sendAck;
