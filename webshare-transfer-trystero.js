@@ -471,9 +471,30 @@
       this._sendSourceDataAction  = (data, targetId) => sendSourceData(data, targetId);
       this._sendMbrSyncAction     = (data) => sendMbrSync(data);
 
-      // Peer lifecycle
-      this._room.onPeerJoin(id  => this._onPeerJoin(id));
-      this._room.onPeerLeave(id => this._onPeerLeave(id));
+      // Peer lifecycle — the room exposes onPeerJoin/onPeerLeave as a callable
+      // function in classic builds (core 0.23) but as a settable property in
+      // newer builds (core 0.25). Support both shapes.
+      const _wireRoomCallback = (name, handler) => {
+        const current = this._room[name];
+        if (typeof current === 'function') {
+          // Classic: call it with the handler. (A bound listener-registrar.)
+          // Heuristic: registrars take the handler as an argument; property
+          // getters return undefined/non-function. We already checked it's a
+          // function, so call it.
+          try {
+            this._room[name](handler);
+            return;
+          } catch (e) {
+            // Fall through to assignment if calling fails.
+          }
+        }
+        // New: assign as a property (setter).
+        try { this._room[name] = handler; } catch (e) {
+          this._log('err', `Could not wire ${name}: ` + (e.message || e));
+        }
+      };
+      _wireRoomCallback('onPeerJoin',  id => this._onPeerJoin(id));
+      _wireRoomCallback('onPeerLeave', id => this._onPeerLeave(id));
 
       // Incoming peer-info — gate on onPeerAccept before accepting.
       onPeerInfo(({ info, token } = {}, peerId) => {
