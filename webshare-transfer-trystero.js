@@ -498,7 +498,12 @@
 
       // Incoming peer-info — gate on onPeerAccept before accepting.
       onPeerInfo(({ info, token } = {}, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
+        // A peer may have been rejected earlier (e.g. before our group
+        // existed, or before an mbr-sync taught us they're legitimate).
+        // Don't treat rejection as permanent: re-run onPeerAccept, which now
+        // accepts known members and any peer in an existing group. Only stay
+        // rejected if onPeerAccept still says no.
+        const wasRejected = this._rejectedPeers.has(peerId);
 
         const deviceId = info && info.deviceId;
 
@@ -515,6 +520,15 @@
             this._log('info', `Unknown device rejected (QR not visible).`);
             return;
           }
+          // Accepted now — clear any stale rejection so the rest of the
+          // pipeline (sync, source, mbr) stops ignoring this peer.
+          if (wasRejected) {
+            this._rejectedPeers.delete(peerId);
+            this._log('ok', `Previously-rejected peer now accepted (${peerId.slice(0, 8)}…)`);
+          }
+        } else if (wasRejected) {
+          // No acceptance callback but previously rejected — keep ignoring.
+          return;
         }
 
         // Peer accepted — emit connected / reconnected

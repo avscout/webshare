@@ -2355,7 +2355,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '17';
+  const LOCAL_VERSION = '18';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3489,9 +3489,16 @@ const TrysteroRoomManager = {
           GroupStore.touch(deviceId);
           return true;
         }
-        if (qrVisible) {
-          // A peer scanned our QR and connected — NOW commit the group to
-          // storage (it was pending until someone actually joined).
+        // A peer only reaches this point after passing the password-encrypted
+        // signaling handshake — so it already holds the group password (via the
+        // QR). That password IS the access proof. We accept the new peer when
+        // either:
+        //   • our invite QR is currently visible (first pairing / explicit invite), OR
+        //   • the group already exists (the peer proved password possession, and
+        //     a third device joining an established group is legitimate — this
+        //     also fixes the case where only the inviting device showed the QR
+        //     and other members would otherwise reject the newcomer).
+        if (qrVisible || GroupStore.exists()) {
           TrysteroRoomManager.commitPendingGroup();
           const newMember = {
             deviceId,
@@ -3501,7 +3508,8 @@ const TrysteroRoomManager = {
             invitedBy: info && info.invitedBy,
           };
           GroupStore.addMember(newMember);
-          // Broadcast full member list to all existing peers so they know the new member
+          // Broadcast full member list to all existing peers so everyone
+          // converges on the same membership.
           if (t) t.sendMbrSync({
             members: GroupStore.getMembers(),
             removed: GroupStore.getRemovedIds(),
