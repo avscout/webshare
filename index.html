@@ -2194,9 +2194,12 @@
       </div>
       <div class="cam-helper" id="scan-helper">Camera will start automatically.</div>
       <div class="or-div hidden dev-only" id="scan-or">or</div>
-      <label class="field hidden dev-only" id="scan-manual-label">
-        <span>Enter peer ID manually</span>
-        <input type="text" id="scan-manual-input" placeholder="e.g. idb-tomato-rabbit-42" autocomplete="off" autocapitalize="off" autocorrect="off">
+      <label class="field hidden" id="scan-manual-label">
+        <span>Enter code manually</span>
+        <div style="display:flex; gap:8px; align-items:stretch;">
+          <input type="text" id="scan-manual-input" placeholder="e.g. ruby-maple-42" autocomplete="off" autocapitalize="off" autocorrect="off" style="flex:1;">
+          <button type="button" id="scan-manual-btn" class="btn-primary" style="white-space:nowrap; padding:0 16px;">Join</button>
+        </div>
       </label>
     </div>
   </section>
@@ -2352,7 +2355,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '14';
+  const LOCAL_VERSION = '17';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -5191,12 +5194,10 @@ async function setupScanQRScreen() {
     $('scan-manual-label').querySelector('span').textContent = 'Enter peer ID manually';
     $('scan-manual-input').placeholder = 'e.g. idb-tomato-rabbit-42';
   } else if (isTrysteroSender) {
-    $('scan-qr-title').textContent = 'Scan the room code';
-    $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s QR, or type the room code below.';
-    $('scan-or').classList.remove('hidden');
-    $('scan-manual-label').classList.remove('hidden');
-    $('scan-manual-label').querySelector('span').textContent = 'Enter room code manually';
-    $('scan-manual-input').placeholder = 'e.g. ruby-maple-42';
+    $('scan-qr-title').textContent = 'Scan the invite QR';
+    $('scan-qr-subtitle').textContent = 'Point your camera at the invite QR. The code alone isn\'t enough — the QR carries the password too.';
+    $('scan-or').classList.add('hidden');
+    $('scan-manual-label').classList.add('hidden');
   } else if (isRawSender) {
     $('scan-qr-title').textContent = 'Scan the offer QR';
     $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s animated QR.';
@@ -5250,24 +5251,26 @@ function buildJoinURL(peerId, backend, opts = {}) {
   const base = window.location.origin + window.location.pathname;
   let url = `${base}?join=${encodeURIComponent(peerId)}`;
   if (backend && backend !== 'peerjs') url += `&backend=${encodeURIComponent(backend)}`;
+  if (opts.strategy)  url += `&strategy=${encodeURIComponent(opts.strategy)}`;
   if (opts.pw)        url += `&pw=${encodeURIComponent(opts.pw)}`;
   if (opts.invitedBy) url += `&invitedBy=${encodeURIComponent(opts.invitedBy)}`;
   return url;
 }
 
 // Extract join params from scanned text (URL or bare ID).
-// Returns { peerId, backend, pw, invitedBy }
+// Returns { peerId, backend, strategy, pw, invitedBy }
 function extractJoinParams(text) {
-  const result = { peerId: text, backend: null, pw: null, invitedBy: null };
+  const result = { peerId: text, backend: null, strategy: null, pw: null, invitedBy: null };
   if (!text) return result;
   try {
     const url = new URL(text);
     const joinParam = url.searchParams.get('join');
     if (joinParam) {
       result.peerId    = joinParam;
-      result.backend   = url.searchParams.get('backend') || null;
-      result.pw        = url.searchParams.get('pw')        || null;
-      result.invitedBy = url.searchParams.get('invitedBy') || null;
+      result.backend   = url.searchParams.get('backend')   || null;
+      result.strategy  = url.searchParams.get('strategy')  || null;
+      result.pw        = url.searchParams.get('pw')         || null;
+      result.invitedBy = url.searchParams.get('invitedBy')  || null;
     }
   } catch { /* not a URL — use raw text as peerId */ }
   return result;
@@ -5308,7 +5311,14 @@ async function setupTrysteroInviteQR(qrContainer, infoContainer) {
     TrysteroRoomManager._pendingGroup = { roomCode, password };
   }
 
-  const inviteUrl = buildJoinURL(roomCode, 'trystero', { pw: password, invitedBy: DEVICE_ID });
+  // The transport is always "trystero"; the signaling strategy (mqtt is the
+  // production default, nostr is a dev fallback) travels as a separate param.
+  const inviteStrategy = currentBackend === 'mqtt' ? 'mqtt' : 'nostr';
+  const inviteUrl = buildJoinURL(roomCode, 'trystero', {
+    strategy : inviteStrategy,
+    pw       : password,
+    invitedBy: DEVICE_ID,
+  });
 
   // Render into provided containers (overlay) or default screen elements
   const frameEl = qrContainer || $('show-qr-frame');
@@ -5333,7 +5343,7 @@ async function setupTrysteroInviteQR(qrContainer, infoContainer) {
 async function onScanResult(data) {
   log(`Scanned: ${data.slice(0, 40)}${data.length > 40 ? '…' : ''}`, 'info');
   const isPeerJSSender   = currentMode === 'send' && currentBackend === 'peerjs';
-  const isTrysteroSender = currentMode === 'send' && currentBackend === 'trystero';
+  const isTrysteroSender = currentMode === 'send' && (currentBackend === 'trystero' || currentBackend === 'mqtt');
   const isRawSender      = currentMode === 'send' && currentBackend === 'raw';
   const isRawReceiver    = currentMode === 'receive' && currentBackend === 'raw';
 
@@ -5362,10 +5372,30 @@ async function onScanResult(data) {
     const invitedBy = params.invitedBy;
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
 
+    // Adopt the inviter's signaling strategy so both sides use the same
+    // relay network. backend=trystero with strategy=mqtt → our 'mqtt' id;
+    // strategy=nostr (or legacy backend=mqtt) handled too.
+    if (params.strategy === 'mqtt' || params.backend === 'mqtt') {
+      currentBackend = 'mqtt';
+    } else if (params.strategy === 'nostr') {
+      currentBackend = 'trystero';
+    }
+    onBackendOrModeChanged();
+
     // Already in this group — nothing to do
     if (GroupStore.exists() && GroupStore.getRoomCode() === roomCode) {
       log('Already in this group room — skipping rejoin.', 'info');
       restartToStart();
+      return;
+    }
+
+    // A bare room code (no password) can't establish an encrypted connection.
+    // The QR encodes the full invite link including the password; manual entry
+    // of just the code is not enough.
+    if (!GroupStore.exists() && roomCode && !password) {
+      log('That looks like only a room code. Scan the full invite QR (it includes the password) to join.', 'err');
+      setConnectionBarStatus && renderGroupStatusBar('offline');
+      $('scan-helper').textContent = 'A room code alone isn\'t enough — scan the full invite QR, which includes the password.';
       return;
     }
 
@@ -5398,13 +5428,18 @@ async function onScanResult(data) {
   }
 }
 
-$('scan-manual-input').addEventListener('keydown', async (e) => {
-  if (e.key !== 'Enter') return;
+async function _submitManualRoomCode() {
   const id = $('scan-manual-input').value.trim();
   if (!id) return;
   if (activeScanner) { activeScanner.stop(); activeScanner = null; }
   onScanResult(id);
+}
+$('scan-manual-input').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  _submitManualRoomCode();
 });
+$('scan-manual-btn').addEventListener('click', _submitManualRoomCode);
 
 // =====================================================================
 // Screen: TRANSFER (progress + status)
@@ -8879,11 +8914,20 @@ async function autoJoinIfPending() {
     log('Cannot auto-join: library not loaded.', 'err');
     return;
   }
-  const { peerId, backend, pw, invitedBy } = PENDING_JOIN_PARAMS;
+  const { peerId, backend, strategy, pw, invitedBy } = PENDING_JOIN_PARAMS;
   log(`Auto-joining peer "${peerId}"…`, 'info');
 
   currentMode    = 'send';
-  currentBackend = (backend === 'trystero' || backend === 'mqtt' || backend === 'raw') ? backend : 'peerjs';
+  // The QR encodes backend=trystero with a strategy param. Map the strategy
+  // to our internal backend id (mqtt is its own id; nostr maps to 'trystero').
+  // Legacy QRs that put the strategy in the backend field still work.
+  if (backend === 'trystero') {
+    currentBackend = (strategy === 'mqtt') ? 'mqtt' : 'trystero';
+  } else if (backend === 'mqtt' || backend === 'raw') {
+    currentBackend = backend;
+  } else {
+    currentBackend = 'peerjs';
+  }
   onBackendOrModeChanged();
 
   if (!hasIdentity()) { log('Cannot auto-join: no identity.', 'err'); return; }
