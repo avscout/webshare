@@ -25,9 +25,14 @@
   const TRYSTERO_APP_ID = 'b9a1c5f51a800c69';
   // esm.run is jsDelivr's ESM CDN — the officially recommended way to load
   // Trystero in a browser without a bundler.
+  //
+  // Trystero split each signaling strategy into its own package. The legacy
+  // `trystero/mqtt` subpath now throws a deprecation error, so MQTT must be
+  // loaded from the dedicated @trystero-p2p/mqtt package. Nostr still works
+  // via the main package's /nostr subpath.
   const TRYSTERO_VERSION = '0.23.0';
   const TRYSTERO_CDN_NOSTR = `https://esm.run/trystero@${TRYSTERO_VERSION}/nostr`;
-  const TRYSTERO_CDN_MQTT  = `https://esm.run/trystero@${TRYSTERO_VERSION}/mqtt`;
+  const TRYSTERO_CDN_MQTT  = `https://esm.run/@trystero-p2p/mqtt`;
 
   // Pre-fetch the Trystero modules. Each strategy is a separate module;
   // we cache them by strategy name so switching backends is instant.
@@ -62,8 +67,10 @@
   ];
 
   // Public MQTT brokers with WebSocket support — used by the MQTT strategy.
+  // These mirror the @trystero-p2p/mqtt package's own default broker list,
+  // including the correct /mqtt paths each broker expects.
   const MQTT_BROKER_URLS = [
-    'wss://test.mosquitto.org:8081',
+    'wss://test.mosquitto.org:8081/mqtt',
     'wss://broker.emqx.io:8084/mqtt',
     'wss://broker.hivemq.com:8884/mqtt',
   ];
