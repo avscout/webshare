@@ -2050,6 +2050,7 @@
           <button class="toggle-btn active" data-backend="peerjs">PeerJS<small>cross-network</small></button>
           <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
           <button class="toggle-btn" data-backend="trystero">Trystero / Nostr<small>reconnect-proof</small></button>
+          <button class="toggle-btn dev-only" data-backend="gun">Gun (experimental)<small>gossip sync</small></button>
         </div>
 
         <div class="net-banner hidden" id="net-banner">
@@ -2366,6 +2367,7 @@
     { local: 'webshare-transfer-peerjs.js' },
     { local: 'webshare-transfer-raw.js' },
     { local: 'webshare-transfer-trystero.js' },
+    { local: 'webshare-transfer-gun.js' },
   ];
   function withVersion(url) { return url + (url.includes('?') ? '&' : '?') + 'v=' + LOCAL_VERSION; }
   function loadOne(lib) {
@@ -3771,7 +3773,7 @@ const SourceSyncManager = {
   // Called after connecting to a new peer — broadcast our source info
   broadcastInfo(targetPeerId) {
     if (!_sourceData) return;
-    const t = TrysteroRoomManager._room;
+    const t = getActiveTransport();
     if (!t) return;
     t.sendSourceInfo({
       hash      : _sourceData.hash,
@@ -3786,13 +3788,15 @@ const SourceSyncManager = {
     if (!hash) return;
     // Update this peer's known hash in GroupStore by matching peerId → deviceId
     let deviceId = null;
-    for (const [did, info] of TrysteroRoomManager._peerInfo) {
-      if (info && info._peerId === peerId) { deviceId = did; break; }
+    const t = getActiveTransport();
+    if (t && t._peerInfo) {
+      for (const [did, info] of t._peerInfo) {
+        if (info && info._peerId === peerId) { deviceId = did; break; }
+      }
     }
     if (deviceId) {
       GroupStore.setSourceHash(deviceId, hash);
       // Tell all other peers about this peer's hash so everyone stays in sync
-      const t = TrysteroRoomManager._room;
       if (t) {
         const member = GroupStore.getMembers().find(m => m.deviceId === deviceId);
         if (member) t.sendMbrSync({ members: [member], removed: [] });
@@ -3804,7 +3808,6 @@ const SourceSyncManager = {
     // Request if we have no source, or peer has a newer version
     if (!own || uploadedAt > own.uploadedAt) {
       log(`Source: peer has ${filename || 'a source file'} (${rowCount} rows) — requesting…`, 'info');
-      const t = TrysteroRoomManager._room;
       if (t) t.sendSourceRequest(peerId);
     } else {
       log(`Source: already have same or newer version — skipping.`, 'info');
@@ -3814,7 +3817,7 @@ const SourceSyncManager = {
   // Peer requested our source data — send it
   async sendDataTo(peerId) {
     if (!_sourceData) return;
-    const t = TrysteroRoomManager._room;
+    const t = getActiveTransport();
     if (!t) return;
     log(`Source: sending source data to peer (${_sourceData.rows.length} rows)…`, 'info');
     t.sendSourceData({
@@ -3840,9 +3843,12 @@ const SourceSyncManager = {
       return;
     }
     // Find sender's deviceId and update their hash too
+    const t = getActiveTransport();
     let deviceId = null;
-    for (const [did, info] of TrysteroRoomManager._peerInfo) {
-      if (info && info._peerId === peerId) { deviceId = did; break; }
+    if (t && t._peerInfo) {
+      for (const [did, info] of t._peerInfo) {
+        if (info && info._peerId === peerId) { deviceId = did; break; }
+      }
     }
     if (deviceId) GroupStore.setSourceHash(deviceId, hash);
 
@@ -3856,6 +3862,36 @@ const SourceSyncManager = {
     SourceSyncManager.broadcastInfo();
   },
 };
+
+// ── Transport abstraction ─────────────────────────────────────────────────────
+// Single point of access for the active transport — makes SyncManager and
+// SourceSyncManager backend-agnostic. When Gun or another backend is added,
+// register it here via setActiveTransport().
+
+let _activeTransport = null;
+
+function getActiveTransport() {
+  return _activeTransport || TrysteroRoomManager._room || null;
+}
+
+function setActiveTransport(t) {
+  _activeTransport = t;
+}
+
+// Returns the connected members from whichever room manager is active.
+function getActiveConnectedMembers() {
+  if (currentBackend === 'gun' && typeof GunRoomManager !== 'undefined' && GunRoomManager._transport) {
+    return GunRoomManager.getConnectedMembers();
+  }
+  return TrysteroRoomManager.getConnectedMembers();
+}
+
+// Returns cached peer-info for a deviceId from the active transport.
+function getActivePeerInfo(deviceId) {
+  const t = getActiveTransport();
+  if (t && t._peerInfo && t._peerInfo.get) return t._peerInfo.get(deviceId);
+  return null;
+}
 
 const SyncManager = {
 
@@ -3917,7 +3953,7 @@ const SyncManager = {
 
   // Send all local sessions (including tombstones) to a specific peer
   async sendFullTo(targetPeerId) {
-    const t = TrysteroRoomManager._room;
+    const t = getActiveTransport();
     if (!t) return;
     const all = await listSessionsRaw();
     t.sendSyncFull(all, targetPeerId);
@@ -3926,8 +3962,8 @@ const SyncManager = {
 
   // Broadcast a single session to all connected peers
   async broadcastDelta(session) {
-    const t = TrysteroRoomManager._room;
-    if (!t || t._connectedPeers.size === 0) return;
+    const t = getActiveTransport();
+    if (!t || t._connectedPeers?.size === 0) return;
     t.sendSyncDelta(session);
   },
 };
@@ -4344,6 +4380,8 @@ const FLOWS = {
   'send-peerjs':       ['start', 'scan-qr', 'pick', 'transfer'],
   'send-raw':          ['start', 'scan-qr', 'show-qr', 'pick', 'transfer'],
   'send-trystero':     ['start', 'pick', 'transfer'],
+  'receive-gun':       ['start', 'show-qr', 'transfer'],
+  'send-gun':          ['start', 'pick', 'transfer'],
 };
 
 let currentBackend = 'trystero';
@@ -4596,6 +4634,20 @@ document.querySelectorAll('#mode-group .direction-btn').forEach(b => {
 function onBackendOrModeChanged() {
   $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
   if (currentBackend === 'raw') updateNetworkIdUI();
+
+  // Start Gun transport when switching to gun backend
+  if (currentBackend === 'gun' && GroupStore.exists() && typeof GunRoomManager !== 'undefined') {
+    if (!GunRoomManager._transport) {
+      const rc = GroupStore.getRoomCode();
+      const pw = GroupStore.getPassword();
+      GunRoomManager.init(rc, pw, DEVICE_ID, buildLocalPeerInfo())
+        .catch(e => log('Gun init error: ' + e.message, 'err'));
+    }
+  } else if (currentBackend !== 'gun' && typeof GunRoomManager !== 'undefined' && GunRoomManager._transport) {
+    // Stop Gun when switching away
+    GunRoomManager.stop();
+  }
+
   updateNavBar();
 }
 
@@ -4651,13 +4703,13 @@ function refreshMyDeviceMembers() {
   if (head) head.textContent = `Group members (${members.length})`;
 
   const rows = members.map(p => {
-    const cachedInfo = TrysteroRoomManager._peerInfo.get(p.deviceId);
+    const cachedInfo = getActivePeerInfo(p.deviceId);
     const emoji    = (p.deviceId === DEVICE_ID ? identity?.emoji : (cachedInfo?.emoji || p.emoji)) || '?';
     const color    = (p.deviceId === DEVICE_ID ? identity?.color : (cachedInfo?.color || p.color)) || null;
     const nickname = (p.deviceId === DEVICE_ID ? identity?.nickname : (cachedInfo?.nickname || p.nickname)) || '?';
     const role     = (p.deviceId === DEVICE_ID ? identity?.role : (cachedInfo?.role || p.role)) || null;
     const isYou    = p.deviceId === DEVICE_ID;
-    const connected = isYou || TrysteroRoomManager.getConnectedMembers().some(m => m.info?.deviceId === p.deviceId);
+    const connected = isYou || getActiveConnectedMembers().some(m => m.info?.deviceId === p.deviceId);
     const ls        = connected ? null : formatLastSeen(p.lastSeenAt);
     const statusColor = connected ? 'var(--ok)' : ls?.urgency === 'warn' ? '#d4a017' : ls?.urgency === 'danger' ? '#c0392b' : 'var(--dim)';
     const statusText  = isYou ? '● Online' : connected ? '● Online' : ls ? ls.text : 'never';
@@ -4717,12 +4769,12 @@ function renderHomeGroupMembers() {
   if (!GroupStore.exists()) { el.innerHTML = ''; return; }
 
   const members   = GroupStore.getMembers();
-  const connected = TrysteroRoomManager.getConnectedMembers();
+  const connected = getActiveConnectedMembers();
 
   el.innerHTML = members.map(m => {
     const isOnline  = m.deviceId === DEVICE_ID ||
       connected.some(c => c.info && c.info.deviceId === m.deviceId);
-    const cached    = TrysteroRoomManager._peerInfo.get(m.deviceId);
+    const cached    = getActivePeerInfo(m.deviceId);
     const emoji     = (m.deviceId === DEVICE_ID ? identity?.emoji : (cached?.emoji || m.emoji)) || '?';
     const color     = (m.deviceId === DEVICE_ID ? identity?.color : (cached?.color || m.color)) || null;
     const nickname  = (m.deviceId === DEVICE_ID ? identity?.nickname : (cached?.nickname || m.nickname)) || '?';
@@ -5066,7 +5118,7 @@ async function setupShowQRScreen() {
     const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'peerjs';
     if (needsInit) showConnectingOverlay('Setting up…');
     await ensureReceiveTransfer();
-  } else if (currentMode === 'receive' && currentBackend === 'trystero') {
+  } else if (currentMode === 'receive' && (currentBackend === 'trystero' || currentBackend === 'gun')) {
     $('show-qr-title').textContent = GroupStore.exists() ? 'Invite to group' : 'Create group';
     $('show-qr-subtitle').textContent = 'Let the other device scan this QR to join.';
     showConnectingOverlay('Setting up…');
@@ -5345,16 +5397,19 @@ function setupTransferScreen() {
   if (currentMode === 'send') {
     $('transfer-title').textContent = 'Sending report';
     setTransferStatus('Sending…');
-    // Trigger the actual send. The connection is already open (we paired
-    // on the scan-qr screen). The library's `send()` can be called
-    // repeatedly on the same channel — that's what enables multi-send
-    // across "Send another" without re-pairing.
     (async () => {
       try {
         if (!selectedSessionId) throw new Error('No report selected to send');
         const session = await getSession(selectedSessionId);
         if (!session) throw new Error('Selected report not found');
-        await activeTransfer.send(session);
+        if (currentBackend === 'gun') {
+          // Gun: broadcast via SyncManager — Gun propagates via gossip
+          await SyncManager.broadcastDelta(session);
+          setTransferStatus('Sent via Gun sync.', 'ok');
+          $('transfer-title').textContent = 'Sent';
+        } else {
+          await activeTransfer.send(session);
+        }
       } catch (err) {
         log('Send failed: ' + err.message, 'err');
         $('transfer-title').textContent = 'Something went wrong';
@@ -5592,12 +5647,17 @@ async function ensureReceiveTransfer() {
   if (activeTransfer) return;
   remotePeerInfo = null;
   const opts = { peerInfo: buildLocalPeerInfo() };
-  if (currentBackend === 'peerjs')     activeTransfer = new PeerJSTransfer(opts);
-  else if (currentBackend === 'raw')   activeTransfer = new RawTransfer(opts);
+  if (currentBackend === 'peerjs')        activeTransfer = new PeerJSTransfer(opts);
+  else if (currentBackend === 'raw')      activeTransfer = new RawTransfer(opts);
   else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer({
     ...opts,
     password: GroupStore.getPassword() || null,
   });
+  else if (currentBackend === 'gun') {
+    // Gun syncs via GunRoomManager — no per-connection transfer object needed
+    activeTransfer = { _uiDirection: 'receive', _uiBackend: 'gun' };
+    return;
+  }
   else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'receive';
   activeTransfer._uiBackend = currentBackend;
@@ -5620,6 +5680,11 @@ async function ensureSendTransfer() {
     ...opts,
     password: GroupStore.getPassword() || null,
   });
+  else if (currentBackend === 'gun') {
+    // Gun syncs via GunRoomManager — no per-connection transfer object needed
+    activeTransfer = { _uiDirection: 'send', _uiBackend: 'gun' };
+    return;
+  }
   else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'send';
   activeTransfer._uiBackend = currentBackend;
@@ -5914,7 +5979,12 @@ function setPeerNoteText(text) {
 }
 
 function updateNotePanelPeerLabel() {
-  const connected = TrysteroRoomManager ? TrysteroRoomManager.getConnectedMembers().length : 0;
+  let connected = 0;
+  if (currentBackend === 'gun' && typeof GunRoomManager !== 'undefined' && GunRoomManager._transport) {
+    connected = GunRoomManager.getConnectedMembers().length;
+  } else if (TrysteroRoomManager) {
+    connected = TrysteroRoomManager.getConnectedMembers().length;
+  }
   const multiple  = connected > 1;
   const name = multiple ? `${connected} peers`
              : (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname
@@ -5958,9 +6028,10 @@ function updateNotePanelVisibility() {
 }
 
 // Returns the right transfer for demo features (note/lamp).
-// Prefers the group room (Trystero) over activeTransfer so it always
-// broadcasts to all connected group members.
 function getTransferForDemoFeatures() {
+  if (currentBackend === 'gun' && GunRoomManager._transport) {
+    return GunRoomManager._transport;
+  }
   if (TrysteroRoomManager._room && TrysteroRoomManager.isConnected()) {
     return TrysteroRoomManager._room;
   }
@@ -6477,8 +6548,8 @@ function wireTransferToReceiveUI(t) {
   t.on('connected', (peerId) => {
     // Receiver connected
     log('Peer connected.', 'ok');
-    if (t._uiBackend === 'trystero') {
-      // Trystero: no transfer screen — request sync from new peer
+    if (t._uiBackend === 'trystero' || t._uiBackend === 'gun') {
+      // Trystero/Gun: no transfer screen — request sync from new peer
       hideConnectingOverlay();
       if (typeof peerId === 'string') {
         t.sendSyncRequest(peerId);
@@ -8768,6 +8839,15 @@ window.addEventListener('load', async () => {
       .then(() => renderGroupStatusBar())
       .catch(e => log('Room init error: ' + e.message, 'err'));
   }
+
+  // Init Gun transport if selected and group exists
+  if (currentBackend === 'gun' && GroupStore.exists() && typeof GunRoomManager !== 'undefined') {
+    const rc = GroupStore.getRoomCode();
+    const pw = GroupStore.getPassword();
+    GunRoomManager.init(rc, pw, DEVICE_ID, buildLocalPeerInfo())
+      .then(() => log('Gun transport started.', 'ok'))
+      .catch(e => log('Gun init error: ' + e.message, 'err'));
+  }
 });
 
 // Pair automatically if the page was opened with ?join={peerId}. Called
@@ -8797,7 +8877,7 @@ async function autoJoinIfPending() {
 
   if (!hasIdentity()) { log('Cannot auto-join: no identity.', 'err'); return; }
 
-  if (currentBackend === 'trystero') {
+  if (currentBackend === 'trystero' || currentBackend === 'gun') {
     // Group join: create group from QR params, then reinit room manager
     if (!GroupStore.exists() && peerId && pw) {
       GroupStore.create(peerId, pw);
@@ -8805,18 +8885,27 @@ async function autoJoinIfPending() {
     if (invitedBy) _pendingInvitedBy = invitedBy;
     showConnectingOverlay('Joining group…');
     try {
-      await ensureSendTransfer();
-      await activeTransfer.connect(peerId);
-      hideConnectingOverlay();
-      // Wait for peer-info before reinit to avoid race condition
-      await new Promise(resolve => {
-        if (remotePeerInfo) return resolve();
-        const timeout = setTimeout(resolve, 3000);
-        const unsub = activeTransfer.on('peer-info', () => {
-          clearTimeout(timeout); unsub(); resolve();
+      if (currentBackend === 'gun') {
+        // Gun: just init the room manager — no explicit connect needed
+        const rc = GroupStore.getRoomCode();
+        const pw2 = GroupStore.getPassword();
+        await GunRoomManager.init(rc, pw2, DEVICE_ID, buildLocalPeerInfo());
+        hideConnectingOverlay();
+      } else {
+        // Trystero: connect via activeTransfer first, then reinit
+        await ensureSendTransfer();
+        await activeTransfer.connect(peerId);
+        hideConnectingOverlay();
+        // Wait for peer-info before reinit to avoid race condition
+        await new Promise(resolve => {
+          if (remotePeerInfo) return resolve();
+          const timeout = setTimeout(resolve, 3000);
+          const unsub = activeTransfer.on('peer-info', () => {
+            clearTimeout(timeout); unsub(); resolve();
+          });
         });
-      });
-      await TrysteroRoomManager.reinit();
+        await TrysteroRoomManager.reinit();
+      }
       restartToStart();
     } catch (err) {
       hideConnectingOverlay();
