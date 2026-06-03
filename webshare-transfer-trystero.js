@@ -31,22 +31,27 @@
 
   // Pre-fetch the Trystero modules. Each strategy is a separate module;
   // we cache them by strategy name so switching backends is instant.
+  // On failure we clear the cache entry so a later attempt can retry,
+  // and resolve to null so callers can detect the failure cleanly.
   const _trysteroModules = {};
   function _prefetchTrystero(strategy = 'nostr') {
     if (!_trysteroModules[strategy]) {
       const url = strategy === 'mqtt' ? TRYSTERO_CDN_MQTT : TRYSTERO_CDN_NOSTR;
-      _trysteroModules[strategy] = import(url).catch(() => {
-        _trysteroModules[strategy] = null;
+      _trysteroModules[strategy] = import(url).catch((e) => {
+        _trysteroModules[strategy] = null;  // allow retry next time
+        return null;                         // resolve to null, not undefined
       });
     }
     return _trysteroModules[strategy];
   }
+  _prefetchTrystero('mqtt');
   _prefetchTrystero('nostr');
 
-  // Relay diagnostics should run at most once per page load — repeated
-  // joins (backend switches, reconnects) must not stack extra test
-  // WebSockets, which would get the app rate-limited by the relays.
-  let _relayDiagnosticsRun = false;
+  // Relay diagnostics should run at most once per strategy per page load —
+  // repeated joins (reconnects) must not stack extra test WebSockets, which
+  // would get the app rate-limited. Switching strategy (MQTT↔Nostr) tests
+  // the new strategy's relays once.
+  const _relayDiagnosticsRun = {};
 
   // Public Nostr relays — all fully open, no signup or payment required.
   const NOSTR_RELAY_URLS = [
@@ -118,7 +123,7 @@
      * @param {string}   [options.password]        - Shared group password for Trystero encryption.
      * @param {Function} [options.onPeerAccept]   - (deviceId, peerInfo) => boolean.
      */
-    constructor({ peerInfo, iceServers, persistent = false, password = null, onPeerAccept = null, strategy = 'nostr' } = {}) {
+    constructor({ peerInfo, iceServers, persistent = false, password = null, onPeerAccept = null, strategy = 'mqtt' } = {}) {
       super({ iceServers, peerInfo });
 
       this._strategy = strategy;  // 'nostr' or 'mqtt'
@@ -302,12 +307,11 @@
     async _joinRoom(roomCode) {
       const isMqtt = this._strategy === 'mqtt';
       this._log('info', isMqtt ? 'Connecting to MQTT brokers…' : 'Connecting to Nostr relays…');
-      let joinRoom;
-      try {
-        ({ joinRoom } = await _prefetchTrystero(this._strategy));
-      } catch (e) {
-        throw new Error('Failed to load Trystero: ' + (e.message || e));
+      const mod = await _prefetchTrystero(this._strategy);
+      if (!mod || typeof mod.joinRoom !== 'function') {
+        throw new Error(`Failed to load Trystero ${this._strategy} module (CDN unreachable?)`);
       }
+      const { joinRoom } = mod;
       this._log('ok', 'Trystero loaded — joining room…');
 
       // Defensive: if a room is somehow already open, leave it before
@@ -329,12 +333,12 @@
       const RELAY_URLS = isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS;
 
       // Log relay status after 3s — only in dev mode, and only once per
-      // page load (repeated joins must not stack diagnostic sockets).
+      // strategy per page load (repeated joins must not stack sockets).
       setTimeout(() => {
         if (!this._room) return;
         if (!this._devMode) return;
-        if (_relayDiagnosticsRun) return;
-        _relayDiagnosticsRun = true;
+        if (_relayDiagnosticsRun[this._strategy]) return;
+        _relayDiagnosticsRun[this._strategy] = true;
         try {
           if (typeof this._room.getRelaySockets !== 'function') {
             // Fallback: test each relay URL directly with a WebSocket

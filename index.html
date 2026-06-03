@@ -2047,10 +2047,10 @@
       <div class="dev-only">
         <label class="field"><span>Backend</span></label>
         <div class="toggle-group" id="backend-group">
-          <button class="toggle-btn active" data-backend="peerjs">PeerJS<small>cross-network</small></button>
-          <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
+          <button class="toggle-btn active" data-backend="mqtt">Trystero / MQTT<small>default · IoT relay</small></button>
           <button class="toggle-btn" data-backend="trystero">Trystero / Nostr<small>reconnect-proof</small></button>
-          <button class="toggle-btn dev-only" data-backend="mqtt">Trystero / MQTT<small>alternative relay</small></button>
+          <button class="toggle-btn" data-backend="peerjs">PeerJS<small>cross-network</small></button>
+          <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
         </div>
 
         <div class="net-banner hidden" id="net-banner">
@@ -3951,7 +3951,17 @@ const SyncManager = {
   async receiveFull(sessions, fromPeerId) {
     if (!Array.isArray(sessions)) return;
     log(`Sync: received ${sessions.length} reports from peer.`, 'info');
-    for (const s of sessions) await this._merge(s);
+    // Count how many are genuinely new/updated so we only flag a real transfer
+    let changed = 0;
+    for (const s of sessions) {
+      const before = await getSession(s.id);
+      await this._merge(s);
+      const after = await getSession(s.id);
+      if (!before || (after && (after.syncedAt || 0) !== (before.syncedAt || 0))) changed++;
+    }
+    if (changed > 0) {
+      showToast(`↓ Synced ${changed} report${changed === 1 ? '' : 's'} from group`);
+    }
     SyncManager._refreshUI();
   },
 
@@ -3977,6 +3987,11 @@ const SyncManager = {
     const all = await listSessionsRaw();
     t.sendSyncFull(all, targetPeerId);
     log(`Sync: sent ${all.length} tasks to peer.`, 'info');
+    // Let the user know we're seeding a freshly-connected peer
+    const shareable = all.filter(s => s.status !== 'archived').length;
+    if (shareable > 0) {
+      showToast(`↑ Sharing ${shareable} report${shareable === 1 ? '' : 's'} with new device`);
+    }
   },
 
   // Broadcast a single session to all connected peers
@@ -4398,12 +4413,12 @@ const FLOWS = {
   //      happens once per pairing.
   'send-peerjs':       ['start', 'scan-qr', 'pick', 'transfer'],
   'send-raw':          ['start', 'scan-qr', 'show-qr', 'pick', 'transfer'],
-  'send-trystero':     ['start', 'scan-qr', 'transfer'],
+  'send-trystero':     ['start', 'scan-qr', 'pick', 'transfer'],
   'receive-mqtt':      ['start', 'show-qr', 'transfer'],
-  'send-mqtt':         ['start', 'scan-qr', 'transfer'],
+  'send-mqtt':         ['start', 'scan-qr', 'pick', 'transfer'],
 };
 
-let currentBackend = 'trystero';
+let currentBackend = 'mqtt';
 let currentMode = 'receive';
 let currentStep = 0;       // index into the active flow
 let activeTransfer = null;
@@ -4828,8 +4843,8 @@ function renderHomePairSection() {
 
 $('home-add-another-btn').addEventListener('click', () => {
   currentMode    = 'receive';
-  currentBackend = 'trystero';
-  const idx = FLOWS['receive-trystero'].indexOf('show-qr');
+  currentBackend = 'mqtt';
+  const idx = FLOWS['receive-mqtt'].indexOf('show-qr');
   goToStep(idx, 'forward');
 });
 
@@ -6190,9 +6205,9 @@ $('resume-session-bar').addEventListener('click', async () => {
   // For Trystero: navigate to pick screen (reports overview + demo features)
   if (GroupStore.exists()) {
     currentMode    = 'send';
-    currentBackend = 'trystero';
+    currentBackend = 'mqtt';
     await refreshPickList();
-    const pickIdx = FLOWS['send-trystero'].indexOf('pick');
+    const pickIdx = FLOWS['send-mqtt'].indexOf('pick');
     if (pickIdx !== -1) goToStep(pickIdx, 'forward');
     return;
   }
