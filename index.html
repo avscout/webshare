@@ -2143,10 +2143,9 @@
       </div>
       <div class="session-list" id="pick-session-list"></div>
 
-      <!-- Live note panel — paired with the peer. Hidden until the channel
-           is open. The .note-input is what THIS user is typing; the
-           .note-peer-text shows what the PEER is typing (constantly
-           overwritten, not appended). -->
+      <!-- Live note panel — one shared note for the whole group. The
+           textarea both shows and edits the shared text; updates flow
+           through the SyncEngine 'demo' collection (last-write-wins). -->
       <div class="note-panel hidden" id="pick-note-panel">
         <div class="demo-eyebrow">Live collaboration</div>
         <div class="lamp-row" data-lamp-toggle role="button" tabindex="0" aria-pressed="false">
@@ -2157,12 +2156,8 @@
           </div>
         </div>
         <div class="note-section">
-          <div class="note-eyebrow">Send a note</div>
-          <textarea class="note-input" data-note-input rows="2" placeholder="Type a quick note…" autocomplete="off"></textarea>
-        </div>
-        <div class="note-section">
-          <div class="note-eyebrow"><span data-peer-label>Others</span> are writing</div>
-          <div class="note-peer-text is-empty" data-note-peer>Nothing yet…</div>
+          <div class="note-eyebrow">Shared note</div>
+          <textarea class="note-input" data-note-input rows="2" placeholder="Type a shared note…" autocomplete="off"></textarea>
         </div>
       </div>
     </div>
@@ -2257,12 +2252,8 @@
             </div>
           </div>
           <div class="note-section">
-            <div class="note-eyebrow">Note to peer</div>
-            <textarea class="note-input" data-note-input rows="2" placeholder="Type a quick note…" autocomplete="off"></textarea>
-          </div>
-          <div class="note-section">
-            <div class="note-eyebrow"><span data-peer-label>Peers</span> are writing</div>
-            <div class="note-peer-text is-empty" data-note-peer>Nothing yet…</div>
+            <div class="note-eyebrow">Shared note</div>
+            <textarea class="note-input" data-note-input rows="2" placeholder="Type a shared note…" autocomplete="off"></textarea>
           </div>
         </div>
 
@@ -2355,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '23';
+  const LOCAL_VERSION = '27';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3342,8 +3333,11 @@ const GroupStore = {
     const group = this.load();
     if (!group) return;
     if (!group.removed) group.removed = [];
-    // Don't re-add if tombstoned
-    if (group.removed.some(r => r.deviceId === deviceId)) return;
+    // Explicit (re-)invitation defeats any existing tombstone: dropping it
+    // here, plus the fresh updatedAt below, means the re-add wins last-write.
+    if (group.removed.some(r => r.deviceId === deviceId)) {
+      group.removed = group.removed.filter(r => r.deviceId !== deviceId);
+    }
     const idx = group.members.findIndex(m => m.deviceId === deviceId);
     if (idx !== -1) {
       const existing = group.members[idx];
@@ -3383,21 +3377,29 @@ const GroupStore = {
     let changed = false;
     for (const m of incoming) {
       if (!m || !m.deviceId) continue;
-      // Skip if tombstoned locally
-      if (group.removed.some(r => r.deviceId === m.deviceId)) continue;
+      const incomingUpdatedAt = m.updatedAt || m.joinedAt || 0;
+      // Tombstone check is timestamp-based: a member only stays out if its
+      // removedAt is newer than this incoming record. A fresh re-invitation
+      // (newer updatedAt) defeats the tombstone — last-write-wins.
+      const tomb = group.removed.find(r => r.deviceId === m.deviceId);
+      if (tomb) {
+        if ((tomb.removedAt || 0) >= incomingUpdatedAt) continue; // still removed
+        // Incoming record is newer than the removal → re-admit. Drop tombstone.
+        group.removed = group.removed.filter(r => r.deviceId !== m.deviceId);
+        changed = true;
+      }
       const idx = group.members.findIndex(e => e.deviceId === m.deviceId);
       if (idx === -1) {
         group.members.push({
           ...m,
           lastSeenAt: m.lastSeenAt || Date.now(),
-          updatedAt : m.updatedAt  || m.joinedAt || Date.now(),
+          updatedAt : incomingUpdatedAt || Date.now(),
         });
         changed = true;
         continue;
       }
       const existing = group.members[idx];
-      const incomingUpdatedAt = m.updatedAt || m.joinedAt || 0;
-      const localUpdatedAt    = existing.updatedAt || existing.joinedAt || 0;
+      const localUpdatedAt = existing.updatedAt || existing.joinedAt || 0;
       if (incomingUpdatedAt > localUpdatedAt) {
         // Newer record wins in full. Take all incoming fields, but preserve
         // our local lastSeenAt (presence is observed locally, not synced).
@@ -3430,16 +3432,36 @@ const GroupStore = {
     });
     if (changed) this._save(group);
   },
-  removeMember(deviceId) {
+  removeMember(deviceId, removedAt) {
     const group = this.load();
     if (!group) return;
     if (!group.removed) group.removed = [];
-    // Add tombstone so peer can't re-add via mbr-sync
-    if (!group.removed.some(r => r.deviceId === deviceId)) {
-      group.removed.push({ deviceId, removedAt: Date.now() });
+    const ts = removedAt || Date.now();
+    const existing = group.removed.find(r => r.deviceId === deviceId);
+    if (existing) {
+      // Keep the newest removedAt so a fresh removal wins over a stale one.
+      if (ts > (existing.removedAt || 0)) existing.removedAt = ts;
+    } else {
+      group.removed.push({ deviceId, removedAt: ts });
     }
     group.members = group.members.filter(m => m.deviceId !== deviceId);
     this._save(group);
+  },
+  // A member is currently tombstoned only if its removedAt is newer than any
+  // member record we have for it. Re-invitation (a fresh member record with a
+  // newer updatedAt) thus defeats the tombstone automatically — last-write-wins.
+  tombstoneFor(deviceId) {
+    const group = this.load();
+    if (!group) return null;
+    return (group.removed || []).find(r => r.deviceId === deviceId) || null;
+  },
+  // Drop a tombstone (used when a newer member record wins over it).
+  clearTombstone(deviceId) {
+    const group = this.load();
+    if (!group || !group.removed) return;
+    const before = group.removed.length;
+    group.removed = group.removed.filter(r => r.deviceId !== deviceId);
+    if (group.removed.length !== before) this._save(group);
   },
   isKnown(deviceId) {
     if (!deviceId) return false;
@@ -3450,15 +3472,86 @@ const GroupStore = {
     const group = this.load();
     return !!group && (group.removed || []).some(r => r.deviceId === deviceId);
   },
+  getRemoved() {
+    const group = this.load();
+    return (group?.removed || []);
+  },
   getRemovedIds() {
     const group = this.load();
     return (group?.removed || []).map(r => r.deviceId);
+  },
+  // Merge incoming tombstones ({deviceId, removedAt}[]) with last-write-wins.
+  // Returns { changed, selfRemovedAt } — selfRemovedAt is set if OUR own
+  // device was tombstoned by a removal newer than our own member record
+  // (the caller then triggers the self-reset).
+  mergeTombstones(incoming) {
+    const group = this.load();
+    if (!group) return { changed: false, selfRemovedAt: null };
+    if (!group.removed) group.removed = [];
+    let changed = false;
+    let selfRemovedAt = null;
+    for (const t of incoming) {
+      if (!t || !t.deviceId) continue;
+      const ts = t.removedAt || 0;
+      // Is this a removal of US, newer than our own member record?
+      if (t.deviceId === DEVICE_ID) {
+        const self = group.members.find(m => m.deviceId === DEVICE_ID);
+        const selfUpdatedAt = self ? (self.updatedAt || self.joinedAt || 0) : 0;
+        if (ts > selfUpdatedAt) selfRemovedAt = Math.max(selfRemovedAt || 0, ts);
+      }
+      const existing = group.removed.find(r => r.deviceId === t.deviceId);
+      if (existing) {
+        if (ts > (existing.removedAt || 0)) { existing.removedAt = ts; changed = true; }
+      } else {
+        group.removed.push({ deviceId: t.deviceId, removedAt: ts });
+        changed = true;
+      }
+      // Drop the member locally if the tombstone is newer than its record.
+      const mIdx = group.members.findIndex(m => m.deviceId === t.deviceId);
+      if (mIdx !== -1) {
+        const mTs = group.members[mIdx].updatedAt || group.members[mIdx].joinedAt || 0;
+        if (ts >= mTs) { group.members.splice(mIdx, 1); changed = true; }
+      }
+    }
+    if (changed) this._save(group);
+    return { changed, selfRemovedAt };
   },
   getMembers()  { const g = this.load(); return g ? g.members : []; },
   getRoomCode() { const g = this.load(); return g ? g.roomCode : null; },
   getPassword() { const g = this.load(); return g ? g.password : null; },
   clear() { try { localStorage.removeItem(this._key); } catch {} },
 };
+
+// Self-reset after being removed from the group. Wipes group + reports +
+// source state but KEEPS identity (profile) and DEVICE_ID, then reloads into
+// the onboarding-complete state. Mirrors the DEV reset minus the profile.
+let _selfResetInFlight = false;
+async function resetAfterRemoval(removedAt) {
+  if (_selfResetInFlight) return;
+  _selfResetInFlight = true;
+  try {
+    log('You were removed from the group — resetting group data (profile kept).', 'err');
+    // Tear down the live room so we stop reconnecting into the group.
+    try { TrysteroRoomManager.remove(); } catch {}
+    // Drop the group.
+    GroupStore.clear();
+    // Wipe all reports (sessions DB). Identity lives in PREFS_DB, untouched.
+    try {
+      await new Promise((res) => {
+        const r = indexedDB.deleteDatabase(SESSION_DB);
+        r.onsuccess = res; r.onerror = res; r.onblocked = res;
+      });
+    } catch {}
+    // Drop any stored source data.
+    try { await clearSource(); } catch {}
+    // Note/lamp are in-memory only; they vanish on reload.
+  } finally {
+    // Reload to a clean slate. Identity + DEVICE_ID remain in storage, so the
+    // user lands in the normal (onboarded) home screen with no group.
+    window.location.reload();
+  }
+}
+
 
 // =====================================================================
 // QR visibility — true only while the QR screen is active. Used by
@@ -3540,12 +3633,11 @@ const TrysteroRoomManager = {
             }
           }
           GroupStore.addMember(newMember);
-          // Broadcast full member list to all existing peers so everyone
-          // converges on the same membership.
-          if (t) t.sendMbrSync({
-            members: GroupStore.getMembers(),
-            removed: GroupStore.getRemovedIds(),
-          });
+          // Broadcast the new member via SyncEngine so it propagates across
+          // the whole mesh (last-write-wins). The just-added record carries a
+          // fresh updatedAt.
+          const added = GroupStore.getMembers().find(m => m.deviceId === deviceId);
+          if (added) SyncEngine.broadcastDelta('mbr', added);
           return true;
         }
         return false;
@@ -3573,16 +3665,9 @@ const TrysteroRoomManager = {
       }
       t.sendSyncRequest(peerId);
       SourceSyncManager.broadcastInfo(peerId);
-      // Seed the new peer with current shared-collection state (demo note/lamp, …)
+      // Seed the new peer with all shared-collection state — members, demo
+      // note/lamp, and any future collection — in one place.
       SyncEngine.seedPeer(peerId);
-      // Share full member list so new peer knows everyone
-      if (GroupStore.exists()) {
-        const members = GroupStore.getMembers();
-        if (members.length > 0) t.sendMbrSync({
-          members,
-          removed: GroupStore.getRemovedIds(),
-        }, peerId);
-      }
     });
 
     t.on('reconnected', () => {
@@ -3647,22 +3732,27 @@ const TrysteroRoomManager = {
     t.onSourceRequest = (peerId)         => SourceSyncManager.sendDataTo(peerId);
     t.onSourceData    = (data, peerId)   => SourceSyncManager.receiveData(data, peerId);
 
-    // Wire member sync — receives full member list + tombstones from peer
+    // Wire member sync — receives full member list + tombstones from peer.
+    // Tombstones carry {deviceId, removedAt}; legacy senders may send bare
+    // deviceId strings, which we treat as "removed now" for back-compat.
     t.onMbrSync = (data) => {
       if (!data) return;
       const members = Array.isArray(data.members) ? data.members : (Array.isArray(data) ? data : [data]);
-      const removedIds = Array.isArray(data.removed) ? data.removed : [];
-      // Apply tombstones first — remove any locally known members that peer has removed
-      for (const deviceId of removedIds) {
-        if (deviceId !== DEVICE_ID && GroupStore.isKnown(deviceId)) {
-          GroupStore.removeMember(deviceId);
-          log(`Member sync: removed ${deviceId.slice(0,8)} (tombstoned by peer).`, 'info');
-        }
-      }
-      const changed = GroupStore.mergeMemberList(members);
-      if (changed || removedIds.length > 0) {
+      const rawRemoved = Array.isArray(data.removed) ? data.removed : [];
+      const tombstones = rawRemoved.map(r =>
+        typeof r === 'string' ? { deviceId: r, removedAt: Date.now() } : r
+      );
+
+      // Merge tombstones first (last-write-wins). If WE were removed by a
+      // removal newer than our own record, reset ourselves.
+      const { changed: tChanged, selfRemovedAt } = GroupStore.mergeTombstones(tombstones);
+      if (selfRemovedAt) { resetAfterRemoval(selfRemovedAt); return; }
+
+      const mChanged = GroupStore.mergeMemberList(members);
+      if (tChanged || mChanged) {
         renderHomeGroupMembers();
         refreshMyDeviceMembers();
+        renderTopbarConnections();
       }
     };
 
@@ -3670,8 +3760,8 @@ const TrysteroRoomManager = {
 
     // Wire generic collection sync (SyncEngine) — handles demo note/lamp and
     // any future collection uniformly.
-    t.onCollectionDelta = (name, record, peerId) => SyncEngine.merge(name, record, peerId);
-    t.onCollectionFull  = (name, records, peerId) => SyncEngine.receiveFull(name, records);
+    t.onCollectionDelta = (name, record, peerId) => SyncEngine.receiveDelta(name, record, peerId);
+    t.onCollectionFull  = (name, payload, peerId) => SyncEngine.receiveFull(name, payload);
 
     await t.joinPersistentRoom(roomCode);
     this._room = t;
@@ -3872,11 +3962,10 @@ const SourceSyncManager = {
     }
     if (deviceId) {
       GroupStore.setSourceHash(deviceId, hash);
-      // Tell all other peers about this peer's hash so everyone stays in sync
-      if (t) {
-        const member = GroupStore.getMembers().find(m => m.deviceId === deviceId);
-        if (member) t.sendMbrSync({ members: [member], removed: [] });
-      }
+      // Propagate this member's updated record (now carrying the sourceHash)
+      // via SyncEngine so everyone converges.
+      const member = GroupStore.getMembers().find(m => m.deviceId === deviceId);
+      if (member) SyncEngine.broadcastDelta('mbr', member);
       renderSourceSection();
     }
 
@@ -3976,6 +4065,12 @@ function getActivePeerInfo(deviceId) {
 // with last-write-wins (timestamp, deviceId tiebreak), and propagate a record
 // learned from one peer so it reaches peers we're not directly connected to.
 //
+// A collection may also support TOMBSTONES (e.g. members): a removal is a
+// {key, removedAt} record that propagates like any other and wins over a
+// member record with an older timestamp. Re-adding with a newer timestamp
+// defeats the tombstone. Collections opt in by providing a `tombstones`
+// adapter; note/lamp and other delete-less collections simply omit it.
+//
 // peerinfo (transport handshake) and the legacy payload/ack path are NOT
 // collections — they aren't convergent shared state.
 // =====================================================================
@@ -3983,6 +4078,9 @@ const SyncEngine = {
   _collections: new Map(),
   _seen: new Map(),
 
+  // def: { name, keyField, tsField, readAll, writeOne, onChange?, tiebreak?,
+  //        tombstones? { readAll(), merge(key, removedAt) → bool,
+  //                      isSelf?(key) → bool, onSelfRemoved?(removedAt) } }
   register(def) {
     this._collections.set(def.name, def);
     this._seen.set(def.name, new Map());
@@ -4007,8 +4105,6 @@ const SyncEngine = {
     if (!this._incomingWins(def, incoming, existing)) return false;
     await def.writeOne(incoming);
     if (def.onChange) def.onChange(incoming, false);
-    // Propagate so peers we don't directly know also converge. Dedupe on
-    // (key, timestamp) so a record doesn't echo forever.
     const seen = this._seen.get(name);
     if (seen.get(incoming[def.keyField]) !== (incoming[def.tsField] || 0)) {
       seen.set(incoming[def.keyField], incoming[def.tsField] || 0);
@@ -4017,17 +4113,56 @@ const SyncEngine = {
     return true;
   },
 
-  async receiveFull(name, records) {
-    if (!Array.isArray(records)) return;
-    for (const r of records) await this.merge(name, r);
+  // Merge a single tombstone {key, removedAt}. Returns true if it changed
+  // local state. Triggers the collection's onSelfRemoved if it targets us.
+  async mergeTombstone(name, tomb) {
+    const def = this._get(name);
+    if (!def || !def.tombstones || !tomb || tomb.key == null) return false;
+    const ts = tomb.removedAt || 0;
+    // Self-removal check first (so a removed device can react even if the
+    // merge is otherwise a no-op locally).
+    if (def.tombstones.isSelf && def.tombstones.isSelf(tomb.key)) {
+      if (def.tombstones.onSelfRemoved) def.tombstones.onSelfRemoved(ts);
+    }
+    const changed = def.tombstones.merge(tomb.key, ts);
+    if (changed) {
+      // Propagate the tombstone too (dedupe on key:removedAt).
+      const seen = this._seen.get(name);
+      const sig = '__tomb__' + tomb.key;
+      if (seen.get(sig) !== ts) {
+        seen.set(sig, ts);
+        this._broadcastTombstone(name, tomb);
+      }
+    }
+    return changed;
   },
 
+  async receiveFull(name, payload) {
+    // payload may be a plain array (records) or { records, tombstones }.
+    const records   = Array.isArray(payload) ? payload : (payload && payload.records) || [];
+    const tombstones = (payload && payload.tombstones) || [];
+    for (const t of tombstones) await this.mergeTombstone(name, t);
+    for (const r of records)    await this.merge(name, r);
+  },
+
+  // Local record mutation → broadcast.
   async broadcastDelta(name, record) {
     const def = this._get(name);
     if (!def || !record) return;
     const seen = this._seen.get(name);
     seen.set(record[def.keyField], record[def.tsField] || 0);
     this._broadcastDelta(name, record);
+  },
+
+  // Local removal → record the tombstone locally, then broadcast it.
+  async broadcastTombstone(name, key, removedAt) {
+    const def = this._get(name);
+    if (!def || !def.tombstones || key == null) return;
+    const ts = removedAt || Date.now();
+    def.tombstones.merge(key, ts);
+    const seen = this._seen.get(name);
+    seen.set('__tomb__' + key, ts);
+    this._broadcastTombstone(name, { key, removedAt: ts });
   },
 
   _broadcastDelta(name, record) {
@@ -4037,12 +4172,35 @@ const SyncEngine = {
     t.sendCollectionDelta(name, record);
   },
 
+  _broadcastTombstone(name, tomb) {
+    const t = getActiveTransport();
+    if (!t || typeof t.sendCollectionDelta !== 'function') return;
+    if (t._connectedPeers && t._connectedPeers.size === 0) return;
+    // Tombstones ride the same delta action, tagged so the receiver routes
+    // them to mergeTombstone instead of merge.
+    t.sendCollectionDelta(name, { __tombstone__: true, key: tomb.key, removedAt: tomb.removedAt });
+  },
+
+  // Route an incoming delta to record-merge or tombstone-merge.
+  async receiveDelta(name, record, fromPeerId) {
+    if (record && record.__tombstone__) {
+      await this.mergeTombstone(name, { key: record.key, removedAt: record.removedAt });
+    } else {
+      await this.merge(name, record, fromPeerId);
+    }
+  },
+
   async seedPeer(targetPeerId) {
     const t = getActiveTransport();
     if (!t || typeof t.sendCollectionFull !== 'function') return;
     for (const [name, def] of this._collections) {
-      const all = await def.readAll();
-      if (all && all.length) t.sendCollectionFull(name, all, targetPeerId);
+      const records = await def.readAll();
+      const tombstones = def.tombstones
+        ? (await def.tombstones.readAll()).map(r => ({ key: r.deviceId ?? r.key, removedAt: r.removedAt }))
+        : [];
+      if ((records && records.length) || tombstones.length) {
+        t.sendCollectionFull(name, { records: records || [], tombstones }, targetPeerId);
+      }
     }
   },
 };
@@ -4072,6 +4230,36 @@ SyncEngine.register({
     } else if (rec.id === 'lamp') {
       setLampState(!!rec.on, { send: false });
     }
+  },
+});
+
+// Members collection — group membership, keyed on deviceId, last-write-wins
+// on updatedAt, with tombstones (removal). The storage adapter wraps
+// GroupStore; the tombstone adapter wires removal + self-reset.
+SyncEngine.register({
+  name    : 'mbr',
+  keyField: 'deviceId',
+  tsField : 'updatedAt',
+  readAll : () => GroupStore.getMembers(),
+  writeOne: (rec) => { GroupStore.mergeMemberList([rec]); },
+  onChange: () => {
+    renderHomeGroupMembers();
+    refreshMyDeviceMembers();
+    renderTopbarConnections();
+  },
+  tombstones: {
+    readAll : () => GroupStore.getRemoved(),
+    merge   : (deviceId, removedAt) => {
+      const { changed } = GroupStore.mergeTombstones([{ deviceId, removedAt }]);
+      if (changed) {
+        renderHomeGroupMembers();
+        refreshMyDeviceMembers();
+        renderTopbarConnections();
+      }
+      return changed;
+    },
+    isSelf        : (deviceId) => deviceId === DEVICE_ID,
+    onSelfRemoved : (removedAt) => resetAfterRemoval(removedAt),
   },
 });
 
@@ -4937,8 +5125,14 @@ function refreshMyDeviceMembers() {
   // Re-wire remove buttons
   section.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (confirm('Remove this device from the group? They will need to scan again to rejoin.')) {
-        GroupStore.removeMember(btn.dataset.deviceid);
+      if (confirm('Remove this device from the group? Their app will reset its group data (their profile is kept), and they will need to scan a new invite to rejoin.')) {
+        const deviceId = btn.dataset.deviceid;
+        const removedAt = Date.now();
+        GroupStore.removeMember(deviceId, removedAt);
+        // Broadcast the removal as a tombstone via SyncEngine — it propagates
+        // across the mesh and reaches the removed device (which then resets
+        // itself), and wins last-write over any stale member record.
+        SyncEngine.broadcastTombstone('mbr', deviceId, removedAt);
         renderTopbarConnections();
         refreshMyDeviceMembers();
         renderHomeGroupMembers();
@@ -6106,7 +6300,6 @@ function wirePeerInfoListener(t) {
       }
     }
     renderConnectionBarPeer();
-    updateNotePanelPeerLabel();
   });
   // 'connected' fires when the data channel opens. Show the bar in the
   // connected state. Peer-info usually arrives ms later and updates the
@@ -6185,36 +6378,15 @@ let _noteSendTimer = null;
 let _lastSentNoteText = null;
 
 function _allNoteInputs() { return document.querySelectorAll('[data-note-input]'); }
-function _allNotePeerSlots() { return document.querySelectorAll('[data-note-peer]'); }
-function _allNotePeerLabels() { return document.querySelectorAll('[data-peer-label]'); }
 
+// Reflect an incoming peer note into the shared note input. (Used by the
+// legacy PeerJS/Raw per-transfer path; the Trystero/MQTT group path uses the
+// SyncEngine 'demo' collection instead.)
 function setPeerNoteText(text) {
   const s = text == null ? '' : String(text);
-  const trimmed = s.trim();
-  for (const slot of _allNotePeerSlots()) {
-    if (trimmed) {
-      slot.textContent = s;
-      slot.classList.remove('is-empty');
-    } else {
-      slot.textContent = 'Nothing yet…';
-      slot.classList.add('is-empty');
-    }
-  }
-}
-
-function updateNotePanelPeerLabel() {
-  const connected = TrysteroRoomManager ? TrysteroRoomManager.getConnectedMembers().length : 0;
-  const multiple  = connected > 1;
-  const name = multiple ? `${connected} peers`
-             : (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname
-             : 'Peer';
-  const verb = multiple ? 'are' : 'is';
-  for (const el of _allNotePeerLabels()) {
-    el.textContent = name;
-    const parent = el.closest('.note-eyebrow');
-    if (parent) parent.childNodes.forEach(n => {
-      if (n.nodeType === 3) n.textContent = ` ${verb} writing`;
-    });
+  _lastSentNoteText = s;  // don't echo it back as our own
+  for (const input of _allNoteInputs()) {
+    if (input.value !== s) input.value = s;
   }
 }
 
@@ -6241,9 +6413,6 @@ function updateNotePanelVisibility() {
     const onReceiverTransfer = (screen === 'transfer' && currentMode === 'receive');
     transferPanel.classList.toggle('hidden', !onReceiverTransfer);
   }
-  // When the panel becomes visible, refresh the peer label in case
-  // peer-info arrived while the panel was hidden.
-  updateNotePanelPeerLabel();
 }
 
 // Returns the right transfer for demo features (note/lamp).
