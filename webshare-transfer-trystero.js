@@ -406,10 +406,20 @@
         const result = this._room.makeAction(name);
 
         // Classic array form — use directly.
-        if (Array.isArray(result)) return result;
+        if (Array.isArray(result)) {
+          if (this._devMode && !this._loggedApiShape) {
+            this._loggedApiShape = true;
+            console.log(`[FieldSync] ${this._strategy} uses classic array makeAction API`);
+          }
+          return result;
+        }
 
         // New object form — adapt to the tuple.
         if (result && typeof result === 'object' && typeof result.send === 'function') {
+          if (this._devMode && !this._loggedApiShape) {
+            this._loggedApiShape = true;
+            console.log(`[FieldSync] ${this._strategy} uses new object makeAction API (adapted)`);
+          }
           const send = (data, targetPeerId) => {
             // New API takes an options object; map a bare peerId to { target }.
             if (targetPeerId == null) return result.send(data);
