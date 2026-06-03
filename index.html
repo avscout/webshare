@@ -2355,7 +2355,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '18';
+  const LOCAL_VERSION = '22';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3295,8 +3295,11 @@ const DEVICE_ID = (() => {
 
 // =====================================================================
 // Group store — persists the Trystero group in localStorage.
-// One group per installation: { roomCode, password, members: [...] }
-// Each member: { deviceId, nickname, emoji, color, invitedBy, joinedAt, lastSeenAt }
+// One group per installation: { roomCode, password, members: [...], removed: [...] }
+// Member records are field-agnostic: deviceId is the key; updatedAt drives
+// last-write-wins merging; lastSeenAt is local presence only. Common fields
+// include nickname, emoji, color, role, invitedBy, sourceHash, joinedAt — but
+// any new field added in the future propagates through merge automatically.
 // =====================================================================
 const GroupStore = {
   _key: 'webshare-group',
@@ -3331,34 +3334,48 @@ const GroupStore = {
       invitedBy: null,
     });
   },
-  addMember({ deviceId, nickname, emoji, color, invitedBy, role }) {
+  // Field-agnostic: accepts any member object. Core identity fields get
+  // sensible defaults; any extra fields (now or future) are carried through.
+  addMember(member) {
+    if (!member || !member.deviceId) return;
+    const { deviceId } = member;
     const group = this.load();
     if (!group) return;
     if (!group.removed) group.removed = [];
     // Don't re-add if tombstoned
     if (group.removed.some(r => r.deviceId === deviceId)) return;
-    const existing = group.members.find(m => m.deviceId === deviceId);
-    if (existing) {
-      // Only update info if newer joinedAt (avoids overwriting with stale data)
-      group.members = group.members.map(m => m.deviceId === deviceId
-        ? { ...m, nickname: nickname || m.nickname, emoji: emoji || m.emoji,
-            color: color || m.color, role: role || m.role, lastSeenAt: Date.now() }
-        : m);
+    const idx = group.members.findIndex(m => m.deviceId === deviceId);
+    if (idx !== -1) {
+      const existing = group.members[idx];
+      // Merge incoming fields over existing, keeping existing where incoming
+      // is empty. Bump updatedAt so the change propagates.
+      const merged = { ...existing };
+      for (const [k, v] of Object.entries(member)) {
+        if (v !== undefined && v !== null && v !== '') merged[k] = v;
+      }
+      merged.lastSeenAt = Date.now();
+      merged.updatedAt  = Date.now();
+      group.members[idx] = merged;
     } else {
       group.members.push({
+        nickname  : '?',
+        emoji     : '📱',
+        color     : null,
+        role      : null,
+        invitedBy : null,
+        ...member,   // caller-provided fields override the defaults above
         deviceId,
-        nickname  : nickname  || '?',
-        emoji     : emoji     || '📱',
-        color     : color     || null,
-        role      : role      || null,
-        invitedBy : invitedBy || null,
         joinedAt  : Date.now(),
         lastSeenAt: Date.now(),
+        updatedAt : Date.now(),
       });
     }
     this._save(group);
   },
-  // Merge incoming member list from peer — respects tombstones and joinedAt
+  // Merge incoming member list from peer. Field-agnostic last-write-wins:
+  // the record with the newer updatedAt wins in full, so every field —
+  // including ones added in the future — propagates without code changes.
+  // lastSeenAt is local-only presence state and never drives the merge.
   mergeMemberList(incoming) {
     const group = this.load();
     if (!group) return;
@@ -3368,23 +3385,25 @@ const GroupStore = {
       if (!m || !m.deviceId) continue;
       // Skip if tombstoned locally
       if (group.removed.some(r => r.deviceId === m.deviceId)) continue;
-      const existing = group.members.find(e => e.deviceId === m.deviceId);
-      if (!existing) {
-        group.members.push({ ...m, lastSeenAt: m.lastSeenAt || Date.now() });
+      const idx = group.members.findIndex(e => e.deviceId === m.deviceId);
+      if (idx === -1) {
+        group.members.push({
+          ...m,
+          lastSeenAt: m.lastSeenAt || Date.now(),
+          updatedAt : m.updatedAt  || m.joinedAt || Date.now(),
+        });
         changed = true;
-      } else {
-        // Only update profile fields if incoming joinedAt is newer
-        const incomingJoinedAt = m.joinedAt || 0;
-        const localJoinedAt   = existing.joinedAt || 0;
-        if (incomingJoinedAt > localJoinedAt) {
-          Object.assign(existing, {
-            nickname: m.nickname || existing.nickname,
-            emoji   : m.emoji    || existing.emoji,
-            color   : m.color    || existing.color,
-            role    : m.role     || existing.role,
-          });
-          changed = true;
-        }
+        continue;
+      }
+      const existing = group.members[idx];
+      const incomingUpdatedAt = m.updatedAt || m.joinedAt || 0;
+      const localUpdatedAt    = existing.updatedAt || existing.joinedAt || 0;
+      if (incomingUpdatedAt > localUpdatedAt) {
+        // Newer record wins in full. Take all incoming fields, but preserve
+        // our local lastSeenAt (presence is observed locally, not synced).
+        const preservedLastSeen = Math.max(existing.lastSeenAt || 0, m.lastSeenAt || 0);
+        group.members[idx] = { ...existing, ...m, lastSeenAt: preservedLastSeen };
+        changed = true;
       }
     }
     if (changed) this._save(group);
@@ -3393,6 +3412,8 @@ const GroupStore = {
   touch(deviceId) {
     const group = this.load();
     if (!group) return;
+    // lastSeenAt is local presence only — does NOT bump updatedAt, so it
+    // never wins a merge over a peer's genuine field change.
     group.members = group.members.map(m =>
       m.deviceId === deviceId ? { ...m, lastSeenAt: Date.now() } : m);
     this._save(group);
@@ -3400,9 +3421,14 @@ const GroupStore = {
   setSourceHash(deviceId, hash) {
     const group = this.load();
     if (!group) return;
-    group.members = group.members.map(m =>
-      m.deviceId === deviceId ? { ...m, sourceHash: hash } : m);
-    this._save(group);
+    let changed = false;
+    group.members = group.members.map(m => {
+      if (m.deviceId !== deviceId) return m;
+      if (m.sourceHash === hash) return m;  // no change, don't bump
+      changed = true;
+      return { ...m, sourceHash: hash, updatedAt: Date.now() };
+    });
+    if (changed) this._save(group);
   },
   removeMember(deviceId) {
     const group = this.load();
@@ -3500,13 +3526,19 @@ const TrysteroRoomManager = {
         //     and other members would otherwise reject the newcomer).
         if (qrVisible || GroupStore.exists()) {
           TrysteroRoomManager.commitPendingGroup();
-          const newMember = {
-            deviceId,
-            nickname : info && info.nickname,
-            emoji    : info && info.emoji,
-            color    : info && info.color,
-            invitedBy: info && info.invitedBy,
-          };
+          // Build the member record from the peer's identity info. Exclude
+          // transport/runtime fields that don't belong in a member record;
+          // everything else (including future identity fields) carries through.
+          const TRANSPORT_FIELDS = new Set([
+            '_peerId', 'sentAt', 'device', 'browser', 'os', 'token',
+          ]);
+          const newMember = { deviceId };
+          if (info && typeof info === 'object') {
+            for (const [k, v] of Object.entries(info)) {
+              if (TRANSPORT_FIELDS.has(k)) continue;
+              if (v !== undefined) newMember[k] = v;
+            }
+          }
           GroupStore.addMember(newMember);
           // Broadcast full member list to all existing peers so everyone
           // converges on the same membership.
@@ -3809,6 +3841,7 @@ const SourceSyncManager = {
     const t = getActiveTransport();
     if (!t) return;
     t.sendSourceInfo({
+      deviceId  : DEVICE_ID,
       hash      : _sourceData.hash,
       uploadedAt: _sourceData.uploadedAt,
       filename  : _sourceData.filename,
@@ -3817,12 +3850,14 @@ const SourceSyncManager = {
   },
 
   // Peer sent us their source-info — decide if we need to request it
-  receiveInfo({ hash, uploadedAt, filename, rowCount } = {}, peerId) {
+  receiveInfo({ deviceId: senderDeviceId, hash, uploadedAt, filename, rowCount } = {}, peerId) {
     if (!hash) return;
-    // Update this peer's known hash in GroupStore by matching peerId → deviceId
-    let deviceId = null;
+    // Prefer the deviceId the sender included in the payload. Fall back to
+    // resolving it from the peerId → deviceId mapping (covers older senders
+    // that didn't include their deviceId).
+    let deviceId = senderDeviceId || null;
     const t = getActiveTransport();
-    if (t && t._peerInfo) {
+    if (!deviceId && t && t._peerInfo) {
       for (const [did, info] of t._peerInfo) {
         if (info && info._peerId === peerId) { deviceId = did; break; }
       }
@@ -5896,29 +5931,31 @@ function renderTopbarConnections() {
 
   const SIZE = 32;
 
+  // Layout: connection avatars (no names) on the LEFT, then "&", then the
+  // user's own avatar + name on the far RIGHT. So it reads:
+  //   [peer] [peer] & [you] YourName
+  const ownSVG = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
+
   if (peers.length === 0) {
-    svgEl.innerHTML = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
+    svgEl.innerHTML = ownSVG;
     nameEl.textContent = identity.nickname || '';
     return;
   }
 
-  if (peers.length === 1) {
-    const peer = peers[0];
-    svgEl.innerHTML =
-      renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color }) +
-      `<span class="topbar-conn-amp">&amp;</span>` +
-      renderDeviceSVG(peer.emoji || '?', { size: SIZE, color: peer.color });
-    nameEl.textContent = peer.nickname || 'peer';
-  } else {
-    const all = [{ emoji: identity.emoji, color: identity.color }, ...peers];
-    const stack = all.map((p, i) =>
-      `<span class="stack-item" style="${i > 0 ? 'margin-left:-8px' : ''}">` +
-      renderDeviceSVG(p.emoji || '?', { size: SIZE, color: p.color }) +
-      `</span>`
-    ).join('');
-    svgEl.innerHTML = `<span class="topbar-peer-stack">${stack}</span>`;
-    nameEl.textContent = `${peers.length} connected`;
-  }
+  // One or more peers: render their avatars (no names) on the left, an
+  // ampersand, then the user's own avatar on the right. The name label always
+  // shows the user's own nickname.
+  const peerAvatars = peers.map(p =>
+    `<span class="stack-item">` +
+    renderDeviceSVG(p.emoji || '?', { size: SIZE, color: p.color }) +
+    `</span>`
+  ).join('');
+
+  svgEl.innerHTML =
+    `<span class="topbar-peer-stack">${peerAvatars}</span>` +
+    `<span class="topbar-conn-amp">&amp;</span>` +
+    ownSVG;
+  nameEl.textContent = identity.nickname || '';
 }
 
 // Shared listener — both roles want to know who the other peer is.
@@ -5939,13 +5976,15 @@ function wirePeerInfoListener(t) {
           GroupStore.create(t.peerId, pw);
         }
         if (!GroupStore.isKnown(info.deviceId)) {
-          GroupStore.addMember({
-            deviceId : info.deviceId,
-            nickname : info.nickname,
-            emoji    : info.emoji,
-            color    : info.color,
-            invitedBy: info.invitedBy || null,
-          });
+          const TRANSPORT_FIELDS = new Set([
+            '_peerId', 'sentAt', 'device', 'browser', 'os', 'token',
+          ]);
+          const newMember = { deviceId: info.deviceId };
+          for (const [k, v] of Object.entries(info)) {
+            if (TRANSPORT_FIELDS.has(k)) continue;
+            if (v !== undefined) newMember[k] = v;
+          }
+          GroupStore.addMember(newMember);
         }
       }
     }
