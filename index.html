@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '27';
+  const LOCAL_VERSION = '28';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -2529,6 +2529,16 @@ async function _putSessionRaw(session) {
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readwrite');
   tx.objectStore('sessions').put(session);
+  await txPromise(tx); db.close();
+}
+
+// Wipe every session (report). Clears the object store in place — works even
+// while the DB is otherwise in use (unlike deleteDatabase, which blocks on
+// open connections).
+async function clearAllSessions() {
+  const db = await openSessionDb();
+  const tx = db.transaction('sessions', 'readwrite');
+  tx.objectStore('sessions').clear();
   await txPromise(tx); db.close();
 }
 
@@ -3535,13 +3545,11 @@ async function resetAfterRemoval(removedAt) {
     try { TrysteroRoomManager.remove(); } catch {}
     // Drop the group.
     GroupStore.clear();
-    // Wipe all reports (sessions DB). Identity lives in PREFS_DB, untouched.
-    try {
-      await new Promise((res) => {
-        const r = indexedDB.deleteDatabase(SESSION_DB);
-        r.onsuccess = res; r.onerror = res; r.onblocked = res;
-      });
-    } catch {}
+    // Wipe all reports. Clear the object store in place rather than deleting
+    // the whole DB — deleteDatabase blocks while connections are open, which
+    // would leave the reports intact until reload. Identity lives in a
+    // separate DB (PREFS_DB), so it's untouched.
+    try { await clearAllSessions(); } catch (e) { log('Report wipe failed: ' + e.message, 'err'); }
     // Drop any stored source data.
     try { await clearSource(); } catch {}
     // Note/lamp are in-memory only; they vanish on reload.
