@@ -393,15 +393,43 @@
         }
       }, 3000);
 
+      // makeAction's return shape differs across Trystero versions:
+      //   • Classic (≤0.23 array builds): returns [send, onReceive(, onProgress)]
+      //     where send(data, targetPeerId) and onReceive(cb) registers a handler.
+      //   • New @trystero-p2p/core (0.25+): returns an object
+      //     { send(data, {target, metadata}), set onMessage(cb), ... }.
+      // We normalise both to a legacy [send, onReceive] tuple, where the
+      // returned `send` accepts (data, targetPeerId) and `onReceive` accepts a
+      // callback (cb(data, peerId)). The rest of this file is written against
+      // that tuple, so callers don't need to know which Trystero is underneath.
       const _makeAction = (name) => {
         const result = this._room.makeAction(name);
-        if (!Array.isArray(result)) {
-          throw new Error(
-            `Trystero makeAction('${name}') returned ${typeof result} — ` +
-            'expected [sender, receiver]. Check Trystero version compatibility.'
-          );
+
+        // Classic array form — use directly.
+        if (Array.isArray(result)) return result;
+
+        // New object form — adapt to the tuple.
+        if (result && typeof result === 'object' && typeof result.send === 'function') {
+          const send = (data, targetPeerId) => {
+            // New API takes an options object; map a bare peerId to { target }.
+            if (targetPeerId == null) return result.send(data);
+            return result.send(data, { target: targetPeerId });
+          };
+          const onReceive = (cb) => {
+            // New API exposes onMessage as a setter; the handler receives
+            // (data, meta) where meta carries peerId. Re-shape to (data, peerId).
+            result.onMessage = (data, meta) => {
+              const peerId = meta && typeof meta === 'object' ? meta.peerId : meta;
+              cb(data, peerId);
+            };
+          };
+          return [send, onReceive];
         }
-        return result;
+
+        throw new Error(
+          `Trystero makeAction('${name}') returned an unexpected shape — ` +
+          'cannot adapt to [send, onReceive]. Check Trystero version compatibility.'
+        );
       };
 
       // Existing actions
