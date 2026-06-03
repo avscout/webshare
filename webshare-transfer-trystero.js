@@ -171,6 +171,8 @@
       this.onSourceRequest = null; // (fromPeerId) => void
       this.onSourceData   = null;  // ({ filename, uploadedAt, hash, rows }, fromPeerId) => void
       this.onMbrSync      = null;  // (member, fromPeerId) => void
+      this.onCollectionDelta = null; // (name, record, fromPeerId) => void
+      this.onCollectionFull  = null; // (name, records, fromPeerId) => void
     }
 
     // -----------------------------------------------------------------------
@@ -189,6 +191,17 @@
     sendLamp(on) {
       if (!this._sendLampAction) return;
       try { this._sendLampAction({ on: !!on }); } catch {}
+    }
+
+    // Generic collection sync (used by SyncEngine). Delta broadcasts to all
+    // peers; full seeds a specific peer (or all, if no target).
+    sendCollectionDelta(name, record) {
+      if (!this._sendColDeltaAction) return;
+      try { this._sendColDeltaAction(name, record); } catch {}
+    }
+    sendCollectionFull(name, records, targetPeerId) {
+      if (!this._sendColFullAction) return;
+      try { this._sendColFullAction(name, records, targetPeerId || undefined); } catch {}
     }
 
     // Send peer-info to a specific peer, or broadcast if no targetId given.
@@ -458,6 +471,11 @@
       const [sendSourceData,  onSourceData]  = _makeAction('src-data');
       const [sendMbrSync,     onMbrSync]     = _makeAction('mbr-sync');
 
+      // Generic collection sync — one action pair carries every collection;
+      // the collection name travels inside the payload. Used by SyncEngine.
+      const [sendColDelta,    onColDelta]    = _makeAction('col-delta');
+      const [sendColFull,     onColFull]     = _makeAction('col-full');
+
       this._sendPayloadAction     = sendPayload;
       this._sendAckAction         = sendAck;
       this._sendPeerInfoAction    = (data, targetId) => sendPeerInfo(data, targetId);
@@ -470,6 +488,8 @@
       this._sendSourceReqAction   = (data, targetId) => sendSourceReq(data, targetId);
       this._sendSourceDataAction  = (data, targetId) => sendSourceData(data, targetId);
       this._sendMbrSyncAction     = (data) => sendMbrSync(data);
+      this._sendColDeltaAction    = (name, record) => sendColDelta({ name, record });
+      this._sendColFullAction     = (name, records, targetId) => sendColFull({ name, records }, targetId);
 
       // Peer lifecycle — the room exposes onPeerJoin/onPeerLeave as a callable
       // function in classic builds (core 0.23) but as a settable property in
@@ -617,6 +637,20 @@
       onMbrSync((data, peerId) => {
         if (this._rejectedPeers.has(peerId)) return;
         if (this.onMbrSync) this.onMbrSync(data, peerId);
+      });
+
+      onColDelta((data, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
+        if (data && data.name && this.onCollectionDelta) {
+          this.onCollectionDelta(data.name, data.record, peerId);
+        }
+      });
+
+      onColFull((data, peerId) => {
+        if (this._rejectedPeers.has(peerId)) return;
+        if (data && data.name && this.onCollectionFull) {
+          this.onCollectionFull(data.name, data.records, peerId);
+        }
       });
     }
 

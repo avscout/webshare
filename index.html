@@ -2355,7 +2355,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '22';
+  const LOCAL_VERSION = '23';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3573,6 +3573,8 @@ const TrysteroRoomManager = {
       }
       t.sendSyncRequest(peerId);
       SourceSyncManager.broadcastInfo(peerId);
+      // Seed the new peer with current shared-collection state (demo note/lamp, …)
+      SyncEngine.seedPeer(peerId);
       // Share full member list so new peer knows everyone
       if (GroupStore.exists()) {
         const members = GroupStore.getMembers();
@@ -3631,9 +3633,9 @@ const TrysteroRoomManager = {
       refreshMyDeviceMembers();
     });
 
-    // Demo features — note and lamp over the group room
-    t.on('note', ({ text }) => setPeerNoteText(text));
-    t.on('lamp', ({ on }) => setLampState(on, { send: false }));
+    // Demo features (note + lamp) now flow through SyncEngine's 'demo'
+    // collection — broadcast, propagated, and last-write-wins like everything
+    // else. No separate note/lamp event wiring needed here.
 
     // Wire sync callbacks to SyncManager
     t.onSyncFull    = (sessions, peerId) => SyncManager.receiveFull(sessions, peerId);
@@ -3665,6 +3667,12 @@ const TrysteroRoomManager = {
     };
 
     t._devMode = DEV_MODE;
+
+    // Wire generic collection sync (SyncEngine) — handles demo note/lamp and
+    // any future collection uniformly.
+    t.onCollectionDelta = (name, record, peerId) => SyncEngine.merge(name, record, peerId);
+    t.onCollectionFull  = (name, records, peerId) => SyncEngine.receiveFull(name, records);
+
     await t.joinPersistentRoom(roomCode);
     this._room = t;
   },
@@ -3957,6 +3965,115 @@ function getActivePeerInfo(deviceId) {
   if (t && t._peerInfo && t._peerInfo.get) return t._peerInfo.get(deviceId);
   return null;
 }
+
+// =====================================================================
+// SyncEngine — one generic mechanism for all shared state.
+//
+// Every kind of shared state (reports, members, demo note/lamp, …) is a
+// "collection": a key field, a timestamp field for last-write-wins, and a
+// storage adapter (read all / write one). The engine handles the wire
+// protocol uniformly: broadcast a delta, seed a peer with a full dump, merge
+// with last-write-wins (timestamp, deviceId tiebreak), and propagate a record
+// learned from one peer so it reaches peers we're not directly connected to.
+//
+// peerinfo (transport handshake) and the legacy payload/ack path are NOT
+// collections — they aren't convergent shared state.
+// =====================================================================
+const SyncEngine = {
+  _collections: new Map(),
+  _seen: new Map(),
+
+  register(def) {
+    this._collections.set(def.name, def);
+    this._seen.set(def.name, new Map());
+  },
+
+  _get(name) { return this._collections.get(name); },
+
+  _incomingWins(def, incoming, existing) {
+    if (!existing) return true;
+    const inTs = incoming[def.tsField] || 0;
+    const exTs = existing[def.tsField] || 0;
+    if (inTs !== exTs) return inTs > exTs;
+    if (def.tiebreak) return def.tiebreak(incoming, existing);
+    return (incoming.deviceId || '') > (existing.deviceId || '');
+  },
+
+  async merge(name, incoming, fromPeerId) {
+    const def = this._get(name);
+    if (!def || !incoming || incoming[def.keyField] == null) return false;
+    const all = await def.readAll();
+    const existing = all.find(r => r[def.keyField] === incoming[def.keyField]);
+    if (!this._incomingWins(def, incoming, existing)) return false;
+    await def.writeOne(incoming);
+    if (def.onChange) def.onChange(incoming, false);
+    // Propagate so peers we don't directly know also converge. Dedupe on
+    // (key, timestamp) so a record doesn't echo forever.
+    const seen = this._seen.get(name);
+    if (seen.get(incoming[def.keyField]) !== (incoming[def.tsField] || 0)) {
+      seen.set(incoming[def.keyField], incoming[def.tsField] || 0);
+      this._broadcastDelta(name, incoming);
+    }
+    return true;
+  },
+
+  async receiveFull(name, records) {
+    if (!Array.isArray(records)) return;
+    for (const r of records) await this.merge(name, r);
+  },
+
+  async broadcastDelta(name, record) {
+    const def = this._get(name);
+    if (!def || !record) return;
+    const seen = this._seen.get(name);
+    seen.set(record[def.keyField], record[def.tsField] || 0);
+    this._broadcastDelta(name, record);
+  },
+
+  _broadcastDelta(name, record) {
+    const t = getActiveTransport();
+    if (!t || typeof t.sendCollectionDelta !== 'function') return;
+    if (t._connectedPeers && t._connectedPeers.size === 0) return;
+    t.sendCollectionDelta(name, record);
+  },
+
+  async seedPeer(targetPeerId) {
+    const t = getActiveTransport();
+    if (!t || typeof t.sendCollectionFull !== 'function') return;
+    for (const [name, def] of this._collections) {
+      const all = await def.readAll();
+      if (all && all.length) t.sendCollectionFull(name, all, targetPeerId);
+    }
+  },
+};
+
+// In-memory store for the vluchtige-maar-convergerende demo state (note +
+// lamp). Two records keyed by id: 'note' and 'lamp'. Last-write-wins on
+// updatedAt — exactly like sessions, just not persisted to disk.
+const _demoStore = { note: null, lamp: null };
+
+SyncEngine.register({
+  name    : 'demo',
+  keyField: 'id',
+  tsField : 'updatedAt',
+  readAll : () => [_demoStore.note, _demoStore.lamp].filter(Boolean),
+  writeOne: (rec) => {
+    if (rec.id === 'note') _demoStore.note = rec;
+    else if (rec.id === 'lamp') _demoStore.lamp = rec;
+  },
+  onChange: (rec) => {
+    // A peer's update arrived — reflect it in the UI without re-broadcasting.
+    if (rec.id === 'note') {
+      const text = rec.text || '';
+      _lastSentNoteText = text;  // avoid echoing it back as our own
+      for (const input of _allNoteInputs()) {
+        if (input.value !== text) input.value = text;
+      }
+    } else if (rec.id === 'lamp') {
+      setLampState(!!rec.on, { send: false });
+    }
+  },
+});
 
 const SyncManager = {
 
@@ -6181,22 +6298,22 @@ async function initWakeLock() {
 function setupNotePanels() {
   // Wire every note input. Both panels share the same handler — typing in
   // one mirrors into the other so the user's draft survives screen
-  // navigation within a connection session. A short debounce coalesces
-  // bursts of keystrokes into one message over the wire.
+  // navigation. A short debounce coalesces keystroke bursts into one update.
   for (const input of _allNoteInputs()) {
     input.addEventListener('input', () => {
       const text = input.value;
-      // Mirror to the other input(s) so state is consistent across panels.
       for (const other of _allNoteInputs()) {
         if (other !== input && other.value !== text) other.value = text;
       }
       if (_noteSendTimer) clearTimeout(_noteSendTimer);
       _noteSendTimer = setTimeout(() => {
         _noteSendTimer = null;
-        const t = getTransferForDemoFeatures(); if (!t || typeof t.sendNote !== 'function') return;
-        if (text === _lastSentNoteText) return;  // nothing changed since last send
+        if (text === _lastSentNoteText) return;
         _lastSentNoteText = text;
-        try { t.sendNote(text); } catch (e) { log('sendNote failed: ' + e.message, 'err'); }
+        // Write to the demo collection and let SyncEngine broadcast +
+        // propagate it to the whole group (not just direct peers).
+        _demoStore.note = { id: 'note', text, deviceId: DEVICE_ID, updatedAt: Date.now() };
+        SyncEngine.broadcastDelta('demo', _demoStore.note);
       }, NOTE_SEND_DEBOUNCE_MS);
     });
   }
@@ -6223,8 +6340,9 @@ function setLampState(on, opts = {}) {
   }
   // Outbound only on a local toggle (opts.send: true). Peer-driven updates
   // call with { send: false } so we don't ping-pong.
-  if (opts.send && changed) { const tl = getTransferForDemoFeatures(); if (tl && typeof tl.sendLamp === 'function') {
-    try { tl.sendLamp(_lampState); } catch (e) { log('sendLamp failed: ' + e.message, 'err'); } }
+  if (opts.send && changed) {
+    _demoStore.lamp = { id: 'lamp', on: _lampState, deviceId: DEVICE_ID, updatedAt: Date.now() };
+    SyncEngine.broadcastDelta('demo', _demoStore.lamp);
   }
 }
 
