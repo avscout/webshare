@@ -18,24 +18,35 @@
 (function (global) {
   'use strict';
 
-  const TRYSTERO_APP_ID = 'webshare-tudelft-v1';
+  // Neutral, non-identifying app namespace. This string is visible to relay
+  // operators in the signaling traffic, so it deliberately reveals nothing
+  // about the app or organisation — it's just a random opaque identifier.
+  // All devices must share the same value to find each other.
+  const TRYSTERO_APP_ID = 'b9a1c5f51a800c69';
   // esm.run is jsDelivr's ESM CDN — the officially recommended way to load
   // Trystero in a browser without a bundler.
-  // 0.21.8/nostr is pinned to the version confirmed working.
-  const TRYSTERO_CDN    = 'https://esm.run/trystero@0.23.0/nostr';
+  const TRYSTERO_VERSION = '0.23.0';
+  const TRYSTERO_CDN_NOSTR = `https://esm.run/trystero@${TRYSTERO_VERSION}/nostr`;
+  const TRYSTERO_CDN_MQTT  = `https://esm.run/trystero@${TRYSTERO_VERSION}/mqtt`;
 
-  // Pre-fetch the Trystero module as soon as this script loads so the
-  // first _joinRoom() call doesn't have to wait for a network round-trip.
-  let _trysteroModulePromise = null;
-  function _prefetchTrystero() {
-    if (!_trysteroModulePromise) {
-      _trysteroModulePromise = import(TRYSTERO_CDN).catch(() => {
-        _trysteroModulePromise = null;
+  // Pre-fetch the Trystero modules. Each strategy is a separate module;
+  // we cache them by strategy name so switching backends is instant.
+  const _trysteroModules = {};
+  function _prefetchTrystero(strategy = 'nostr') {
+    if (!_trysteroModules[strategy]) {
+      const url = strategy === 'mqtt' ? TRYSTERO_CDN_MQTT : TRYSTERO_CDN_NOSTR;
+      _trysteroModules[strategy] = import(url).catch(() => {
+        _trysteroModules[strategy] = null;
       });
     }
-    return _trysteroModulePromise;
+    return _trysteroModules[strategy];
   }
-  _prefetchTrystero();
+  _prefetchTrystero('nostr');
+
+  // Relay diagnostics should run at most once per page load — repeated
+  // joins (backend switches, reconnects) must not stack extra test
+  // WebSockets, which would get the app rate-limited by the relays.
+  let _relayDiagnosticsRun = false;
 
   // Public Nostr relays — all fully open, no signup or payment required.
   const NOSTR_RELAY_URLS = [
@@ -43,6 +54,13 @@
     'wss://relay.snort.social',
     'wss://relay.primal.net',
     'wss://nostr.mom',
+  ];
+
+  // Public MQTT brokers with WebSocket support — used by the MQTT strategy.
+  const MQTT_BROKER_URLS = [
+    'wss://test.mosquitto.org:8081',
+    'wss://broker.emqx.io:8084/mqtt',
+    'wss://broker.hivemq.com:8884/mqtt',
   ];
 
   // TURN servers for WebRTC NAT traversal. Using turnConfig (not rtcConfig)
@@ -100,8 +118,10 @@
      * @param {string}   [options.password]        - Shared group password for Trystero encryption.
      * @param {Function} [options.onPeerAccept]   - (deviceId, peerInfo) => boolean.
      */
-    constructor({ peerInfo, iceServers, persistent = false, password = null, onPeerAccept = null } = {}) {
+    constructor({ peerInfo, iceServers, persistent = false, password = null, onPeerAccept = null, strategy = 'nostr' } = {}) {
       super({ iceServers, peerInfo });
+
+      this._strategy = strategy;  // 'nostr' or 'mqtt'
 
       // Trystero room state
       this._room            = null;
@@ -280,33 +300,46 @@
     // -----------------------------------------------------------------------
 
     async _joinRoom(roomCode) {
-      this._log('info', 'Connecting to Nostr relays…');
+      const isMqtt = this._strategy === 'mqtt';
+      this._log('info', isMqtt ? 'Connecting to MQTT brokers…' : 'Connecting to Nostr relays…');
       let joinRoom;
       try {
-        ({ joinRoom } = await _prefetchTrystero());
+        ({ joinRoom } = await _prefetchTrystero(this._strategy));
       } catch (e) {
         throw new Error('Failed to load Trystero: ' + (e.message || e));
       }
       this._log('ok', 'Trystero loaded — joining room…');
 
+      // Defensive: if a room is somehow already open, leave it before
+      // opening a new one. Stacked rooms keep their relay sockets alive
+      // and get the app rate-limited.
+      if (this._room) {
+        try { this._room.leave(); } catch {}
+        this._room = null;
+      }
+
       const config = {
         appId      : TRYSTERO_APP_ID,
-        relayConfig: { urls: NOSTR_RELAY_URLS },
+        relayConfig: { urls: isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS },
         turnConfig : TURN_CONFIG,
       };
       if (this.password) config.password = this.password;
 
       this._room = joinRoom(config, roomCode);
+      const RELAY_URLS = isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS;
 
-      // Log relay status after 3s — only in dev mode
+      // Log relay status after 3s — only in dev mode, and only once per
+      // page load (repeated joins must not stack diagnostic sockets).
       setTimeout(() => {
         if (!this._room) return;
         if (!this._devMode) return;
+        if (_relayDiagnosticsRun) return;
+        _relayDiagnosticsRun = true;
         try {
           if (typeof this._room.getRelaySockets !== 'function') {
             // Fallback: test each relay URL directly with a WebSocket
             const self = this;
-            NOSTR_RELAY_URLS.forEach(url => {
+            RELAY_URLS.forEach(url => {
               const ws = new WebSocket(url);
               const timer = setTimeout(() => {
                 ws.close();
@@ -604,6 +637,10 @@
       this._sendSyncFullAction    = null;
       this._sendSyncDeltaAction   = null;
       this._sendSyncRequestAction = null;
+      this._sendSourceInfoAction  = null;
+      this._sendSourceReqAction   = null;
+      this._sendSourceDataAction  = null;
+      this._sendMbrSyncAction     = null;
       this._status('idle');
     }
   }

@@ -228,9 +228,9 @@
      * @param {Object} [opts.peerServer] - PeerJS signaling server config. When
      *   omitted, PeerJS defaults to its public cloud (0.peerjs.com).
      *   Shape: { host, port, path, secure, key } — only `host` is typically
-     *   required. Example for a self-hosted server at TU Delft:
+     *   required. Example for a self-hosted signaling server:
      *     peerServer: {
-     *       host: 'webshare-signal.tudelft.nl',
+     *       host: 'signal.example.org',
      *       port: 443,
      *       path: '/peerjs',
      *       secure: true

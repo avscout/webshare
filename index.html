@@ -2050,7 +2050,7 @@
           <button class="toggle-btn active" data-backend="peerjs">PeerJS<small>cross-network</small></button>
           <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
           <button class="toggle-btn" data-backend="trystero">Trystero / Nostr<small>reconnect-proof</small></button>
-          <button class="toggle-btn dev-only" data-backend="gun">Gun (experimental)<small>gossip sync</small></button>
+          <button class="toggle-btn dev-only" data-backend="mqtt">Trystero / MQTT<small>alternative relay</small></button>
         </div>
 
         <div class="net-banner hidden" id="net-banner">
@@ -2367,7 +2367,6 @@
     { local: 'webshare-transfer-peerjs.js' },
     { local: 'webshare-transfer-raw.js' },
     { local: 'webshare-transfer-trystero.js' },
-    { local: 'webshare-transfer-gun.js' },
   ];
   function withVersion(url) { return url + (url.includes('?') ? '&' : '?') + 'v=' + LOCAL_VERSION; }
   function loadOne(lib) {
@@ -3445,29 +3444,52 @@ let qrVisible = false;
 const TrysteroRoomManager = {
   _room    : null,         // single TrysteroTransfer for the group
   _peerInfo: new Map(),    // deviceId → peerInfo for all known connected peers
+  _pendingGroup: null,     // { roomCode, password } — not yet committed to storage
 
-  // Join the group room. Called once on startup if a group exists.
+  // Commit a pending group to persistent storage. Called when a peer
+  // actually connects, so cancelling the QR before anyone joins leaves
+  // no orphaned group behind.
+  commitPendingGroup() {
+    if (this._pendingGroup && !GroupStore.exists()) {
+      GroupStore.create(this._pendingGroup.roomCode, this._pendingGroup.password);
+    }
+    this._pendingGroup = null;
+  },
+
+  // Discard a pending group (QR cancelled before anyone joined).
+  discardPendingGroup() {
+    this._pendingGroup = null;
+    if (this._room) { try { this._room.forceClose(); } catch {} this._room = null; }
+  },
+
+  // Join the group room. Called once on startup if a group exists,
+  // or when showing an invite QR with a pending (uncommitted) group.
   async init() {
     if (this._room) return;
-    if (!GroupStore.exists()) return;
+    if (!GroupStore.exists() && !this._pendingGroup) return;
     await this._joinGroup().catch(e =>
       console.warn('TrysteroRoomManager: failed to join group room', e));
   },
 
   async _joinGroup() {
-    const roomCode = GroupStore.getRoomCode();
-    const password = GroupStore.getPassword();
+    const roomCode = GroupStore.getRoomCode() || (this._pendingGroup && this._pendingGroup.roomCode);
+    const password = GroupStore.getPassword() || (this._pendingGroup && this._pendingGroup.password);
     if (!roomCode) return;
 
     const t = new TrysteroTransfer({
       peerInfo    : buildLocalPeerInfo(),
       persistent  : true,
       password,
-      onPeerAccept: (deviceId, info) => {        if (GroupStore.isKnown(deviceId)) {
+      strategy    : currentBackend === 'mqtt' ? 'mqtt' : 'nostr',
+      onPeerAccept: (deviceId, info) => {
+        if (GroupStore.isKnown(deviceId)) {
           GroupStore.touch(deviceId);
           return true;
         }
         if (qrVisible) {
+          // A peer scanned our QR and connected — NOW commit the group to
+          // storage (it was pending until someone actually joined).
+          TrysteroRoomManager.commitPendingGroup();
           const newMember = {
             deviceId,
             nickname : info && info.nickname,
@@ -3878,11 +3900,8 @@ function setActiveTransport(t) {
   _activeTransport = t;
 }
 
-// Returns the connected members from whichever room manager is active.
+// Returns the connected members from the active transport.
 function getActiveConnectedMembers() {
-  if (currentBackend === 'gun' && typeof GunRoomManager !== 'undefined' && GunRoomManager._transport) {
-    return GunRoomManager.getConnectedMembers();
-  }
   return TrysteroRoomManager.getConnectedMembers();
 }
 
@@ -4379,9 +4398,9 @@ const FLOWS = {
   //      happens once per pairing.
   'send-peerjs':       ['start', 'scan-qr', 'pick', 'transfer'],
   'send-raw':          ['start', 'scan-qr', 'show-qr', 'pick', 'transfer'],
-  'send-trystero':     ['start', 'pick', 'transfer'],
-  'receive-gun':       ['start', 'show-qr', 'transfer'],
-  'send-gun':          ['start', 'pick', 'transfer'],
+  'send-trystero':     ['start', 'scan-qr', 'transfer'],
+  'receive-mqtt':      ['start', 'show-qr', 'transfer'],
+  'send-mqtt':         ['start', 'scan-qr', 'transfer'],
 };
 
 let currentBackend = 'trystero';
@@ -4536,6 +4555,12 @@ function onLeaveScreen(screenId) {
   if (screenId === 'show-qr') {
     stopQRCycle('show-qr-frame');
     qrVisible = false;
+    // If we showed an invite QR but no peer ever joined (group still
+    // uncommitted), discard the pending group so we don't leave an
+    // orphaned empty group behind.
+    if (TrysteroRoomManager._pendingGroup && !GroupStore.exists()) {
+      TrysteroRoomManager.discardPendingGroup();
+    }
   }
   if (screenId === 'transfer') {
     // Clear the highlight state so a future transfer doesn't show stale info
@@ -4609,7 +4634,18 @@ async function onEnterScreen(screenId) {
 document.querySelectorAll('#backend-group .toggle-btn').forEach(b => {
   b.addEventListener('click', () => {
     document.querySelectorAll('#backend-group .toggle-btn').forEach(x => x.classList.toggle('active', x === b));
-    currentBackend = b.dataset.backend;
+    const newBackend = b.dataset.backend;
+    if (newBackend !== currentBackend) {
+      // Tear down any active transfer and the persistent group room from
+      // the previous backend, so their relay sockets don't linger and
+      // stack up (which gets the app rate-limited by the relays).
+      if (activeTransfer) disposeActiveTransfer();
+      if (TrysteroRoomManager._room) {
+        try { TrysteroRoomManager._room.forceClose(); } catch {}
+        TrysteroRoomManager._room = null;
+      }
+    }
+    currentBackend = newBackend;
     onBackendOrModeChanged();
   });
 });
@@ -4634,20 +4670,6 @@ document.querySelectorAll('#mode-group .direction-btn').forEach(b => {
 function onBackendOrModeChanged() {
   $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
   if (currentBackend === 'raw') updateNetworkIdUI();
-
-  // Start Gun transport when switching to gun backend
-  if (currentBackend === 'gun' && GroupStore.exists() && typeof GunRoomManager !== 'undefined') {
-    if (!GunRoomManager._transport) {
-      const rc = GroupStore.getRoomCode();
-      const pw = GroupStore.getPassword();
-      GunRoomManager.init(rc, pw, DEVICE_ID, buildLocalPeerInfo())
-        .catch(e => log('Gun init error: ' + e.message, 'err'));
-    }
-  } else if (currentBackend !== 'gun' && typeof GunRoomManager !== 'undefined' && GunRoomManager._transport) {
-    // Stop Gun when switching away
-    GunRoomManager.stop();
-  }
-
   updateNavBar();
 }
 
@@ -5118,7 +5140,7 @@ async function setupShowQRScreen() {
     const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'peerjs';
     if (needsInit) showConnectingOverlay('Setting up…');
     await ensureReceiveTransfer();
-  } else if (currentMode === 'receive' && (currentBackend === 'trystero' || currentBackend === 'gun')) {
+  } else if (currentMode === 'receive' && (currentBackend === 'trystero' || currentBackend === 'mqtt')) {
     $('show-qr-title').textContent = GroupStore.exists() ? 'Invite to group' : 'Create group';
     $('show-qr-subtitle').textContent = 'Let the other device scan this QR to join.';
     showConnectingOverlay('Setting up…');
@@ -5142,7 +5164,7 @@ async function setupShowQRScreen() {
 // =====================================================================
 async function setupScanQRScreen() {
   const isPeerJSSender  = currentMode === 'send' && currentBackend === 'peerjs';
-  const isTrysteroSender = currentMode === 'send' && currentBackend === 'trystero';
+  const isTrysteroSender = currentMode === 'send' && (currentBackend === 'trystero' || currentBackend === 'mqtt');
   const isRawSender     = currentMode === 'send' && currentBackend === 'raw';
   const isRawReceiver   = currentMode === 'receive' && currentBackend === 'raw';
 
@@ -5247,27 +5269,30 @@ function extractPeerIdFromScan(text) {
 // The QR URL contains: ?join={roomCode}&pw={password}&invitedBy={DEVICE_ID}&backend=trystero
 // =====================================================================
 async function setupTrysteroInviteQR(qrContainer, infoContainer) {
-  // Ensure group exists (create on first use)
-  if (!GroupStore.exists()) {
-    const roomCode = await (async () => {
-      // Use generateTrysteroPassword if available (from transfer file)
-      const pw = typeof generateTrysteroPassword === 'function'
-        ? generateTrysteroPassword()
-        : [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2,'0')).join('');
-      const code = [
-        ['amber','azure','bright','cedar','coral','crisp','frost','golden','green',
-         'ivory','jade','lemon','lime','maple','misty','sandy','snowy','sunny'][Math.floor(Math.random()*18)],
-        ['birch','brook','cliff','creek','field','frost','glade','grove','hill',
-         'lake','mist','moon','moss','peak','pine','pond','ridge','river','rock'][Math.floor(Math.random()*19)],
-        String(10 + Math.floor(Math.random() * 90))
-      ].join('-');
-      GroupStore.create(code, pw);
-      return code;
-    })();
+  // Create a PENDING group (not yet persisted). It only commits to storage
+  // when a peer actually scans and connects (see onPeerAccept). This way,
+  // cancelling the QR before anyone joins leaves no orphaned group.
+  let roomCode, password;
+  if (GroupStore.exists()) {
+    roomCode = GroupStore.getRoomCode();
+    password = GroupStore.getPassword();
+  } else if (TrysteroRoomManager._pendingGroup) {
+    roomCode = TrysteroRoomManager._pendingGroup.roomCode;
+    password = TrysteroRoomManager._pendingGroup.password;
+  } else {
+    password = typeof generateTrysteroPassword === 'function'
+      ? generateTrysteroPassword()
+      : [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2,'0')).join('');
+    roomCode = [
+      ['amber','azure','bright','cedar','coral','crisp','frost','golden','green',
+       'ivory','jade','lemon','lime','maple','misty','sandy','snowy','sunny'][Math.floor(Math.random()*18)],
+      ['birch','brook','cliff','creek','field','frost','glade','grove','hill',
+       'lake','mist','moon','moss','peak','pine','pond','ridge','river','rock'][Math.floor(Math.random()*19)],
+      String(10 + Math.floor(Math.random() * 90))
+    ].join('-');
+    TrysteroRoomManager._pendingGroup = { roomCode, password };
   }
 
-  const roomCode  = GroupStore.getRoomCode();
-  const password  = GroupStore.getPassword();
   const inviteUrl = buildJoinURL(roomCode, 'trystero', { pw: password, invitedBy: DEVICE_ID });
 
   // Render into provided containers (overlay) or default screen elements
@@ -5283,8 +5308,8 @@ async function setupTrysteroInviteQR(qrContainer, infoContainer) {
   renderQR(frameEl, inviteUrl);
   if (textEl) textEl.textContent = DEV_MODE ? `Room: ${roomCode}` : '';
 
-  // Ensure the group room is running in the background —
-  // must happen AFTER GroupStore.create() so the password is available.
+  // Ensure the group room is running in the background — works for both
+  // a committed group and a pending (not-yet-joined) one.
   if (!TrysteroRoomManager._room) {
     await TrysteroRoomManager.init().catch(e => log('Group room init error: ' + e.message, 'err'));
   }
@@ -5341,7 +5366,7 @@ async function onScanResult(data) {
     restartToStart();
     renderGroupStatusBar('connecting');
 
-    // Connect in background
+    // Connect in background (both trystero and mqtt use TrysteroRoomManager)
     TrysteroRoomManager.init()
       .then(() => renderGroupStatusBar())
       .catch(e => {
@@ -5402,14 +5427,7 @@ function setupTransferScreen() {
         if (!selectedSessionId) throw new Error('No report selected to send');
         const session = await getSession(selectedSessionId);
         if (!session) throw new Error('Selected report not found');
-        if (currentBackend === 'gun') {
-          // Gun: broadcast via SyncManager — Gun propagates via gossip
-          await SyncManager.broadcastDelta(session);
-          setTransferStatus('Sent via Gun sync.', 'ok');
-          $('transfer-title').textContent = 'Sent';
-        } else {
-          await activeTransfer.send(session);
-        }
+        await activeTransfer.send(session);
       } catch (err) {
         log('Send failed: ' + err.message, 'err');
         $('transfer-title').textContent = 'Something went wrong';
@@ -5649,15 +5667,11 @@ async function ensureReceiveTransfer() {
   const opts = { peerInfo: buildLocalPeerInfo() };
   if (currentBackend === 'peerjs')        activeTransfer = new PeerJSTransfer(opts);
   else if (currentBackend === 'raw')      activeTransfer = new RawTransfer(opts);
-  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer({
+  else if (currentBackend === 'trystero' || currentBackend === 'mqtt') activeTransfer = new TrysteroTransfer({
     ...opts,
     password: GroupStore.getPassword() || null,
+    strategy: currentBackend === 'mqtt' ? 'mqtt' : 'nostr',
   });
-  else if (currentBackend === 'gun') {
-    // Gun syncs via GunRoomManager — no per-connection transfer object needed
-    activeTransfer = { _uiDirection: 'receive', _uiBackend: 'gun' };
-    return;
-  }
   else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'receive';
   activeTransfer._uiBackend = currentBackend;
@@ -5676,15 +5690,11 @@ async function ensureSendTransfer() {
   const opts = { peerInfo: buildLocalPeerInfo() };
   if (currentBackend === 'peerjs')        activeTransfer = new PeerJSTransfer(opts);
   else if (currentBackend === 'raw')      activeTransfer = new RawTransfer(opts);
-  else if (currentBackend === 'trystero') activeTransfer = new TrysteroTransfer({
+  else if (currentBackend === 'trystero' || currentBackend === 'mqtt') activeTransfer = new TrysteroTransfer({
     ...opts,
     password: GroupStore.getPassword() || null,
+    strategy: currentBackend === 'mqtt' ? 'mqtt' : 'nostr',
   });
-  else if (currentBackend === 'gun') {
-    // Gun syncs via GunRoomManager — no per-connection transfer object needed
-    activeTransfer = { _uiDirection: 'send', _uiBackend: 'gun' };
-    return;
-  }
   else throw new Error('Unknown backend: ' + currentBackend);
   activeTransfer._uiDirection = 'send';
   activeTransfer._uiBackend = currentBackend;
@@ -5979,12 +5989,7 @@ function setPeerNoteText(text) {
 }
 
 function updateNotePanelPeerLabel() {
-  let connected = 0;
-  if (currentBackend === 'gun' && typeof GunRoomManager !== 'undefined' && GunRoomManager._transport) {
-    connected = GunRoomManager.getConnectedMembers().length;
-  } else if (TrysteroRoomManager) {
-    connected = TrysteroRoomManager.getConnectedMembers().length;
-  }
+  const connected = TrysteroRoomManager ? TrysteroRoomManager.getConnectedMembers().length : 0;
   const multiple  = connected > 1;
   const name = multiple ? `${connected} peers`
              : (remotePeerInfo && remotePeerInfo.nickname) ? remotePeerInfo.nickname
@@ -6029,9 +6034,6 @@ function updateNotePanelVisibility() {
 
 // Returns the right transfer for demo features (note/lamp).
 function getTransferForDemoFeatures() {
-  if (currentBackend === 'gun' && GunRoomManager._transport) {
-    return GunRoomManager._transport;
-  }
   if (TrysteroRoomManager._room && TrysteroRoomManager.isConnected()) {
     return TrysteroRoomManager._room;
   }
@@ -6548,7 +6550,7 @@ function wireTransferToReceiveUI(t) {
   t.on('connected', (peerId) => {
     // Receiver connected
     log('Peer connected.', 'ok');
-    if (t._uiBackend === 'trystero' || t._uiBackend === 'gun') {
+    if (t._uiBackend === 'trystero' || t._uiBackend === 'mqtt') {
       // Trystero/Gun: no transfer screen — request sync from new peer
       hideConnectingOverlay();
       if (typeof peerId === 'string') {
@@ -8155,12 +8157,15 @@ async function showMyDevicePanel() {
     });
   }
 
-  // Browse → opens existing Sessions modal. The old top-right Sessions
-  // button is gone; this is the new entry point.
-  backdrop.querySelector('#mydev-browse-btn').addEventListener('click', () => {
-    backdrop.remove();
-    showSessionsModal();
-  });
+  // Browse → opens existing Sessions modal. (The Reports section that held
+  // this button was removed; guard against its absence.)
+  const browseBtn = backdrop.querySelector('#mydev-browse-btn');
+  if (browseBtn) {
+    browseBtn.addEventListener('click', () => {
+      backdrop.remove();
+      showSessionsModal();
+    });
+  }
 
   // The install action — fired by both the Get-the-app button and the
   // inline "Install FieldSync" links in the safety-check
@@ -8839,15 +8844,6 @@ window.addEventListener('load', async () => {
       .then(() => renderGroupStatusBar())
       .catch(e => log('Room init error: ' + e.message, 'err'));
   }
-
-  // Init Gun transport if selected and group exists
-  if (currentBackend === 'gun' && GroupStore.exists() && typeof GunRoomManager !== 'undefined') {
-    const rc = GroupStore.getRoomCode();
-    const pw = GroupStore.getPassword();
-    GunRoomManager.init(rc, pw, DEVICE_ID, buildLocalPeerInfo())
-      .then(() => log('Gun transport started.', 'ok'))
-      .catch(e => log('Gun init error: ' + e.message, 'err'));
-  }
 });
 
 // Pair automatically if the page was opened with ?join={peerId}. Called
@@ -8872,12 +8868,12 @@ async function autoJoinIfPending() {
   log(`Auto-joining peer "${peerId}"…`, 'info');
 
   currentMode    = 'send';
-  currentBackend = (backend === 'trystero' || backend === 'raw') ? backend : 'peerjs';
+  currentBackend = (backend === 'trystero' || backend === 'mqtt' || backend === 'raw') ? backend : 'peerjs';
   onBackendOrModeChanged();
 
   if (!hasIdentity()) { log('Cannot auto-join: no identity.', 'err'); return; }
 
-  if (currentBackend === 'trystero' || currentBackend === 'gun') {
+  if (currentBackend === 'trystero' || currentBackend === 'mqtt') {
     // Group join: create group from QR params, then reinit room manager
     if (!GroupStore.exists() && peerId && pw) {
       GroupStore.create(peerId, pw);
@@ -8885,27 +8881,18 @@ async function autoJoinIfPending() {
     if (invitedBy) _pendingInvitedBy = invitedBy;
     showConnectingOverlay('Joining group…');
     try {
-      if (currentBackend === 'gun') {
-        // Gun: just init the room manager — no explicit connect needed
-        const rc = GroupStore.getRoomCode();
-        const pw2 = GroupStore.getPassword();
-        await GunRoomManager.init(rc, pw2, DEVICE_ID, buildLocalPeerInfo());
-        hideConnectingOverlay();
-      } else {
-        // Trystero: connect via activeTransfer first, then reinit
-        await ensureSendTransfer();
-        await activeTransfer.connect(peerId);
-        hideConnectingOverlay();
-        // Wait for peer-info before reinit to avoid race condition
-        await new Promise(resolve => {
-          if (remotePeerInfo) return resolve();
-          const timeout = setTimeout(resolve, 3000);
-          const unsub = activeTransfer.on('peer-info', () => {
-            clearTimeout(timeout); unsub(); resolve();
-          });
+      await ensureSendTransfer();
+      await activeTransfer.connect(peerId);
+      hideConnectingOverlay();
+      // Wait for peer-info before reinit to avoid race condition
+      await new Promise(resolve => {
+        if (remotePeerInfo) return resolve();
+        const timeout = setTimeout(resolve, 3000);
+        const unsub = activeTransfer.on('peer-info', () => {
+          clearTimeout(timeout); unsub(); resolve();
         });
-        await TrysteroRoomManager.reinit();
-      }
+      });
+      await TrysteroRoomManager.reinit();
       restartToStart();
     } catch (err) {
       hideConnectingOverlay();
