@@ -71,7 +71,6 @@
   // including the correct /mqtt paths each broker expects.
   const MQTT_BROKER_URLS = [
     'wss://test.mosquitto.org:8081/mqtt',
-    'wss://broker.emqx.io:8084/mqtt',
     'wss://broker.hivemq.com:8884/mqtt',
   ];
 
@@ -343,6 +342,12 @@
         throw new Error(`Failed to load Trystero ${this._strategy} module (CDN unreachable?)`);
       }
       const { joinRoom } = mod;
+      // getRelaySockets is a MODULE-level export in Trystero (not a room
+      // method). Capture it so the relay diagnostics can report which brokers
+      // we're actually connected to.
+      this._getRelaySockets = (typeof mod.getRelaySockets === 'function')
+        ? mod.getRelaySockets
+        : null;
       this._log('ok', 'Trystero loaded — joining room…');
 
       // Defensive: if a room is somehow already open, leave it before
@@ -370,50 +375,78 @@
         if (!this._devMode) return;
         if (_relayDiagnosticsRun[this._strategy]) return;
         _relayDiagnosticsRun[this._strategy] = true;
+
+        const label = isMqtt ? 'broker' : 'relay';
+        const labelCap = isMqtt ? 'Broker' : 'Relay';
+
         try {
-          if (typeof this._room.getRelaySockets !== 'function') {
-            // Fallback: test each relay URL directly with a WebSocket
-            const self = this;
-            RELAY_URLS.forEach(url => {
-              const ws = new WebSocket(url);
-              const timer = setTimeout(() => {
-                ws.close();
-                console.warn(`[FieldSync relay] ${url} — timeout`);
-              }, 5000);
-              ws.onopen = () => {
-                clearTimeout(timer);
-                console.log(`[FieldSync relay] ${url} — connected ✓`);
-                ws.close();
-              };
-              ws.onerror = () => {
-                clearTimeout(timer);
-                console.warn(`[FieldSync relay] ${url} — failed ✗`);
-              };
-            });
+          // Preferred: ask Trystero which signaling sockets are actually open.
+          // getRelaySockets() returns a map of URL → WebSocket for the sockets
+          // Trystero itself is using right now (not a separate test socket).
+          if (this._getRelaySockets) {
+            const sockets = this._getRelaySockets();
+            const entries = Object.entries(sockets || {});
+            let connected = 0;
+            const connectedUrls = [];
+            for (const [url, ws] of entries) {
+              const open = ws && ws.readyState === 1;
+              if (open) { connected++; connectedUrls.push(url); }
+              this._log(open ? 'ok' : 'err',
+                `${labelCap} ${url} — ${open ? 'verbonden ✓' : 'niet verbonden ✗'}`);
+            }
+            const total = entries.length;
+            if (total === 0) {
+              this._log('err', `Geen ${label}s gevonden — Trystero lijkt niet correct geladen.`);
+            } else {
+              this._log(connected ? 'ok' : 'err',
+                `Verbonden met ${connected}/${total} ${label}s${connectedUrls.length ? ': ' + connectedUrls.join(', ') : ''}.`);
+              // Split-risk interpretation: peer discovery only works between two
+              // devices if they share at least one broker. Fewer connected
+              // brokers = higher chance two devices have no broker in common.
+              if (connected === 0) {
+                this._log('err', `⚠ Geen ${label} bereikbaar — peer-discovery werkt niet.`);
+              } else if (connected < total) {
+                this._log('info',
+                  `Let op: niet alle ${label}s zijn bereikbaar. Twee apparaten vinden elkaar alleen als ze minstens één ${label} gemeen hebben. ` +
+                  `Op dit netwerk verbindt alleen: ${connectedUrls.join(', ')}.`);
+              }
+              this.emit('relay-status', { connected, total, connectedUrls });
+            }
             return;
           }
-          const sockets = this._room.getRelaySockets();
-          let connected = 0, total = 0;
-          sockets.forEach((ws, url) => {
-            total++;
-            const state = ws.readyState === 1 ? 'connected'
-                        : ws.readyState === 0 ? 'connecting'
-                        : ws.readyState === 2 ? 'closing' : 'closed';
-            const level = ws.readyState === 1 ? 'ok' : ws.readyState === 0 ? 'info' : 'err';
-            if (ws.readyState === 1) connected++;
-            this._log(level, `Relay ${url} — ${state}`);
+
+          // Fallback when the module doesn't expose getRelaySockets: probe each
+          // URL with a short-lived test socket. This reports reachability, not
+          // the live signaling socket — logged to the dev-log all the same.
+          this._log('info', `getRelaySockets niet beschikbaar — ${label}s los testen…`);
+          const results = [];
+          let pending = RELAY_URLS.length;
+          const summarise = () => {
+            const reachable = results.filter(r => r.ok).map(r => r.url);
+            this._log(reachable.length ? 'ok' : 'err',
+              `Bereikbaar: ${reachable.length}/${RELAY_URLS.length} ${label}s${reachable.length ? ': ' + reachable.join(', ') : ''}.`);
+            if (reachable.length && reachable.length < RELAY_URLS.length) {
+              this._log('info',
+                `Let op: twee apparaten vinden elkaar alleen als ze minstens één ${label} gemeen hebben. Op dit netwerk bereikbaar: ${reachable.join(', ')}.`);
+            }
+            this.emit('relay-status', { connected: reachable.length, total: RELAY_URLS.length, connectedUrls: reachable });
+          };
+          RELAY_URLS.forEach(url => {
+            let settled = false;
+            const ws = new WebSocket(url);
+            const done = (ok) => {
+              if (settled) return; settled = true;
+              results.push({ url, ok });
+              this._log(ok ? 'ok' : 'err', `${labelCap} ${url} — ${ok ? 'bereikbaar ✓' : 'niet bereikbaar ✗'}`);
+              try { ws.close(); } catch {}
+              if (--pending === 0) summarise();
+            };
+            const timer = setTimeout(() => done(false), 5000);
+            ws.onopen  = () => { clearTimeout(timer); done(true); };
+            ws.onerror = () => { clearTimeout(timer); done(false); };
           });
-      if (total === 0) {
-            this._log('err', 'No relays found — Trystero may not be loaded correctly.');
-          } else if (connected === 0) {
-            this._log('err', `⚠ No relays reachable (0/${total}) — check network. Peer discovery will not work.`);
-            this.emit('relay-status', { connected: 0, total });
-          } else {
-            this._log('ok', `${connected}/${total} relays connected — room ready.`);
-            this.emit('relay-status', { connected, total });
-          }
         } catch (e) {
-          this._log('err', 'Could not check relay status: ' + e.message);
+          this._log('err', `Kon ${label}-status niet bepalen: ` + e.message);
         }
       }, 3000);
 
