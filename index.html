@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '31';
+  const LOCAL_VERSION = '32';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -5174,9 +5174,13 @@ function refreshMyDeviceMembers() {
         <div style="font-size:12px;color:${statusColor};font-weight:500">${statusText}</div>
         ${roleLabel ? `<div style="font-size:11px;color:var(--accent);font-weight:500">${roleLabel}</div>` : ''}
       </div>
-      ${!isYou ? `<button class="mydev-unpair-btn" data-deviceid="${p.deviceId}" style="
-        background:none;border:1px solid var(--line);border-radius:4px;
-        padding:4px 8px;font-size:11px;color:var(--dim);cursor:pointer;flex-shrink:0">Remove</button>` : ''}
+      ${isYou
+        ? `<button class="mydev-leave-btn" data-deviceid="${p.deviceId}" style="
+            background:none;border:1px solid #c00;border-radius:4px;
+            padding:4px 8px;font-size:11px;color:#c00;cursor:pointer;flex-shrink:0">Leave</button>`
+        : `<button class="mydev-unpair-btn" data-deviceid="${p.deviceId}" style="
+            background:none;border:1px solid var(--line);border-radius:4px;
+            padding:4px 8px;font-size:11px;color:var(--dim);cursor:pointer;flex-shrink:0">Remove</button>`}
     </div>`;
   }).join('');
 
@@ -5184,20 +5188,28 @@ function refreshMyDeviceMembers() {
   const rowsEl = $('mydev-group-members-rows') || section;
   rowsEl.innerHTML = rows;
 
-  // Re-wire remove buttons
+  // Re-wire remove buttons (other members)
   section.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (confirm('Remove this device from the group? Their app will reset its group data (their profile is kept), and they will need to scan a new invite to rejoin.')) {
+      if (confirm('Remove this device from the group? They will drop out of everyone\'s member list and their app will clear its shared group data (their profile is kept). They can rejoin with a new invite.')) {
         const deviceId = btn.dataset.deviceid;
         const removedAt = Date.now();
         GroupStore.removeMember(deviceId, removedAt);
-        // Broadcast the removal as a tombstone via SyncEngine — it propagates
-        // across the mesh and reaches the removed device (which then resets
-        // itself), and wins last-write over any stale member record.
         SyncEngine.broadcastTombstone('mbr', deviceId, removedAt);
         renderTopbarConnections();
         refreshMyDeviceMembers();
         renderHomeGroupMembers();
+      }
+    });
+  });
+
+  // Re-wire the Leave button (own row)
+  section.querySelectorAll('.mydev-leave-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (confirm('Leave this group? This device will be removed from the group and its shared data (reports, source) will be cleared. Your profile is kept, and you can rejoin with a new invite.')) {
+        btn.disabled = true;
+        btn.textContent = 'Leaving…';
+        await leaveGroup();
       }
     });
   });
@@ -8499,10 +8511,15 @@ async function showMyDevicePanel() {
                 <div style="font-size:12px;color:var(--dim)">${isYou ? '● Online' : connected ? '● Online' : 'Last seen: ' + lastSeen}</div>
                 ${roleLabel ? `<div style="font-size:11px;color:var(--accent);font-weight:500">${roleLabel}</div>` : ''}
               </div>
-              <button class="mydev-unpair-btn" data-deviceid="${p.deviceId}"
-                style="font-size:11px;padding:4px 10px;border:1px solid #c00;border-radius:4px;color:#c00;background:transparent;cursor:pointer;flex-shrink:0">
-                Remove
-              </button>
+              ${isYou
+                ? `<button class="mydev-leave-btn" data-deviceid="${p.deviceId}"
+                     style="font-size:11px;padding:4px 10px;border:1px solid #c00;border-radius:4px;color:#c00;background:transparent;cursor:pointer;flex-shrink:0">
+                     Leave
+                   </button>`
+                : `<button class="mydev-unpair-btn" data-deviceid="${p.deviceId}"
+                     style="font-size:11px;padding:4px 10px;border:1px solid #c00;border-radius:4px;color:#c00;background:transparent;cursor:pointer;flex-shrink:0">
+                     Remove
+                   </button>`}
             </div>`;
           }).join('');
           return `<div class="mydev-section" id="mydev-group-members-section">
@@ -8510,15 +8527,6 @@ async function showMyDevicePanel() {
             <div id="mydev-group-members-rows">${rows}</div>
           </div>`;
         })()}
-
-        ${GroupStore.exists() ? `
-        <div class="mydev-section">
-          <div class="mydev-section-head">Group</div>
-          <button class="mydev-dev-btn" id="mydev-leave-group" style="color:var(--danger,#c0392b)">Leave group</button>
-          <div style="font-size:12px;color:var(--dim);margin-top:6px">
-            Removes this device from the group and clears shared data (reports, source). Your profile stays. You can rejoin with a new invite.
-          </div>
-        </div>` : ''}
 
         <div class="mydev-section">
           <div class="mydev-section-head">Local storage safety</div>
@@ -8569,15 +8577,16 @@ async function showMyDevicePanel() {
     if (e.key === 'Escape') { roleInput.value = identity.role || ''; roleInput.blur(); }
   });
 
-  // Unpair buttons in the paired devices section
+  // Remove buttons — for OTHER members. Drops them from everyone's list.
   backdrop.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (confirm('Remove this device from the group? They will drop out of everyone\'s member list. They keep their own local data unless they leave the group themselves.')) {
+      if (confirm('Remove this device from the group? They will drop out of everyone\'s member list and their app will clear its shared group data (their profile is kept). They can rejoin with a new invite.')) {
         const deviceId = btn.dataset.deviceid;
         const removedAt = Date.now();
         GroupStore.removeMember(deviceId, removedAt);
         // Broadcast the removal as a tombstone so it propagates across the
-        // mesh; the removed device drops out of every member list.
+        // mesh; the removed device drops out of every member list and runs
+        // its own wipe sequence.
         SyncEngine.broadcastTombstone('mbr', deviceId, removedAt);
         backdrop.remove();
         renderTopbarConnections();
@@ -8587,18 +8596,17 @@ async function showMyDevicePanel() {
     });
   });
 
-  // Leave group — the user's own decision. Wipes local group data (profile
-  // kept) and tells the group via a self-tombstone.
-  const leaveBtn = backdrop.querySelector('#mydev-leave-group');
-  if (leaveBtn) {
-    leaveBtn.addEventListener('click', async () => {
+  // Leave button — on the user's OWN row. Same end state as a remove, but
+  // self-initiated. Wipes local group data (profile kept), tells the group.
+  backdrop.querySelectorAll('.mydev-leave-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
       if (confirm('Leave this group? This device will be removed from the group and its shared data (reports, source) will be cleared. Your profile is kept, and you can rejoin with a new invite.')) {
-        leaveBtn.disabled = true;
-        leaveBtn.textContent = 'Leaving…';
+        btn.disabled = true;
+        btn.textContent = 'Leaving…';
         await leaveGroup();  // broadcasts tombstone, wipes, reloads
       }
     });
-  }
+  });
 
   // Safety check rows: tap a row to open its detail panel. Only one
   // panel can be open at a time — tapping a different row closes the
