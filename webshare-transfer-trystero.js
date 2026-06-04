@@ -143,6 +143,11 @@
       this._isReconnecting  = false;
       this._pendingPeerJoins = new Map(); // peerId → { isReconnect }
       this._rejectedPeers   = new Set();
+      // When true, ALL inbound data messages are dropped at the central gate
+      // (see _makeAction). Set when this device has left / been removed from
+      // the group. Default-closed: any action, present or future, is blocked
+      // without needing a per-handler check.
+      this._inboundSealed   = false;
 
       // Action senders (populated once _joinRoom resolves)
       this._sendPeerInfoAction    = null;
@@ -203,6 +208,12 @@
       if (!this._sendColFullAction) return;
       try { this._sendColFullAction(name, records, targetPeerId || undefined); } catch {}
     }
+
+    // Seal/unseal the central inbound gate. When sealed, every inbound data
+    // message is dropped (used when this device has left/been removed from the
+    // group). Default-closed for all actions, present and future.
+    sealInbound()   { this._inboundSealed = true; }
+    unsealInbound() { this._inboundSealed = false; }
 
     // Send peer-info to a specific peer, or broadcast if no targetId given.
     _sendPeerInfo(targetPeerId) {
@@ -415,16 +426,34 @@
       // returned `send` accepts (data, targetPeerId) and `onReceive` accepts a
       // callback (cb(data, peerId)). The rest of this file is written against
       // that tuple, so callers don't need to know which Trystero is underneath.
-      const _makeAction = (name) => {
+      // Central inbound gate. EVERY action's receive callback passes through
+      // here, so a new action added in the future is blocked-by-default
+      // without touching its handler.
+      //   • _inboundSealed → drop everything (device left/removed the group).
+      //   • _rejectedPeers → drop everything from that peer, EXCEPT actions
+      //     flagged allowWhenRejected (peerinfo), which must still flow so a
+      //     previously-rejected peer can be re-admitted.
+      const _gate = (peerId, opts) => {
+        if (this._inboundSealed) return false;
+        if (this._rejectedPeers.has(peerId) && !(opts && opts.allowWhenRejected)) return false;
+        return true;
+      };
+
+      const _makeAction = (name, opts) => {
         const result = this._room.makeAction(name);
 
-        // Classic array form — use directly.
+        // Classic array form.
         if (Array.isArray(result)) {
           if (this._devMode && !this._loggedApiShape) {
             this._loggedApiShape = true;
             console.log(`[FieldSync] ${this._strategy} uses classic array makeAction API`);
           }
-          return result;
+          const [rawSend, rawOnReceive] = result;
+          const onReceive = (cb) => rawOnReceive((data, peerId) => {
+            if (!_gate(peerId, opts)) return;
+            cb(data, peerId);
+          });
+          return [rawSend, onReceive];
         }
 
         // New object form — adapt to the tuple.
@@ -434,15 +463,13 @@
             console.log(`[FieldSync] ${this._strategy} uses new object makeAction API (adapted)`);
           }
           const send = (data, targetPeerId) => {
-            // New API takes an options object; map a bare peerId to { target }.
             if (targetPeerId == null) return result.send(data);
             return result.send(data, { target: targetPeerId });
           };
           const onReceive = (cb) => {
-            // New API exposes onMessage as a setter; the handler receives
-            // (data, meta) where meta carries peerId. Re-shape to (data, peerId).
             result.onMessage = (data, meta) => {
               const peerId = meta && typeof meta === 'object' ? meta.peerId : meta;
+              if (!_gate(peerId, opts)) return;
               cb(data, peerId);
             };
           };
@@ -458,7 +485,7 @@
       // Existing actions
       const [sendPayload,  onPayload]  = _makeAction('payload');
       const [sendAck,      onAck]      = _makeAction('ack');
-      const [sendPeerInfo, onPeerInfo] = _makeAction('peerinfo');
+      const [sendPeerInfo, onPeerInfo] = _makeAction('peerinfo', { allowWhenRejected: true });
       const [sendNote,     onNote]     = _makeAction('note');
       const [sendLamp,     onLamp]     = _makeAction('lamp');
 
@@ -569,17 +596,14 @@
       });
 
       onNote((text, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         this.emit('note', { text: String(text == null ? '' : text) });
       });
 
       onLamp(({ on } = {}, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         this.emit('lamp', { on: !!on });
       });
 
       onPayload(async (payload, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         this._status('transferring');
         this.emit('progress', { received: 50, total: 100 });
         try {
@@ -596,7 +620,6 @@
       });
 
       onAck(({ response, error } = {}, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         this._status('done');
         if (this.onAck) {
           try { this.onAck(response, error); } catch (e) { console.error(e); }
@@ -605,49 +628,40 @@
 
       // Sync handlers
       onSyncFull((sessions, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (this.onSyncFull) this.onSyncFull(sessions, peerId);
       });
 
       onSyncDelta((session, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (this.onSyncDelta) this.onSyncDelta(session, peerId);
       });
 
       onSyncRequest((_, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (this.onSyncRequest) this.onSyncRequest(peerId);
       });
 
       onSourceInfo((data, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (this.onSourceInfo) this.onSourceInfo(data, peerId);
       });
 
       onSourceReq((_, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (this.onSourceRequest) this.onSourceRequest(peerId);
       });
 
       onSourceData((data, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (this.onSourceData) this.onSourceData(data, peerId);
       });
 
       onMbrSync((data, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (this.onMbrSync) this.onMbrSync(data, peerId);
       });
 
       onColDelta((data, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (data && data.name && this.onCollectionDelta) {
           this.onCollectionDelta(data.name, data.record, peerId);
         }
       });
 
       onColFull((data, peerId) => {
-        if (this._rejectedPeers.has(peerId)) return;
         if (data && data.name && this.onCollectionFull) {
           this.onCollectionFull(data.name, data.records, peerId);
         }

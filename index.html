@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '28';
+  const LOCAL_VERSION = '31';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3295,6 +3295,18 @@ const DEVICE_ID = (() => {
 })();
 
 // =====================================================================
+// Evicted flag — the persistent truth that this device has left or been
+// removed from the group. Survives reload. While set, the transport's
+// inbound gate is sealed (no sync of any kind, present or future channel)
+// and the app does not auto-join the room. Cleared only by an explicit
+// re-invitation (a fresh QR join).
+// =====================================================================
+const EVICTED_KEY = 'fieldsync-evicted';
+function isEvicted()    { try { return localStorage.getItem(EVICTED_KEY) === '1'; } catch { return false; } }
+function setEvicted()   { try { localStorage.setItem(EVICTED_KEY, '1'); } catch {} }
+function clearEvicted() { try { localStorage.removeItem(EVICTED_KEY); } catch {} }
+
+// =====================================================================
 // Group store — persists the Trystero group in localStorage.
 // One group per installation: { roomCode, password, members: [...], removed: [...] }
 // Member records are field-agnostic: deviceId is the key; updatedAt drives
@@ -3312,6 +3324,11 @@ const GroupStore = {
   },
   exists() { return !!this.load(); },
   create(roomCode, password) {
+    // Creating/joining a group is an explicit, deliberate action. If this
+    // device was previously evicted, this fresh invitation lifts that state
+    // unconditionally — no wall-clock comparison, so clock drift is irrelevant.
+    clearEvicted();
+    try { TrysteroRoomManager._room && TrysteroRoomManager._room.unsealInbound(); } catch {}
     this._save({ roomCode, password, members: [], removed: [] });
     if (typeof identity !== 'undefined' && identity) {
       this.addMember({
@@ -3503,11 +3520,15 @@ const GroupStore = {
     for (const t of incoming) {
       if (!t || !t.deviceId) continue;
       const ts = t.removedAt || 0;
-      // Is this a removal of US, newer than our own member record?
+      // A tombstone for OUR OWN device (another device removed us): report it
+      // via selfRemovedAt so the caller can run the wipe sequence. We don't
+      // mutate our own list here — the wipe + reload handles that — and we
+      // don't add a self-tombstone to our own removed[].
       if (t.deviceId === DEVICE_ID) {
         const self = group.members.find(m => m.deviceId === DEVICE_ID);
         const selfUpdatedAt = self ? (self.updatedAt || self.joinedAt || 0) : 0;
         if (ts > selfUpdatedAt) selfRemovedAt = Math.max(selfRemovedAt || 0, ts);
+        continue;
       }
       const existing = group.removed.find(r => r.deviceId === t.deviceId);
       if (existing) {
@@ -3532,32 +3553,58 @@ const GroupStore = {
   clear() { try { localStorage.removeItem(this._key); } catch {} },
 };
 
-// Self-reset after being removed from the group. Wipes group + reports +
-// source state but KEEPS identity (profile) and DEVICE_ID, then reloads into
-// the onboarding-complete state. Mirrors the DEV reset minus the profile.
+// Wipe group + shared data (reports, source) locally, KEEPING identity
+// (profile) and DEVICE_ID, then reload to a clean slate. Used by both "Leave
+// group" (own choice) and the self-tombstone reaction (removed from afar).
+//
+// Order matters: SEAL the inbound gate and SET the evicted flag *before*
+// wiping, so a late inbound sync (from a peer that hasn't processed the
+// tombstone yet) cannot resurrect the data. The flag persists across reload,
+// so the gate stays sealed until an explicit re-invitation.
+let _groupWipeInFlight = false;
+async function _wipeGroupData(reasonLog) {
+  if (_groupWipeInFlight) return;
+  _groupWipeInFlight = true;
+  try {
+    if (reasonLog) log(reasonLog, 'info');
+    // 1. Seal inbound + persist the evicted flag FIRST (atomic, no network).
+    setEvicted();
+    try { TrysteroRoomManager._room && TrysteroRoomManager._room.sealInbound(); } catch {}
+    // 2. Disconnect.
+    try { TrysteroRoomManager.remove(); } catch {}
+    // 3. Now wipe — nothing can come back in.
+    GroupStore.clear();
+    try { await clearAllSessions(); } catch (e) { log('Report wipe failed: ' + e.message, 'err'); }
+    try { await clearSource(); } catch {}
+    // Note/lamp are in-memory only; they vanish on reload.
+  } finally {
+    // Identity + DEVICE_ID remain, so the user lands on the normal home
+    // screen with no group. The evicted flag keeps the gate sealed on reload.
+    window.location.reload();
+  }
+}
+
+// Leave group — the user's own decision on their own device. Broadcasts a
+// self-tombstone so the rest of the group sees them leave, then wipes local
+// group data (profile kept).
+async function leaveGroup() {
+  try {
+    SyncEngine.broadcastTombstone('mbr', DEVICE_ID, Date.now());
+  } catch {}
+  // Give the tombstone a brief moment to flush to connected peers before we
+  // tear down the room.
+  await new Promise(res => setTimeout(res, 250));
+  await _wipeGroupData('You left the group — clearing group data (profile kept).');
+}
+
+// Self-tombstone reaction: another device removed us. Identical end state to
+// leave — wipe local group data, keep profile. Triggered via the members
+// collection's onSelfRemoved hook.
 let _selfResetInFlight = false;
 async function resetAfterRemoval(removedAt) {
   if (_selfResetInFlight) return;
   _selfResetInFlight = true;
-  try {
-    log('You were removed from the group — resetting group data (profile kept).', 'err');
-    // Tear down the live room so we stop reconnecting into the group.
-    try { TrysteroRoomManager.remove(); } catch {}
-    // Drop the group.
-    GroupStore.clear();
-    // Wipe all reports. Clear the object store in place rather than deleting
-    // the whole DB — deleteDatabase blocks while connections are open, which
-    // would leave the reports intact until reload. Identity lives in a
-    // separate DB (PREFS_DB), so it's untouched.
-    try { await clearAllSessions(); } catch (e) { log('Report wipe failed: ' + e.message, 'err'); }
-    // Drop any stored source data.
-    try { await clearSource(); } catch {}
-    // Note/lamp are in-memory only; they vanish on reload.
-  } finally {
-    // Reload to a clean slate. Identity + DEVICE_ID remain in storage, so the
-    // user lands in the normal (onboarded) home screen with no group.
-    window.location.reload();
-  }
+  await _wipeGroupData('You were removed from the group — clearing group data (profile kept).');
 }
 
 
@@ -3596,6 +3643,9 @@ const TrysteroRoomManager = {
   // or when showing an invite QR with a pending (uncommitted) group.
   async init() {
     if (this._room) return;
+    // If this device was removed/left the group, the evicted flag keeps it
+    // out: no room join, no sync. Cleared only by an explicit re-invitation.
+    if (isEvicted()) return;
     if (!GroupStore.exists() && !this._pendingGroup) return;
     await this._joinGroup().catch(e =>
       console.warn('TrysteroRoomManager: failed to join group room', e));
@@ -3751,11 +3801,10 @@ const TrysteroRoomManager = {
         typeof r === 'string' ? { deviceId: r, removedAt: Date.now() } : r
       );
 
-      // Merge tombstones first (last-write-wins). If WE were removed by a
-      // removal newer than our own record, reset ourselves.
+      // Merge tombstones (last-write-wins). If WE were removed, run the same
+      // wipe sequence as Leave group.
       const { changed: tChanged, selfRemovedAt } = GroupStore.mergeTombstones(tombstones);
       if (selfRemovedAt) { resetAfterRemoval(selfRemovedAt); return; }
-
       const mChanged = GroupStore.mergeMemberList(members);
       if (tChanged || mChanged) {
         renderHomeGroupMembers();
@@ -3773,6 +3822,8 @@ const TrysteroRoomManager = {
 
     await t.joinPersistentRoom(roomCode);
     this._room = t;
+    // Defense in depth: if somehow joined while evicted, seal immediately.
+    if (isEvicted()) { try { t.sealInbound(); } catch {} }
   },
 
   // Called after first-time pairing to (re-)init with the new group
@@ -4266,6 +4317,9 @@ SyncEngine.register({
       }
       return changed;
     },
+    // A tombstone for our own device (we were removed from afar) triggers the
+    // same wipe sequence as Leave group: seal inbound, wipe group data, keep
+    // profile, reload. Re-inviting with a fresh QR brings us back.
     isSelf        : (deviceId) => deviceId === DEVICE_ID,
     onSelfRemoved : (removedAt) => resetAfterRemoval(removedAt),
   },
@@ -8457,6 +8511,15 @@ async function showMyDevicePanel() {
           </div>`;
         })()}
 
+        ${GroupStore.exists() ? `
+        <div class="mydev-section">
+          <div class="mydev-section-head">Group</div>
+          <button class="mydev-dev-btn" id="mydev-leave-group" style="color:var(--danger,#c0392b)">Leave group</button>
+          <div style="font-size:12px;color:var(--dim);margin-top:6px">
+            Removes this device from the group and clears shared data (reports, source). Your profile stays. You can rejoin with a new invite.
+          </div>
+        </div>` : ''}
+
         <div class="mydev-section">
           <div class="mydev-section-head">Local storage safety</div>
           ${dataSafetyHTML}
@@ -8509,13 +8572,33 @@ async function showMyDevicePanel() {
   // Unpair buttons in the paired devices section
   backdrop.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (confirm('Remove this device from the group? They will need to scan again to rejoin.')) {
-        GroupStore.removeMember(btn.dataset.deviceid);
+      if (confirm('Remove this device from the group? They will drop out of everyone\'s member list. They keep their own local data unless they leave the group themselves.')) {
+        const deviceId = btn.dataset.deviceid;
+        const removedAt = Date.now();
+        GroupStore.removeMember(deviceId, removedAt);
+        // Broadcast the removal as a tombstone so it propagates across the
+        // mesh; the removed device drops out of every member list.
+        SyncEngine.broadcastTombstone('mbr', deviceId, removedAt);
         backdrop.remove();
         renderTopbarConnections();
+        refreshMyDeviceMembers();
+        renderHomeGroupMembers();
       }
     });
   });
+
+  // Leave group — the user's own decision. Wipes local group data (profile
+  // kept) and tells the group via a self-tombstone.
+  const leaveBtn = backdrop.querySelector('#mydev-leave-group');
+  if (leaveBtn) {
+    leaveBtn.addEventListener('click', async () => {
+      if (confirm('Leave this group? This device will be removed from the group and its shared data (reports, source) will be cleared. Your profile is kept, and you can rejoin with a new invite.')) {
+        leaveBtn.disabled = true;
+        leaveBtn.textContent = 'Leaving…';
+        await leaveGroup();  // broadcasts tombstone, wipes, reloads
+      }
+    });
+  }
 
   // Safety check rows: tap a row to open its detail panel. Only one
   // panel can be open at a time — tapping a different row closes the
@@ -9275,6 +9358,12 @@ async function autoJoinIfPending() {
   if (!hasIdentity()) { log('Cannot auto-join: no identity.', 'err'); return; }
 
   if (currentBackend === 'trystero' || currentBackend === 'mqtt') {
+    // A valid invitation is an explicit re-admission — lift any eviction
+    // before joining so the inbound gate opens.
+    if (peerId && pw && isEvicted()) {
+      clearEvicted();
+      try { TrysteroRoomManager._room && TrysteroRoomManager._room.unsealInbound(); } catch {}
+    }
     // Group join: create group from QR params, then reinit room manager
     if (!GroupStore.exists() && peerId && pw) {
       GroupStore.create(peerId, pw);
