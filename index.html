@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '34';
+  const LOCAL_VERSION = '35';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3643,12 +3643,19 @@ const TrysteroRoomManager = {
   // or when showing an invite QR with a pending (uncommitted) group.
   async init() {
     if (this._room) return;
+    if (this._joining) return;   // a join is already in progress (async gap)
     // If this device was removed/left the group, the evicted flag keeps it
     // out: no room join, no sync. Cleared only by an explicit re-invitation.
     if (isEvicted()) return;
     if (!GroupStore.exists() && !this._pendingGroup) return;
-    await this._joinGroup().catch(e =>
-      console.warn('TrysteroRoomManager: failed to join group room', e));
+    this._joining = true;
+    try {
+      await this._joinGroup();
+    } catch (e) {
+      console.warn('TrysteroRoomManager: failed to join group room', e);
+    } finally {
+      this._joining = false;
+    }
   },
 
   async _joinGroup() {
