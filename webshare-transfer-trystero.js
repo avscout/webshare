@@ -369,12 +369,13 @@
       const RELAY_URLS = isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS;
 
       // Log relay status after 3s — only in dev mode, and only once per
-      // strategy per page load (repeated joins must not stack sockets).
-      setTimeout(() => {
-        if (!this._room) return;
-        if (!this._devMode) return;
-        if (_relayDiagnosticsRun[this._strategy]) return;
+      // strategy per page load. The guard is set NOW (at schedule time), not
+      // inside the timer, so a second join within the 3s window doesn't
+      // schedule a second diagnostics run (which would double the log).
+      if (this._devMode && !_relayDiagnosticsRun[this._strategy]) {
         _relayDiagnosticsRun[this._strategy] = true;
+        setTimeout(() => {
+        if (!this._room) return;
 
         const label = isMqtt ? 'broker' : 'relay';
         const labelCap = isMqtt ? 'Broker' : 'Relay';
@@ -449,6 +450,7 @@
           this._log('err', `Kon ${label}-status niet bepalen: ` + e.message);
         }
       }, 3000);
+      }
 
       // makeAction's return shape differs across Trystero versions:
       //   • Classic (≤0.23 array builds): returns [send, onReceive(, onProgress)]
