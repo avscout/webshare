@@ -378,7 +378,6 @@
         if (!this._room) return;
 
         const label = isMqtt ? 'broker' : 'relay';
-        const labelCap = isMqtt ? 'Broker' : 'Relay';
 
         try {
           // Preferred: ask Trystero which signaling sockets are actually open.
@@ -392,8 +391,6 @@
             for (const [url, ws] of entries) {
               const open = ws && ws.readyState === 1;
               if (open) { connected++; connectedUrls.push(url); }
-              this._log(open ? 'ok' : 'err',
-                `${labelCap} ${url} — ${open ? 'verbonden ✓' : 'niet verbonden ✗'}`);
             }
             const total = entries.length;
             if (total === 0) {
@@ -419,13 +416,12 @@
           // Fallback when the module doesn't expose getRelaySockets: probe each
           // URL with a short-lived test socket. This reports reachability, not
           // the live signaling socket — logged to the dev-log all the same.
-          this._log('info', `getRelaySockets niet beschikbaar — ${label}s los testen…`);
           const results = [];
           let pending = RELAY_URLS.length;
           const summarise = () => {
             const reachable = results.filter(r => r.ok).map(r => r.url);
             this._log(reachable.length ? 'ok' : 'err',
-              `Bereikbaar: ${reachable.length}/${RELAY_URLS.length} ${label}s${reachable.length ? ': ' + reachable.join(', ') : ''}.`);
+              `Verbonden met ${reachable.length}/${RELAY_URLS.length} ${label}s${reachable.length ? ': ' + reachable.join(', ') : ''}.`);
             if (reachable.length && reachable.length < RELAY_URLS.length) {
               this._log('info',
                 `Let op: twee apparaten vinden elkaar alleen als ze minstens één ${label} gemeen hebben. Op dit netwerk bereikbaar: ${reachable.join(', ')}.`);
@@ -438,7 +434,6 @@
             const done = (ok) => {
               if (settled) return; settled = true;
               results.push({ url, ok });
-              this._log(ok ? 'ok' : 'err', `${labelCap} ${url} — ${ok ? 'bereikbaar ✓' : 'niet bereikbaar ✗'}`);
               try { ws.close(); } catch {}
               if (--pending === 0) summarise();
             };
