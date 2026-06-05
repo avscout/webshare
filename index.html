@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '47';
+  const LOCAL_VERSION = '48';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3795,11 +3795,10 @@ const TrysteroRoomManager = {
 
     t.on('log', ({ level, message }) => log(message, level));
 
-    t.on('relay-status', ({ connected, total }) => {
-      if (connected === 0) {
-        log(`⚠ No relays reachable — this network may block Nostr. Try a different network or use PeerJS.`, 'err');
-      }
-    });
+    // Note: the transport already logs broker/relay reachability (strategy-aware)
+    // via its own diagnostics. We don't re-log here to avoid duplicate and
+    // mislabelled messages; this hook stays only for any future UI reaction.
+    t.on('relay-status', () => {});
 
     t.on('connected', (peerId) => {
       GroupReconnectManager.onConnected();
@@ -3946,11 +3945,27 @@ const TrysteroRoomManager = {
     return !!this._room && this._room._connectedPeers.size > 0;
   },
 
-  // True when we're in the room (so we'll see peers as they come online),
-  // even if no peer is connected right now. Distinguishes "in the group,
-  // alone" from "lost the group connection".
+  // True when we're in the room AND have working signaling (at least one
+  // broker/relay socket open), so we can actually see peers come online. With
+  // zero brokers we're NOT safely "in the group" — there's no signaling — so
+  // this returns false and the status bar shows a reconnecting state instead
+  // of the calm "waiting for members".
   isInGroup() {
-    return !!this._room;
+    if (!this._room) return false;
+    const t = this._room;
+    // If we can inspect the live signaling sockets, require at least one open.
+    if (typeof t._getRelaySockets === 'function' && t._getRelaySockets) {
+      try {
+        const sockets = t._getRelaySockets() || {};
+        const anyOpen = Object.values(sockets).some(ws => ws && ws.readyState === 1);
+        // Only treat "no sockets visible" as in-group; an explicit all-closed
+        // set means no signaling.
+        const entries = Object.values(sockets);
+        if (entries.length > 0) return anyOpen;
+      } catch {}
+    }
+    // Can't inspect sockets — fall back to "room exists".
+    return true;
   },
 
   getConnectedMembers() {
