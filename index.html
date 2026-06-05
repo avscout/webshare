@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '49';
+  const LOCAL_VERSION = '51';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -5351,7 +5351,7 @@ function refreshMyDeviceMembers() {
   const head = section.querySelector('.mydev-section-head');
   if (head) head.textContent = `Group members (${members.length})`;
 
-  const rows = members.map(p => {
+  const rows = sortMembersByPresence(members, getActiveConnectedMembers()).map(p => {
     const cachedInfo = getActivePeerInfo(p.deviceId);
     const emoji    = (p.deviceId === DEVICE_ID ? identity?.emoji : (cachedInfo?.emoji || p.emoji)) || '?';
     const color    = (p.deviceId === DEVICE_ID ? identity?.color : (cachedInfo?.color || p.color)) || null;
@@ -5429,6 +5429,31 @@ function archiveWipeStatus(session) {
   return { state: 'ready', daysLeft: 0, wipeDate };
 }
 
+// Sort members for display: online first, then away (recently seen), then the
+// rest by most-recently-seen. Online status is decided by whoever's actually
+// connected to us right now; presence beyond that uses the shared lastSeenAt.
+function sortMembersByPresence(members, connected) {
+  const AWAY_MS = 15 * 60 * 1000;
+  const now = Date.now();
+  const rank = (m) => {
+    const online = m.deviceId === DEVICE_ID ||
+      connected.some(c => c.info && c.info.deviceId === m.deviceId);
+    if (online) return 0;
+    const seenAgo = now - (m.lastSeenAt || 0);
+    if ((m.lastSeenAt || 0) > 0 && seenAgo < AWAY_MS) return 1;  // away
+    return 2;                                                    // offline
+  };
+  return [...members].sort((a, b) => {
+    const ra = rank(a), rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    // Within the same tier, most-recently-seen first. Keep "you" pinned near
+    // the top of the online tier for a stable, familiar position.
+    if (a.deviceId === DEVICE_ID) return -1;
+    if (b.deviceId === DEVICE_ID) return 1;
+    return (b.lastSeenAt || 0) - (a.lastSeenAt || 0);
+  });
+}
+
 function renderHomeGroupMembers() {
   const el = $('home-group-members');
   if (!el) return;
@@ -5451,7 +5476,7 @@ function renderHomeGroupMembers() {
   const myReports   = me.reportsHash;
   const mySource    = me.sourceHash;
 
-  el.innerHTML = members.map(m => {
+  el.innerHTML = sortMembersByPresence(members, connected).map(m => {
     const isOnline  = m.deviceId === DEVICE_ID ||
       connected.some(c => c.info && c.info.deviceId === m.deviceId);
     const cached    = getActivePeerInfo(m.deviceId);
@@ -5486,7 +5511,7 @@ function renderHomeGroupMembers() {
       myReports != null && m.reportsHash != null && m.reportsHash === myReports &&
       mySource  != null && m.sourceHash  != null && m.sourceHash  === mySource;
     const syncBadge = inSync
-      ? `<span title="Same reports and source as you" style="font-size:10px;font-weight:600;color:var(--ok);border:1px solid var(--ok);border-radius:4px;padding:1px 5px;flex-shrink:0">sync</span>`
+      ? `<span title="Same reports and source as you" style="font-size:10px;font-weight:600;color:var(--ok);border:1px solid var(--ok);border-radius:4px;padding:1px 5px;flex-shrink:0">synced</span>`
       : '';
 
     return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
@@ -7014,6 +7039,66 @@ function showSourceModal() {
     });
   });
 
+  const BATCH_SIZE = 150;     // rows rendered per batch
+  let renderedCount = 0;      // how many flat-items are currently in the DOM
+  let flatItems = [];         // current filtered+sorted items (headers + rows)
+
+  // Build the HTML for a single source row.
+  function rowHtml(r, isLast) {
+    return `
+      <div style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch">
+        <div style="display:flex;align-items:center;flex-shrink:0">
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+            <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a1 1 0 0 0 .8.7l6.1 0l-4.9 3.6a1 1 0 0 0-.4 1.1l1.9 5.8l-4.9-3.6a1 1 0 0 0-1.2 0l-4.9 3.6l1.9-5.8a1 1 0 0 0-.4-1.1l-4.9-3.6l6.1 0a1 1 0 0 0 .8-.7l1.9-5.8z"/></svg>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
+          <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
+            <div style="font-size:15px;font-weight:600;color:var(--ink)">${escapeHTML(r.model || r.type || '—')}</div>
+            <div style="font-size:12px;color:var(--dim);font-weight:400">#${escapeHTML(r.id)}</div>
+          </div>
+          <div style="font-size:12px;color:var(--dim);margin-top:3px">
+            <span>${escapeHTML(r.type || '—')}</span>
+            ${r.roomName ? `<span style="font-family:var(--mono);margin-left:4px">· ${escapeHTML(r.roomName)}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0;text-align:right">
+          ${r.dateInOperation ? `<div style="font-size:12px;color:var(--dim)">${escapeHTML(r.dateInOperation)}</div>` : ''}
+          ${r.dateOfReplacement ? `<div style="font-size:11px;color:var(--dim);margin-top:3px">↻ ${escapeHTML(r.dateOfReplacement)}</div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function headerHtml(group, count) {
+    return `
+      <div style="display:flex;align-items:center;padding:14px 16px 6px 16px;gap:6px">
+        <div style="flex:1;font-size:11px;font-weight:600;letter-spacing:0.15em;color:var(--dim);text-transform:uppercase">${escapeHTML(
+          sortMode === 'building' ? 'Building ' + group :
+          sortMode === 'type'     ? group :
+          'Room ' + group)}</div>
+        <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--dim);text-transform:uppercase;background:var(--bg-subtle);padding:3px 10px;border-radius:999px">${count} item${count === 1 ? '' : 's'}</div>
+      </div>`;
+  }
+
+  // Turn one flat-item (header or row) into HTML.
+  function itemHtml(it) {
+    return it.kind === 'header' ? headerHtml(it.group, it.count) : rowHtml(it.row, it.isLast);
+  }
+
+  // Append the next batch of flat-items to the DOM (cheap — only BATCH_SIZE
+  // nodes at a time instead of all ~10k). Called on open and on scroll.
+  function appendBatch() {
+    if (renderedCount >= flatItems.length) return;
+    const slice = flatItems.slice(renderedCount, renderedCount + BATCH_SIZE);
+    const html  = slice.map(itemHtml).join('');
+    // Insert before the sentinel so the scroll trigger stays at the bottom.
+    sentinel.insertAdjacentHTML('beforebegin', html);
+    renderedCount += slice.length;
+    sentinel.style.display = renderedCount >= flatItems.length ? 'none' : '';
+  }
+
   function render() {
     let filtered = query
       ? rows.filter(r => [r.type, r.building, r.room, r.roomName, r.model, r.id]
@@ -7030,7 +7115,9 @@ function showSourceModal() {
       return (ka || '').localeCompare(kb || '');
     });
 
-    // Group by sort key
+    // Group by sort key, then flatten into a single list of render-items
+    // (headers interleaved with their rows). Flattening lets us render a
+    // bounded slice while keeping group headers correct even mid-group.
     const groups = {};
     sorted.forEach(r => {
       const key = sortMode === 'building' ? (r.building || '—')
@@ -7040,44 +7127,19 @@ function showSourceModal() {
       groups[key].push(r);
     });
 
-    bodyEl.innerHTML = Object.entries(groups).map(([group, items]) => `
-      <div style="display:flex;align-items:center;padding:14px 16px 6px 16px;gap:6px">
-        <div style="flex:1;font-size:11px;font-weight:600;letter-spacing:0.15em;color:var(--dim);text-transform:uppercase">${escapeHTML(
-          sortMode === 'building' ? 'Building ' + group :
-          sortMode === 'type'     ? group :
-          'Room ' + group)}</div>
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--dim);text-transform:uppercase;background:var(--bg-subtle);padding:3px 10px;border-radius:999px">${items.length} item${items.length === 1 ? '' : 's'}</div>
-      </div>
-      ${items.map((r, i) => {
-        const isLast = i === items.length - 1;
-        return `
-        <div style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch">
-          <div style="display:flex;align-items:center;flex-shrink:0">
-            <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
-              <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a1 1 0 0 0 .8.7l6.1 0l-4.9 3.6a1 1 0 0 0-.4 1.1l1.9 5.8l-4.9-3.6a1 1 0 0 0-1.2 0l-4.9 3.6l1.9-5.8a1 1 0 0 0-.4-1.1l-4.9-3.6l6.1 0a1 1 0 0 0 .8-.7l1.9-5.8z"/></svg>
-              </div>
-            </div>
-          </div>
-          <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
-            <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
-              <div style="font-size:15px;font-weight:600;color:var(--ink)">${escapeHTML(r.model || r.type || '—')}</div>
-              <div style="font-size:12px;color:var(--dim);font-weight:400">#${escapeHTML(r.id)}</div>
-            </div>
-            <div style="font-size:12px;color:var(--dim);margin-top:3px">
-              <span>${escapeHTML(r.type || '—')}</span>
-              ${r.roomName ? `<span style="font-family:var(--mono);margin-left:4px">· ${escapeHTML(r.roomName)}</span>` : ''}
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0;text-align:right">
-            ${r.dateInOperation ? `<div style="font-size:12px;color:var(--dim)">${escapeHTML(r.dateInOperation)}</div>` : ''}
-            ${r.dateOfReplacement ? `<div style="font-size:11px;color:var(--dim);margin-top:3px">↻ ${escapeHTML(r.dateOfReplacement)}</div>` : ''}
-          </div>
-        </div>`;
-      }).join('')}
-    `).join('');
+    flatItems = [];
+    for (const [group, items] of Object.entries(groups)) {
+      flatItems.push({ kind: 'header', group, count: items.length });
+      items.forEach((row, i) => flatItems.push({ kind: 'row', row, isLast: i === items.length - 1 }));
+    }
 
-    // Update tab counts
+    // Reset the list and render the first batch.
+    bodyEl.innerHTML = '';
+    bodyEl.appendChild(sentinel);
+    renderedCount = 0;
+    appendBatch();
+
+    // Update tab counts (always over the FULL filtered set, not just rendered)
     ['building','type','room'].forEach(key => {
       const btn = backdrop.querySelector(`.items-sort-btn[data-sort="${key}"]`);
       if (!btn) return;
@@ -7088,6 +7150,18 @@ function showSourceModal() {
       btn.textContent = `${label} ${uniqueKeys.size}`;
     });
   }
+
+  // Sentinel element at the bottom; when it scrolls into view, load more.
+  const sentinel = document.createElement('div');
+  sentinel.setAttribute('data-src-batch', '1');
+  sentinel.style.height = '1px';
+
+  // Load more when the user scrolls near the bottom of the modal body.
+  bodyEl.addEventListener('scroll', () => {
+    if (bodyEl.scrollTop + bodyEl.clientHeight >= bodyEl.scrollHeight - 400) {
+      appendBatch();
+    }
+  });
 
   render();
 }
