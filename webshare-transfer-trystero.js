@@ -142,6 +142,11 @@
       this._isReconnecting  = false;
       this._pendingPeerJoins = new Map(); // peerId → { isReconnect }
       this._rejectedPeers   = new Set();
+      // Per-peer departure times: peerId → timestamp when they left. Used by
+      // the member list to show an "Away" status during a window after a peer
+      // drops (they may come right back) before treating them as offline.
+      // Independent of LEAVE_GRACE_MS (which drives the connection status bar).
+      this._recentlyLeft    = new Map();
       // When true, ALL inbound data messages are dropped at the central gate
       // (see _makeAction). Set when this device has left / been removed from
       // the group. Default-closed: any action, present or future, is blocked
@@ -213,6 +218,20 @@
     // group). Default-closed for all actions, present and future.
     sealInbound()   { this._inboundSealed = true; }
     unsealInbound() { this._inboundSealed = false; }
+
+    // Map of peerId → ms-since-departure for peers that recently left and
+    // haven't returned. The member list uses this to show an "Away" status
+    // for a window after a peer drops, before treating them as offline.
+    // Connected peers are not included.
+    getRecentlyLeft() {
+      const now = Date.now();
+      const out = {};
+      for (const [peerId, leftAt] of this._recentlyLeft) {
+        if (this._connectedPeers.has(peerId)) continue;
+        out[peerId] = now - leftAt;
+      }
+      return out;
+    }
 
     // Watch for the case where ALL signaling brokers/relays drop. Brokers are
     // only needed to find peers and to reconnect; an already-established P2P
@@ -740,10 +759,11 @@
       if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
 
       this._connectedPeers.add(peerId);
+      this._recentlyLeft.delete(peerId);   // back online — no longer "away"
       this._remotePeerId   = peerId;
       this._isReconnecting = false;
 
-      this._log('info', `Nostr: peer found in room (${peerId.slice(0, 8)}…) — establishing WebRTC…`);
+      this._log('info', `${this._strategy === 'mqtt' ? 'MQTT' : 'Nostr'}: peer found in room (${peerId.slice(0, 8)}…) — establishing WebRTC…`);
 
       // Send peer-info specifically to this new peer
       if (this._sendPeerInfoAction && this.peerInfo) {
@@ -771,6 +791,7 @@
     _onPeerLeave(peerId) {
       this._connectedPeers.delete(peerId);
       this._pendingPeerJoins.delete(peerId);
+      this._recentlyLeft.set(peerId, Date.now());   // start the "away" window
 
       if (this._remotePeerId === peerId) {
         this._remotePeerId = this._connectedPeers.size > 0

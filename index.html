@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '38';
+  const LOCAL_VERSION = '47';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -2457,10 +2457,20 @@ function hashData(obj) {
 }
 
 // Parse an Excel row into a structured asset object
-function parseSourceRow(row, headers) {
+// Build a column-index map ONCE for a header row, so per-row parsing is a
+// cheap array lookup instead of a findIndex scan per column. With ~10k rows
+// and ~14 columns this turns ~140k header scans into ~14.
+function buildSourceColumnMap(headers) {
+  const norm = (s) => String(s == null ? '' : s).trim().toLowerCase();
+  const map = {};
+  headers.forEach((h, i) => { const k = norm(h); if (k && !(k in map)) map[k] = i; });
+  return map;
+}
+
+function parseSourceRow(row, colMap) {
   const get = (name) => {
-    const idx = headers.findIndex(h => h && h.toString().trim().toLowerCase() === name.toLowerCase());
-    return idx >= 0 ? row[idx] : null;
+    const idx = colMap[name.toLowerCase()];
+    return idx != null ? row[idx] : null;
   };
   const eqTypeRaw = get('Equipment Type') || '';
   // Extract id and type from URL: /admin/data/led/2674/change/ → { type:'led', id:'2674' }
@@ -2503,12 +2513,14 @@ async function listSessionsRaw() {
 
 // Public list — filter by status, sorted newest-modified first.
 // Sessions without a status field are treated as 'open' (backwards compat).
-// Sessions with old deleted:true are treated as 'archived'.
+// A new-style tombstone has status:'deleted' and is never listed anywhere.
+// Legacy records with only deleted:true (no status) are treated as 'archived'.
 async function listSessions(status = 'open') {
   const all = await listSessionsRaw();
   return all
     .filter(s => {
-      const st = s.deleted ? 'archived' : (s.status || 'open');
+      if (s.status === 'deleted') return false;             // tombstone — hide everywhere
+      const st = (s.deleted && !s.status) ? 'archived' : (s.status || 'open');
       return st === status;
     })
     .sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
@@ -2542,6 +2554,19 @@ async function clearAllSessions() {
   await txPromise(tx); db.close();
 }
 
+// Fingerprint of the local reports state. Two devices with the same fingerprint
+// hold the same reports (same ids, same versions, same statuses). Built only
+// from the fields that define "has anything changed": id, syncedAt, status.
+// Order-independent (sorted by id) so two devices that stored the same reports
+// in a different order still match.
+async function computeReportsHash() {
+  const all = await listSessionsRaw();
+  const digest = all
+    .map(s => ({ id: s.id, syncedAt: s.syncedAt || 0, status: s.status || 'open' }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return hashData(digest);
+}
+
 // Public put — sets syncedAt + deviceId, broadcasts delta to group
 async function putSession(session) {
   session.syncedAt  = Date.now();
@@ -2554,6 +2579,7 @@ async function putSession(session) {
   if (currentBackend === 'trystero' || GroupStore.exists()) {
     SyncManager.broadcastDelta(session);
   }
+  refreshReportsHash();   // update our sync fingerprint + tell the group
 }
 
 // Change status of a session (open → closed → archived)
@@ -2594,7 +2620,33 @@ async function setSessionStatus(id, newStatus) {
   if (currentBackend === 'trystero' || GroupStore.exists()) {
     SyncManager.broadcastDelta(updated);
   }
+  refreshReportsHash();   // status change alters our fingerprint
   return updated;
+}
+
+// Dev-only hard delete. Replaces a report with a tombstone: a minimal record
+// with status:'deleted' and a fresh syncedAt. Because it travels through the
+// normal session sync and wins via last-write-wins, it propagates to the whole
+// group and does NOT resurrect from a peer's older copy — a real tombstone.
+// Production keeps archive-only; this is gated behind dev mode at the call site.
+async function deleteReportTombstone(id) {
+  const existing = await getSession(id);
+  const tombstone = {
+    id,
+    status   : 'deleted',
+    deleted  : true,                 // legacy-compat flag
+    syncedAt : Date.now(),
+    deviceId : DEVICE_ID,
+    data     : null,
+    history  : [],
+  };
+  await _putSessionRaw(tombstone);
+  if (currentBackend === 'trystero' || GroupStore.exists()) {
+    SyncManager.broadcastDelta(tombstone);
+  }
+  refreshReportsHash();
+  log(`Dev: deleted report ${existing?.name || id} (tombstone propagated).`, 'info');
+  return tombstone;
 }
 
 const ARCHIVE_DATA_WIPE_DAYS = 30;
@@ -2607,7 +2659,7 @@ async function cleanupArchivedSessions() {
   const members = GroupStore.getMembers();
   if (!members.length) return;
   const all = await listSessionsRaw();
-  const archived = all.filter(s => (s.status === 'archived' || s.deleted) && s.data !== null);
+  const archived = all.filter(s => s.status !== 'deleted' && (s.status === 'archived' || s.deleted) && s.data !== null);
   for (const s of archived) {
     const archivedAt   = s.syncedAt || 0;
     const wipeAfter    = archivedAt + ARCHIVE_DATA_WIPE_DAYS * 24 * 60 * 60 * 1000;
@@ -3074,6 +3126,16 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
       { label: 'Export',  onClick: doExport,  icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>` },
       { label: 'History', onClick: doHistory, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/><polyline points="12 7 12 12 15 14"/></svg>` },
       ...statusMenuItems,
+      ...(DEV_MODE ? [{
+        label: 'Delete (dev)',
+        danger: true,
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+        onClick: async () => {
+          if (!confirm(`Permanently delete "${s.name || s.id}"?\n\nThis removes it for the whole group (a tombstone is propagated) and cannot be undone. Dev-mode only.`)) return;
+          await deleteReportTombstone(s.id);
+          if (typeof onAfterChange === 'function') onAfterChange();
+        },
+      }] : []),
     ]);
   });
 
@@ -3427,11 +3489,21 @@ const GroupStore = {
       }
       const existing = group.members[idx];
       const localUpdatedAt = existing.updatedAt || existing.joinedAt || 0;
+      // lastSeenAt is a monotonic fact ("last time anyone saw this device
+      // active") — always take the newest observation, independent of the
+      // updatedAt-based last-write-wins for the rest of the record. This lets
+      // a fresh lastSeenAt propagate (e.g. broadcast when a peer drops) without
+      // clobbering genuine field changes (nickname, role, hashes) that carry
+      // their own updatedAt.
+      const mergedLastSeen = Math.max(existing.lastSeenAt || 0, m.lastSeenAt || 0);
       if (incomingUpdatedAt > localUpdatedAt) {
-        // Newer record wins in full. Take all incoming fields, but preserve
-        // our local lastSeenAt (presence is observed locally, not synced).
-        const preservedLastSeen = Math.max(existing.lastSeenAt || 0, m.lastSeenAt || 0);
-        group.members[idx] = { ...existing, ...m, lastSeenAt: preservedLastSeen };
+        // Newer record wins in full, but lastSeenAt still uses the max above.
+        group.members[idx] = { ...existing, ...m, lastSeenAt: mergedLastSeen };
+        changed = true;
+      } else if (mergedLastSeen > (existing.lastSeenAt || 0)) {
+        // Record doesn't win on updatedAt, but it carries a newer sighting —
+        // apply just the lastSeenAt, leave every other field untouched.
+        group.members[idx] = { ...existing, lastSeenAt: mergedLastSeen };
         changed = true;
       }
     }
@@ -3456,6 +3528,18 @@ const GroupStore = {
       if (m.sourceHash === hash) return m;  // no change, don't bump
       changed = true;
       return { ...m, sourceHash: hash, updatedAt: Date.now() };
+    });
+    if (changed) this._save(group);
+  },
+  setReportsHash(deviceId, hash) {
+    const group = this.load();
+    if (!group) return;
+    let changed = false;
+    group.members = group.members.map(m => {
+      if (m.deviceId !== deviceId) return m;
+      if (m.reportsHash === hash) return m;  // no change, don't bump
+      changed = true;
+      return { ...m, reportsHash: hash, updatedAt: Date.now() };
     });
     if (changed) this._save(group);
   },
@@ -3753,11 +3837,22 @@ const TrysteroRoomManager = {
     });
 
     t.on('peer-left', (peerId) => {
+      let leftDeviceId = null;
       for (const [deviceId, info] of this._peerInfo) {
         if (info._peerId === peerId) {
+          leftDeviceId = deviceId;
           this._peerInfo.delete(deviceId);
           break;
         }
+      }
+      // Freeze this peer's lastSeenAt at the departure moment and propagate it
+      // so every device converges on the same "last seen" — which is what the
+      // Away status is derived from. lastSeenAt merges as a monotonic max, so
+      // this won't clobber any genuine field changes on the member record.
+      if (leftDeviceId) {
+        GroupStore.touch(leftDeviceId);   // lastSeenAt = now (departure time)
+        const rec = GroupStore.getMembers().find(m => m.deviceId === leftDeviceId);
+        if (rec) SyncEngine.broadcastDelta('mbr', rec);
       }
       renderTopbarConnections();
       renderHomeGroupMembers();
@@ -3851,6 +3946,13 @@ const TrysteroRoomManager = {
     return !!this._room && this._room._connectedPeers.size > 0;
   },
 
+  // True when we're in the room (so we'll see peers as they come online),
+  // even if no peer is connected right now. Distinguishes "in the group,
+  // alone" from "lost the group connection".
+  isInGroup() {
+    return !!this._room;
+  },
+
   getConnectedMembers() {
     const result = [];
     if (!this._room) return result;
@@ -3874,6 +3976,8 @@ const GroupReconnectManager = {
   _retryTimer : null,
   _retryCount : 0,
   _retryDelay : 0,
+  _retryDeadline : 0,
+  _countdownTimer : null,
 
   start() {
     document.addEventListener('visibilitychange', () => {
@@ -3891,6 +3995,7 @@ const GroupReconnectManager = {
   },
 
   async _doRetry() {
+    this._stopCountdown();
     if (!GroupStore.exists()) return;
     if (TrysteroRoomManager.isConnected()) {
       renderGroupStatusBar();
@@ -3912,22 +4017,51 @@ const GroupReconnectManager = {
   _scheduleRetry() {
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) return;
+    // If we're in the room but simply have no peers online yet, that's the
+    // calm "in-group" state — not an error. Show it as such and don't run the
+    // reconnect backoff (there's nothing to reconnect; we're already in).
+    if (TrysteroRoomManager.isInGroup && TrysteroRoomManager.isInGroup()) {
+      this._stopCountdown();
+      renderGroupStatusBar('in-group');
+      return;
+    }
     // Exponential backoff: 3s, 6s, 12s, 30s max
     const delay = Math.min(3000 * Math.pow(2, this._retryCount), 30000);
     this._retryDelay = delay;
+    this._retryDeadline = Date.now() + delay;   // for the live countdown
     this._retryCount++;
     renderGroupStatusBar('waiting');
+    this._startCountdown();
     this._retryTimer = setTimeout(() => this._doRetry(), delay);
+  },
+
+  // Tick the status bar every second so the "Reconnecting in Ns…" actually
+  // counts down, rather than showing a static number until the next attempt.
+  _startCountdown() {
+    if (this._countdownTimer) clearInterval(this._countdownTimer);
+    this._countdownTimer = setInterval(() => {
+      if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) {
+        this._stopCountdown();
+        renderGroupStatusBar();
+        return;
+      }
+      renderGroupStatusBar('waiting');
+    }, 1000);
+  },
+
+  _stopCountdown() {
+    if (this._countdownTimer) { clearInterval(this._countdownTimer); this._countdownTimer = null; }
   },
 
   forceRetry() {
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    this._stopCountdown();
     this._retryCount = 0;
     this._doRetry();
   },
 
   // Called by TrysteroRoomManager when connected/disconnected
-  onConnected()    { this._retryCount = 0; if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; } renderGroupStatusBar(); },
+  onConnected()    { this._retryCount = 0; if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; } this._stopCountdown(); renderGroupStatusBar(); },
   onDisconnected() { this._scheduleRetry(); },
 };
 
@@ -3952,7 +4086,18 @@ function renderGroupStatusBar(state) {
     return;
   }
 
-  if (!state) state = TrysteroRoomManager.isConnected() ? 'connected' : 'waiting';
+  // Three meaningfully different situations when not directly peer-connected:
+  //   • connected   — at least one peer is live (handled above, bar hidden)
+  //   • in-group     — we're in the room with brokers up, just nobody else
+  //                    online right now. This is a calm, normal state, NOT an
+  //                    error. (An empty/half-empty group.)
+  //   • waiting      — we've actually lost the group connection and the
+  //                    reconnect manager is retrying. This is the real problem.
+  if (!state) {
+    if (TrysteroRoomManager.isConnected()) state = 'connected';
+    else if (TrysteroRoomManager.isInGroup && TrysteroRoomManager.isInGroup()) state = 'in-group';
+    else state = 'waiting';
+  }
   if (state === 'connected') { bar.classList.add('hidden'); return; }
 
   bar.classList.remove('hidden');
@@ -3967,8 +4112,14 @@ function renderGroupStatusBar(state) {
       textEl.textContent = 'Connecting to group…';
       if (dot) { dot.style.background = 'var(--accent)'; dot.style.animation = 'pulse-dot 1.2s ease-in-out infinite'; }
       break;
+    case 'in-group':
+      // We're in the room; just nobody else is online. Calm, not an alarm.
+      textEl.textContent = 'In the group — waiting for members to come online';
+      if (dot) { dot.style.background = 'var(--ok)'; dot.style.animation = 'pulse-dot 2s ease-in-out infinite'; }
+      break;
     case 'waiting': {
-      const secs = Math.round(GroupReconnectManager._retryDelay / 1000);
+      const remainingMs = GroupReconnectManager._retryDeadline - Date.now();
+      const secs = Math.max(0, Math.ceil(remainingMs / 1000));
       textEl.textContent = navigator.onLine
         ? (secs <= 1 ? 'Connecting…' : `Reconnecting in ${secs}s…`)
         : 'No network';
@@ -4093,6 +4244,24 @@ const SourceSyncManager = {
     SourceSyncManager.broadcastInfo();
   },
 };
+
+// Recompute the local reports fingerprint, store it on our own member record,
+// and broadcast the updated record so peers can tell whether they're in sync
+// with us. Called whenever reports change (local save/delete, or an incoming
+// sync that changed something).
+async function refreshReportsHash() {
+  if (!GroupStore.exists()) return;
+  try {
+    const hash = await computeReportsHash();
+    const before = (GroupStore.getMembers().find(m => m.deviceId === DEVICE_ID) || {}).reportsHash;
+    if (before === hash) return;          // nothing changed → no broadcast
+    GroupStore.setReportsHash(DEVICE_ID, hash);
+    const me = GroupStore.getMembers().find(m => m.deviceId === DEVICE_ID);
+    if (me) SyncEngine.broadcastDelta('mbr', me);
+    renderHomeGroupMembers();
+    refreshMyDeviceMembers();
+  } catch {}
+}
 
 // ── Transport abstraction ─────────────────────────────────────────────────────
 // Single point of access for the active transport — makes SyncManager and
@@ -4347,7 +4516,7 @@ const SyncManager = {
 
     if (!existing) {
       await _putSessionRaw(incoming);
-      if (incoming.status !== 'archived') {
+      if (incoming.status !== 'archived' && incoming.status !== 'deleted') {
         refreshSessionsCount();
         log(`Sync: received new task "${incoming.name || incoming.id}".`, 'ok');
       }
@@ -4363,7 +4532,12 @@ const SyncManager = {
     if (inWins) {
       await _putSessionRaw(incoming);
       refreshSessionsCount();
-      log(`Sync: updated task "${incoming.name || incoming.id}".`, 'info');
+      if (incoming.status === 'deleted') {
+        log(`Sync: report ${incoming.id} was deleted by the group.`, 'info');
+      } else {
+        log(`Sync: updated task "${incoming.name || incoming.id}".`, 'info');
+      }
+      refreshReportsHash();
     }
   },
 
@@ -4380,7 +4554,7 @@ const SyncManager = {
       if (!before || (after && (after.syncedAt || 0) !== (before.syncedAt || 0))) changed++;
     }
     if (changed > 0) {
-      showToast(`↓ Synced ${changed} report${changed === 1 ? '' : 's'} from group`);
+      refreshReportsHash();
     }
     SyncManager._refreshUI();
   },
@@ -4407,11 +4581,6 @@ const SyncManager = {
     const all = await listSessionsRaw();
     t.sendSyncFull(all, targetPeerId);
     log(`Sync: sent ${all.length} tasks to peer.`, 'info');
-    // Let the user know we're seeding a freshly-connected peer
-    const shareable = all.filter(s => s.status !== 'archived').length;
-    if (shareable > 0) {
-      showToast(`↑ Sharing ${shareable} report${shareable === 1 ? '' : 's'} with new device`);
-    }
   },
 
   // Broadcast a single session to all connected peers
@@ -5246,6 +5415,19 @@ function renderHomeGroupMembers() {
   const members   = GroupStore.getMembers();
   const connected = getActiveConnectedMembers();
 
+  // "Away" window: a member who isn't online right now but whose last sighting
+  // is recent is shown as Away (they may come right back) before becoming a
+  // plain "last seen X ago". Derived from the SHARED lastSeenAt (propagated on
+  // departure and merged as a monotonic max), so every device shows roughly
+  // the same Away/offline picture — not just peers we personally saw leave.
+  const AWAY_WINDOW_MS = 15 * 60 * 1000;
+  const now = Date.now();
+
+  // Our own fingerprints — a member is "in sync" with us when both match.
+  const me          = members.find(m => m.deviceId === DEVICE_ID) || {};
+  const myReports   = me.reportsHash;
+  const mySource    = me.sourceHash;
+
   el.innerHTML = members.map(m => {
     const isOnline  = m.deviceId === DEVICE_ID ||
       connected.some(c => c.info && c.info.deviceId === m.deviceId);
@@ -5255,9 +5437,34 @@ function renderHomeGroupMembers() {
     const nickname  = (m.deviceId === DEVICE_ID ? identity?.nickname : (cached?.nickname || m.nickname)) || '?';
     const role      = (m.deviceId === DEVICE_ID ? identity?.role : (cached?.role || m.role)) || null;
     const isYou     = m.deviceId === DEVICE_ID;
-    const ls        = isOnline ? null : formatLastSeen(m.lastSeenAt);
-    const statusColor = isOnline ? 'var(--ok)' : ls?.urgency === 'warn' ? '#d4a017' : ls?.urgency === 'danger' ? '#c0392b' : 'var(--dim)';
-    const statusText  = isOnline ? '● Online' : ls ? ls.text : 'never';
+
+    // Three tiers: Online (live peer) → Away (recent sighting, within the
+    // window) → Offline (last seen X ago). Away is derived from the shared
+    // lastSeenAt, so it's consistent across devices.
+    const seenAgo   = now - (m.lastSeenAt || 0);
+    const isAway    = !isOnline && (m.lastSeenAt || 0) > 0 && seenAgo < AWAY_WINDOW_MS;
+    const ls        = (isOnline || isAway) ? null : formatLastSeen(m.lastSeenAt);
+
+    let statusColor, statusText;
+    if (isOnline) {
+      statusColor = 'var(--ok)';      statusText = '● Online';
+    } else if (isAway) {
+      statusColor = '#d4a017';        statusText = '● Away';
+    } else {
+      statusColor = ls?.urgency === 'warn' ? '#d4a017' : ls?.urgency === 'danger' ? '#c0392b' : 'var(--dim)';
+      statusText  = ls ? ls.text : 'never';
+    }
+
+    // "In sync" = this member holds the same reports AND source as us. Only
+    // shown for other members (not yourself), and only when our own
+    // fingerprints exist and both match theirs. Comparing undefined to
+    // undefined would falsely "match", so require our hashes to be set.
+    const inSync = !isYou &&
+      myReports != null && m.reportsHash != null && m.reportsHash === myReports &&
+      mySource  != null && m.sourceHash  != null && m.sourceHash  === mySource;
+    const syncBadge = inSync
+      ? `<span title="Same reports and source as you" style="font-size:10px;font-weight:600;color:var(--ok);border:1px solid var(--ok);border-radius:4px;padding:1px 5px;flex-shrink:0">sync</span>`
+      : '';
 
     return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
       ${renderDeviceSVG(emoji, { size: 32, color })}
@@ -5265,6 +5472,7 @@ function renderHomeGroupMembers() {
         <div style="font-size:13px;font-weight:600;color:var(--ink)">${nickname}${isYou ? ' <span style="opacity:.4;font-weight:400;font-size:11px">(you)</span>' : ''}</div>
         ${role ? `<div style="font-size:11px;color:var(--accent)">${role}</div>` : ''}
       </div>
+      ${syncBadge}
       <span style="font-size:11px;font-weight:600;color:${statusColor};flex-shrink:0">${statusText}</span>
     </div>`;
   }).join('');
@@ -5523,15 +5731,19 @@ async function _handleSourceFile(file) {
     return;
   }
   try {
+    const t0 = performance.now();
     const buf  = await file.arrayBuffer();
     const wb   = window.XLSX.read(buf, { type: 'array', cellDates: true });
     const ws   = wb.Sheets[wb.SheetNames[0]];
     const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
     if (rows.length < 2) { log('File appears empty', 'err'); return; }
+    const t1 = performance.now();
 
     const headers = rows[0];
-    const parsed  = rows.slice(1).map(r => parseSourceRow(r, headers)).filter(Boolean);
+    const colMap  = buildSourceColumnMap(headers);
+    const parsed  = rows.slice(1).map(r => parseSourceRow(r, colMap)).filter(Boolean);
     if (!parsed.length) { log('No valid rows found — check the file format', 'err'); return; }
+    const t2 = performance.now();
 
     const hash = hashData(parsed);
     const src  = { filename: file.name, uploadedAt: Date.now(), hash, rows: parsed };
@@ -5539,7 +5751,12 @@ async function _handleSourceFile(file) {
     _sourceData = src;
     GroupStore.setSourceHash(DEVICE_ID, hash);
     renderSourceSection();
+    const t3 = performance.now();
     log(`Source imported: ${parsed.length} rows`, 'ok');
+    if (DEV_MODE) {
+      log(`Import timing — read/parse XLSX: ${Math.round(t1 - t0)}ms · ` +
+          `map rows: ${Math.round(t2 - t1)}ms · hash+save+render: ${Math.round(t3 - t2)}ms`, 'info');
+    }
   } catch (e) {
     log('Import failed: ' + e.message, 'err');
   }
@@ -9330,6 +9547,7 @@ window.addEventListener('load', async () => {
 
   if (typeof TrysteroTransfer !== 'undefined') {
     GroupReconnectManager.start();
+    refreshReportsHash();   // seed our sync fingerprint at startup
     TrysteroRoomManager.init()
       .then(() => renderGroupStatusBar())
       .catch(e => log('Room init error: ' + e.message, 'err'));
@@ -9384,25 +9602,19 @@ async function autoJoinIfPending() {
       GroupStore.create(peerId, pw);
     }
     if (invitedBy) _pendingInvitedBy = invitedBy;
-    showConnectingOverlay('Joining group…');
+    // Joining a group is not a wait-for-peer handshake: you're a member as
+    // soon as the room is joined, even if nobody else is online yet. Data
+    // syncs in the background once any peer appears (last-write-wins merge
+    // from whoever is online). So we join the room directly — no blocking
+    // overlay — and report progress in the status log instead.
+    log('Joining group…', 'info');
     try {
-      await ensureSendTransfer();
-      await activeTransfer.connect(peerId);
-      hideConnectingOverlay();
-      // Wait for peer-info before reinit to avoid race condition
-      await new Promise(resolve => {
-        if (remotePeerInfo) return resolve();
-        const timeout = setTimeout(resolve, 3000);
-        const unsub = activeTransfer.on('peer-info', () => {
-          clearTimeout(timeout); unsub(); resolve();
-        });
-      });
       await TrysteroRoomManager.reinit();
+      log('Joined the group. Syncing with online members…', 'ok');
       restartToStart();
     } catch (err) {
-      hideConnectingOverlay();
       _pendingInvitedBy = null;
-      log('Auto-join group failed: ' + err.message, 'err');
+      log('Could not join the group: ' + err.message, 'err');
       restartToStart();
     }
     return;
