@@ -1989,19 +1989,20 @@
     </div>
   </section>
 
-  <!-- Setup screen: identity circle + slot machine + name input -->
-  <!-- One screen — roll the circle, type a name, tap Save, done. No
-       separate confirmation step; the user sees the final emoji + color
-       sitting right above the Save button before they commit. -->
-  <section class="ob-screen hidden" data-ob-screen="setup">
-    <div class="ob-content ob-content-scroll">
-      <div id="ob-setup-pick">
-        <div class="ob-device-frame" id="ob-setup-device"></div>
-        <h2 class="ob-disc-title" id="ob-setup-title">Set up your device's identity</h2>
-        <div class="ob-field-label">Your name</div>
-        <input type="text" class="netid" id="ob-setup-netid" placeholder="e.g. jvanderlaan, sanne, or a nickname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-        <button class="ob-btn primary" id="ob-setup-save">Save</button>
-      </div>
+  <!-- Group choice: shown after identity setup, only when the user isn't in
+       a group yet. Collaboration is the whole point — you either start a new
+       group or join an existing one before reaching Home. Skipped silently
+       for anyone already in a group. -->
+  <section class="ob-screen hidden" data-ob-screen="group">
+    <div class="ob-content">
+      <svg class="ob-plane" viewBox="0 0 80 80" aria-hidden="true">
+        <path d="M 6 40 L 76 12 L 50 70 L 42 50 Z" fill="var(--accent)"/>
+        <path d="M 42 50 L 76 12 L 50 50 Z" fill="var(--tud-cyan-dark)"/>
+      </svg>
+      <h2 class="ob-disc-title">Work together</h2>
+      <p class="ob-tagline" style="margin-bottom:1.5rem">FieldSync is built for a group of devices that share reports.<br>Start a new group, or join one you've been invited to.</p>
+      <button class="ob-btn primary" id="ob-group-start">Start a new group</button>
+      <button class="ob-btn" id="ob-group-join" style="margin-top:.75rem">Join a group — scan an invite</button>
     </div>
   </section>
 
@@ -2346,7 +2347,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '51';
+  const LOCAL_VERSION = '53';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -9423,7 +9424,7 @@ function initOnboardingSetup() {
         log('Persistent storage request failed: ' + e.message, 'info');
       }
     }
-    finishOnboarding();
+    finishIdentitySetup();
   }
   saveBtn.addEventListener('click', attemptSave);
   inputEl.addEventListener('keydown', (e) => {
@@ -9450,6 +9451,45 @@ function finishOnboarding() {
   autoJoinIfPending().catch(e => log('Auto-join error: ' + e.message, 'err'));
 }
 
+// After identity is committed: if the user isn't in a group yet, show the
+// group-choice screen (collaboration is the point — you start or join a group
+// before reaching Home). If they somehow already have a group, or there's a
+// pending join from a QR link, skip straight to finishing.
+function finishIdentitySetup() {
+  if (GroupStore.exists() || PENDING_JOIN_PARAMS) {
+    finishOnboarding();
+    return;
+  }
+  showOnboardingScreen('group');
+  wireGroupChoiceButtons();
+}
+
+// Wire the two group-choice buttons once.
+let _groupChoiceWired = false;
+function wireGroupChoiceButtons() {
+  if (_groupChoiceWired) return;
+  _groupChoiceWired = true;
+  const startBtn = document.getElementById('ob-group-start');
+  const joinBtn  = document.getElementById('ob-group-join');
+  if (startBtn) startBtn.addEventListener('click', () => {
+    // Start a new group: finish onboarding and open the invite (show-QR)
+    // flow, which creates a pending group that commits when someone joins.
+    finishOnboarding();
+    currentMode    = 'receive';
+    currentBackend = 'mqtt';
+    const idx = FLOWS['receive-mqtt'].indexOf('show-qr');
+    if (idx !== -1) goToStep(idx, 'forward');
+  });
+  if (joinBtn) joinBtn.addEventListener('click', () => {
+    // Join an existing group: finish onboarding and open the scan flow.
+    finishOnboarding();
+    currentMode    = 'send';
+    currentBackend = 'mqtt';
+    const idx = FLOWS['send-mqtt'].indexOf('scan-qr');
+    if (idx !== -1) goToStep(idx, 'forward');
+  });
+}
+
 // Reveal the main app + bottom nav. They're hidden during preboot (see
 // body.preboot in CSS) so first-time and QR-scan users don't see a flash
 // of the start screen before the onboarding overlay or auto-pair takes
@@ -9463,8 +9503,14 @@ function revealApp() {
 async function maybeShowOnboarding() {
   const consent = await getPref('consentAgreed');
   if (consent && hasIdentity()) {
-    // Returning user — skip onboarding entirely
-    return false;
+    // Returning user. If they're already in a group (or arriving via a join
+    // link), go straight to the app. But a user with an identity and no group
+    // still needs to start or join one before Home — show just that screen.
+    if (GroupStore.exists() || PENDING_JOIN_PARAMS) return false;
+    showOnboardingScreen('group');
+    wireGroupChoiceButtons();
+    document.getElementById('onboarding').classList.remove('hidden');
+    return true;
   }
   // Wire up the onboarding buttons once, then show the right starting screen
   document.getElementById('ob-home-btn').addEventListener('click', () => {
@@ -9688,6 +9734,22 @@ async function autoJoinIfPending() {
   if (!hasIdentity()) { log('Cannot auto-join: no identity.', 'err'); return; }
 
   if (currentBackend === 'trystero' || currentBackend === 'mqtt') {
+    // Already in a group? A QR for a DIFFERENT group (different room code) is
+    // refused — one group per installation, and silently switching would be
+    // confusing (and discarding the current group's data without consent is
+    // not OK). A QR for the SAME group (e.g. re-scanning, or a second device
+    // that was already paired) is harmless and proceeds normally.
+    if (GroupStore.exists() && peerId && GroupStore.getRoomCode() !== peerId) {
+      log('Ignored an invite for a different group — you are already in one.', 'info');
+      alert(
+        'You are already in a group.\n\n' +
+        'This invite is for a different group. To join it, first leave your ' +
+        'current group (My device → Leave), which clears this device\'s shared ' +
+        'data, and then scan the invite again.'
+      );
+      restartToStart();
+      return;
+    }
     // A valid invitation is an explicit re-admission — lift any eviction
     // before joining so the inbound gate opens.
     if (peerId && pw && isEvicted()) {
