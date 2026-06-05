@@ -2346,7 +2346,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '48';
+  const LOCAL_VERSION = '49';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3795,10 +3795,13 @@ const TrysteroRoomManager = {
 
     t.on('log', ({ level, message }) => log(message, level));
 
-    // Note: the transport already logs broker/relay reachability (strategy-aware)
-    // via its own diagnostics. We don't re-log here to avoid duplicate and
-    // mislabelled messages; this hook stays only for any future UI reaction.
-    t.on('relay-status', () => {});
+    // The transport already logs broker/relay reachability (strategy-aware)
+    // via its own diagnostics, so we don't re-log here. But this IS the moment
+    // we learn whether signaling is up — so refresh the status bar, which
+    // otherwise stays on a stale "Connecting…" until a peer event fires (and
+    // if nobody else is online, that never comes). Re-rendering lets the bar
+    // settle into 'in-group' (brokers up, alone) or 'waiting' (no signaling).
+    t.on('relay-status', () => { renderGroupStatusBar(); });
 
     t.on('connected', (peerId) => {
       GroupReconnectManager.onConnected();
@@ -3925,6 +3928,11 @@ const TrysteroRoomManager = {
     this._room = t;
     // Defense in depth: if somehow joined while evicted, seal immediately.
     if (isEvicted()) { try { t.sealInbound(); } catch {} }
+    // Once brokers have had a moment to connect, refresh the status bar so it
+    // settles into 'in-group' (signaling up, alone) instead of lingering on a
+    // stale 'connecting'. The relay-status hook also does this, but that only
+    // fires once per page load; this covers reconnects too.
+    setTimeout(() => { if (this._room === t) renderGroupStatusBar(); }, 3500);
   },
 
   // Called after first-time pairing to (re-)init with the new group
