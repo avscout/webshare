@@ -214,6 +214,37 @@
     sealInbound()   { this._inboundSealed = true; }
     unsealInbound() { this._inboundSealed = false; }
 
+    // Watch for the case where ALL signaling brokers/relays drop. Brokers are
+    // only needed to find peers and to reconnect; an already-established P2P
+    // connection keeps working when they're gone. But with zero brokers, no
+    // new peers or reconnects are possible — worth a warning. Logs only the
+    // TRANSITION (all-down, and recovery), not every flap, and survives
+    // Trystero swapping sockets on reconnect because it re-reads the live set.
+    _startRelayWatch(label) {
+      if (this._relayWatch) return;            // already watching
+      if (!this._getRelaySockets) return;      // no live socket info available
+      this._relayAllDown = false;
+      this._relayWatch = setInterval(() => {
+        if (!this._room) { clearInterval(this._relayWatch); this._relayWatch = null; return; }
+        let open = 0;
+        try {
+          const sockets = this._getRelaySockets() || {};
+          for (const ws of Object.values(sockets)) {
+            if (ws && ws.readyState === 1) open++;
+          }
+        } catch { return; }
+        if (open === 0 && !this._relayAllDown) {
+          this._relayAllDown = true;
+          this._log('err', `⚠ All ${label}s are down — new connections and reconnects are not possible until a ${label} returns. Existing direct connections keep working.`);
+          this.emit('relay-status', { connected: 0, allDown: true });
+        } else if (open > 0 && this._relayAllDown) {
+          this._relayAllDown = false;
+          this._log('ok', `${label.charAt(0).toUpperCase() + label.slice(1)} connection restored (${open} reachable).`);
+          this.emit('relay-status', { connected: open, allDown: false });
+        }
+      }, 5000);
+    }
+
     // Send peer-info to a specific peer, or broadcast if no targetId given.
     _sendPeerInfo(targetPeerId) {
       if (!this._sendPeerInfoAction || !this.peerInfo) return;
@@ -356,6 +387,7 @@
       if (this._room) {
         try { this._room.leave(); } catch {}
         this._room = null;
+        if (this._relayWatch) { clearInterval(this._relayWatch); this._relayWatch = null; }
       }
 
       const config = {
@@ -394,22 +426,23 @@
             }
             const total = entries.length;
             if (total === 0) {
-              this._log('err', `Geen ${label}s gevonden — Trystero lijkt niet correct geladen.`);
+              this._log('err', `No ${label}s found — Trystero may not be loaded correctly.`);
             } else {
               this._log(connected ? 'ok' : 'err',
-                `Verbonden met ${connected}/${total} ${label}s${connectedUrls.length ? ': ' + connectedUrls.join(', ') : ''}.`);
+                `Connected to ${connected}/${total} ${label}s${connectedUrls.length ? ': ' + connectedUrls.join(', ') : ''}.`);
               // Split-risk interpretation: peer discovery only works between two
               // devices if they share at least one broker. Fewer connected
               // brokers = higher chance two devices have no broker in common.
               if (connected === 0) {
-                this._log('err', `⚠ Geen ${label} bereikbaar — peer-discovery werkt niet.`);
+                this._log('err', `⚠ No ${label} reachable — peer discovery will not work.`);
               } else if (connected < total) {
                 this._log('info',
-                  `Let op: niet alle ${label}s zijn bereikbaar. Twee apparaten vinden elkaar alleen als ze minstens één ${label} gemeen hebben. ` +
-                  `Op dit netwerk verbindt alleen: ${connectedUrls.join(', ')}.`);
+                  `Note: not all ${label}s are reachable. Two devices can only find each other if they share at least one ${label}. ` +
+                  `On this network only: ${connectedUrls.join(', ')}.`);
               }
               this.emit('relay-status', { connected, total, connectedUrls });
             }
+            this._startRelayWatch(label);
             return;
           }
 
@@ -421,10 +454,10 @@
           const summarise = () => {
             const reachable = results.filter(r => r.ok).map(r => r.url);
             this._log(reachable.length ? 'ok' : 'err',
-              `Verbonden met ${reachable.length}/${RELAY_URLS.length} ${label}s${reachable.length ? ': ' + reachable.join(', ') : ''}.`);
+              `Connected to ${reachable.length}/${RELAY_URLS.length} ${label}s${reachable.length ? ': ' + reachable.join(', ') : ''}.`);
             if (reachable.length && reachable.length < RELAY_URLS.length) {
               this._log('info',
-                `Let op: twee apparaten vinden elkaar alleen als ze minstens één ${label} gemeen hebben. Op dit netwerk bereikbaar: ${reachable.join(', ')}.`);
+                `Note: two devices can only find each other if they share at least one ${label}. On this network reachable: ${reachable.join(', ')}.`);
             }
             this.emit('relay-status', { connected: reachable.length, total: RELAY_URLS.length, connectedUrls: reachable });
           };
@@ -442,7 +475,7 @@
             ws.onerror = () => { clearTimeout(timer); done(false); };
           });
         } catch (e) {
-          this._log('err', `Kon ${label}-status niet bepalen: ` + e.message);
+          this._log('err', `Could not determine ${label} status: ` + e.message);
         }
       }, 3000);
       }
@@ -786,6 +819,7 @@
 
     _doClose() {
       if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
+      if (this._relayWatch) { clearInterval(this._relayWatch); this._relayWatch = null; }
       if (this._room) { try { this._room.leave(); } catch {} this._room = null; }
       this._remotePeerId          = null;
       this._connectedPeers.clear();
