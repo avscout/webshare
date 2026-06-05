@@ -1989,6 +1989,22 @@
     </div>
   </section>
 
+  <!-- Setup screen: identity circle + slot machine + name input -->
+  <!-- One screen — roll the circle, type a name, tap Save, done. No
+       separate confirmation step; the user sees the final emoji + color
+       sitting right above the Save button before they commit. -->
+  <section class="ob-screen hidden" data-ob-screen="setup">
+    <div class="ob-content ob-content-scroll">
+      <div id="ob-setup-pick">
+        <div class="ob-device-frame" id="ob-setup-device"></div>
+        <h2 class="ob-disc-title" id="ob-setup-title">Set up your device's identity</h2>
+        <div class="ob-field-label">Your name</div>
+        <input type="text" class="netid" id="ob-setup-netid" placeholder="e.g. jvanderlaan, sanne, or a nickname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="ob-btn primary" id="ob-setup-save">Save</button>
+      </div>
+    </div>
+  </section>
+
   <!-- Group choice: shown after identity setup, only when the user isn't in
        a group yet. Collaboration is the whole point — you either start a new
        group or join an existing one before reaching Home. Skipped silently
@@ -2000,9 +2016,9 @@
         <path d="M 42 50 L 76 12 L 50 50 Z" fill="var(--tud-cyan-dark)"/>
       </svg>
       <h2 class="ob-disc-title">Work together</h2>
-      <p class="ob-tagline" style="margin-bottom:1.5rem">FieldSync is built for a group of devices that share reports.<br>Start a new group, or join one you've been invited to.</p>
-      <button class="ob-btn primary" id="ob-group-start">Start a new group</button>
-      <button class="ob-btn" id="ob-group-join" style="margin-top:.75rem">Join a group — scan an invite</button>
+      <p class="ob-tagline" style="margin-bottom:1.5rem">FieldSync is built for a group of devices that share reports.<br>Join a group you've been invited to, or start a new one.</p>
+      <button class="ob-btn primary" id="ob-group-join" style="padding:18px;font-size:15px">Join a group — scan an invite</button>
+      <button class="ob-btn secondary" id="ob-group-start" style="margin-top:.75rem;padding:18px;font-size:15px">Start a new group</button>
     </div>
   </section>
 
@@ -2347,7 +2363,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '53';
+  const LOCAL_VERSION = '57';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3716,6 +3732,9 @@ const TrysteroRoomManager = {
       GroupStore.create(this._pendingGroup.roomCode, this._pendingGroup.password);
     }
     this._pendingGroup = null;
+    // A real group now exists (someone joined) — the user is no longer solo,
+    // so normal Home navigation resumes.
+    _onboardingGroupPending = false;
   },
 
   // Discard a pending group (QR cancelled before anyone joined).
@@ -9472,8 +9491,12 @@ function wireGroupChoiceButtons() {
   const startBtn = document.getElementById('ob-group-start');
   const joinBtn  = document.getElementById('ob-group-join');
   if (startBtn) startBtn.addEventListener('click', () => {
-    // Start a new group: finish onboarding and open the invite (show-QR)
-    // flow, which creates a pending group that commits when someone joins.
+    // Start a new group: open the invite (show-QR) flow, which creates a
+    // PENDING group that only becomes real when someone scans. Until then the
+    // user is still solo — so we mark that we're in the onboarding group-setup
+    // context, and Back returns to the group choice rather than Home (a solo
+    // user shouldn't reach Home; collaboration is required).
+    _onboardingGroupPending = true;
     finishOnboarding();
     currentMode    = 'receive';
     currentBackend = 'mqtt';
@@ -9481,7 +9504,10 @@ function wireGroupChoiceButtons() {
     if (idx !== -1) goToStep(idx, 'forward');
   });
   if (joinBtn) joinBtn.addEventListener('click', () => {
-    // Join an existing group: finish onboarding and open the scan flow.
+    // Join an existing group: open the scan flow. Same onboarding context —
+    // until a real group exists the user is solo, so Back returns to the
+    // group choice, not Home.
+    _onboardingGroupPending = true;
     finishOnboarding();
     currentMode    = 'send';
     currentBackend = 'mqtt';
@@ -9489,6 +9515,11 @@ function wireGroupChoiceButtons() {
     if (idx !== -1) goToStep(idx, 'forward');
   });
 }
+
+// True while the user is in the onboarding group-setup step (showing their
+// invite QR or scanning) but has no real group yet. Used to route Back to the
+// group-choice screen instead of Home — a solo user must not reach Home.
+let _onboardingGroupPending = false;
 
 // Reveal the main app + bottom nav. They're hidden during preboot (see
 // body.preboot in CSS) so first-time and QR-scan users don't see a flash
@@ -9555,6 +9586,23 @@ $('nav-back').addEventListener('click', () => {
   // cleanup which closes activeTransfer and hides the bar.
   const barShown = !$('connection-bar').classList.contains('hidden');
   if (barShown) {
+    restartToStart();
+    return;
+  }
+  // Onboarding group-setup: the user chose Start/Join a group but no real
+  // group exists yet (nobody has joined) — they're still solo. A solo user
+  // must not land on Home, so Back returns to the group-choice screen instead.
+  if (_onboardingGroupPending && !GroupStore.exists()) {
+    const ob = document.getElementById('onboarding');
+    if (ob) ob.classList.remove('hidden');
+    showOnboardingScreen('group');
+    return;
+  }
+  // The pick screen (reports overview + demo note/lamp) is reached directly
+  // from Home via the resume bar — NOT by walking through scan-qr. Stepping
+  // back naively would land on scan-qr and pop the camera open, which makes
+  // no sense here. So from pick, Back returns straight to Home.
+  if (currentScreenId() === 'pick') {
     restartToStart();
     return;
   }
