@@ -2363,7 +2363,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '57';
+  const LOCAL_VERSION = '60';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -4012,6 +4012,48 @@ const TrysteroRoomManager = {
 };
 
 // =====================================================================
+// Sync gate — brief settling window after joining a group.
+// =====================================================================
+// When a device first joins a group, its local report list may be empty for a
+// moment while the first data syncs in from peers. Adding a new report into
+// that not-yet-populated list is confusing, so we briefly block ADDING new
+// data (creating reports/tasks) right after joining. The block lifts as soon
+// as the first peer data arrives, or after a short timeout — so an empty or
+// offline group never leaves the user stuck. Editing existing items is never
+// blocked (there are none until sync arrives anyway).
+const SyncGate = {
+  _settling   : false,
+  _timer      : null,
+  SETTLE_MS   : 4000,   // safety timeout: lift the gate even if no data comes
+
+  // Begin the settling window. Called when a newcomer joins a group.
+  beginSettling() {
+    // Only meaningful right after a fresh join; ignore if already settling.
+    if (this._settling) return;
+    this._settling = true;
+    if (this._timer) clearTimeout(this._timer);
+    this._timer = setTimeout(() => this.clear(), this.SETTLE_MS);
+  },
+
+  // Lift the gate (first data arrived, or timeout). Safe to call repeatedly.
+  clear() {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    this._settling = false;
+  },
+
+  // True while new data should be blocked.
+  isSettling() { return this._settling; },
+
+  // Guard for add-data entry points. Returns true if blocked (and shows a
+  // brief notice), false if the caller may proceed.
+  blockIfSettling() {
+    if (!this._settling) return false;
+    showToast('Syncing with the group — one moment…');
+    return true;
+  },
+};
+
+// =====================================================================
 // Group reconnect manager — automatic reconnect with visual feedback.
 // Strategies: visibility change, online event, exponential backoff timer.
 // =====================================================================
@@ -4587,6 +4629,8 @@ const SyncManager = {
   // Receive a full state dump from a peer (on first connect or sync-request)
   async receiveFull(sessions, fromPeerId) {
     if (!Array.isArray(sessions)) return;
+    // First peer data has arrived — lift the post-join settling gate.
+    SyncGate.clear();
     log(`Sync: received ${sessions.length} reports from peer.`, 'info');
     // Count how many are genuinely new/updated so we only flag a real transfer
     let changed = 0;
@@ -5356,6 +5400,7 @@ async function refreshPickList() {
   updateNavBar();
 }
 $('pick-new-btn').addEventListener('click', () => {
+  if (SyncGate.blockIfSettling()) return;
   const today = new Date();
   const month = today.toLocaleString('en', { month: 'short' }).toLowerCase();
   const day   = today.getDate();
@@ -5831,6 +5876,7 @@ async function _handleSourceFile(file) {
 }
 
 $('home-new-btn').addEventListener('click', () => {
+  if (SyncGate.blockIfSettling()) return;
   if (_sourceData) showCreateJobModal();
   else showSessionModal(null, 'start');
 });
@@ -9327,13 +9373,22 @@ document.getElementById('topbar-title').addEventListener('click', () => {
 });
 
 // =====================================================================
-// Onboarding flow (home → disclaimer → setup)
+// Onboarding flow (home → disclaimer → setup → group)
 // =====================================================================
-// Three full-viewport overlay screens shown on first run only. Returning
-// users — defined as having BOTH consentAgreed AND identity set in IDB —
-// skip the onboarding entirely. The progression is strictly forward: no
-// back navigation between screens. Once setup completes, the overlay is
-// removed and the main app is revealed.
+// Full-viewport overlay screens shown on first run. Returning users —
+// defined as having BOTH consentAgreed AND identity set in IDB — skip the
+// identity steps; if they have no group yet they still see the group step.
+// The progression is strictly forward. Once a group is set up (or joined),
+// the overlay is removed and the main app is revealed.
+
+// Onboarding state flags (declared up front, before the functions that use
+// them, so reads never precede the declaration):
+//   _groupChoiceWired        — group-choice buttons bound once
+//   _onboardingGroupPending  — user picked Start/Join but has no real group
+//                              yet (still solo); Back returns to group choice
+//                              rather than Home.
+let _groupChoiceWired = false;
+let _onboardingGroupPending = false;
 
 function showOnboardingScreen(name) {
   const root = document.getElementById('onboarding');
@@ -9479,12 +9534,20 @@ function finishIdentitySetup() {
     finishOnboarding();
     return;
   }
+  showGroupChoice();
+}
+
+// Show the group-choice screen and ensure its buttons are wired. Single entry
+// point used by both first-run (after identity setup) and returning users who
+// have an identity but no group yet.
+function showGroupChoice() {
+  const ob = document.getElementById('onboarding');
+  if (ob) ob.classList.remove('hidden');
   showOnboardingScreen('group');
   wireGroupChoiceButtons();
 }
 
 // Wire the two group-choice buttons once.
-let _groupChoiceWired = false;
 function wireGroupChoiceButtons() {
   if (_groupChoiceWired) return;
   _groupChoiceWired = true;
@@ -9497,6 +9560,8 @@ function wireGroupChoiceButtons() {
     // context, and Back returns to the group choice rather than Home (a solo
     // user shouldn't reach Home; collaboration is required).
     _onboardingGroupPending = true;
+    // finishOnboarding() also fires autoJoinIfPending(), but that's a no-op
+    // here — there's no pending join when starting a fresh group.
     finishOnboarding();
     currentMode    = 'receive';
     currentBackend = 'mqtt';
@@ -9508,6 +9573,8 @@ function wireGroupChoiceButtons() {
     // until a real group exists the user is solo, so Back returns to the
     // group choice, not Home.
     _onboardingGroupPending = true;
+    // finishOnboarding()'s autoJoinIfPending() is a no-op here too (no pending
+    // join from a URL — this is a manual scan flow).
     finishOnboarding();
     currentMode    = 'send';
     currentBackend = 'mqtt';
@@ -9515,11 +9582,6 @@ function wireGroupChoiceButtons() {
     if (idx !== -1) goToStep(idx, 'forward');
   });
 }
-
-// True while the user is in the onboarding group-setup step (showing their
-// invite QR or scanning) but has no real group yet. Used to route Back to the
-// group-choice screen instead of Home — a solo user must not reach Home.
-let _onboardingGroupPending = false;
 
 // Reveal the main app + bottom nav. They're hidden during preboot (see
 // body.preboot in CSS) so first-time and QR-scan users don't see a flash
@@ -9538,9 +9600,7 @@ async function maybeShowOnboarding() {
     // link), go straight to the app. But a user with an identity and no group
     // still needs to start or join one before Home — show just that screen.
     if (GroupStore.exists() || PENDING_JOIN_PARAMS) return false;
-    showOnboardingScreen('group');
-    wireGroupChoiceButtons();
-    document.getElementById('onboarding').classList.remove('hidden');
+    showGroupChoice();
     return true;
   }
   // Wire up the onboarding buttons once, then show the right starting screen
@@ -9818,6 +9878,10 @@ async function autoJoinIfPending() {
     try {
       await TrysteroRoomManager.reinit();
       log('Joined the group. Syncing with online members…', 'ok');
+      // Brief settling window: block adding new data until the first peer data
+      // arrives (or a short timeout), so the newcomer doesn't add into a list
+      // that's about to fill from the group.
+      SyncGate.beginSettling();
       restartToStart();
     } catch (err) {
       _pendingInvitedBy = null;
