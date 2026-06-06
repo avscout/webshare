@@ -2363,7 +2363,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '60';
+  const LOCAL_VERSION = '62';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -3696,6 +3696,32 @@ async function leaveGroup() {
   // tear down the room.
   await new Promise(res => setTimeout(res, 250));
   await _wipeGroupData('You left the group — clearing group data (profile kept).');
+}
+
+// Shared admission steps for joining a group from a valid invite (full QR with
+// room code + password). Used by BOTH join paths — the manual scan handler and
+// the auto-join-from-URL handler — so the steps can't drift apart between them
+// (a past bug: one path lifted eviction, the other didn't, silently dropping
+// all incoming sync). Does NOT create the room or navigate; callers handle
+// their own UI/connection. Returns nothing; safe to call when already in the
+// group (create is a no-op then).
+function admitToGroup(roomCode, password, invitedBy) {
+  // A valid invitation is an explicit re-admission. If this device previously
+  // left or was removed, the inbound gate is sealed and the evicted flag is
+  // set — which would silently drop ALL incoming sync (reports AND source).
+  // Lift it before joining.
+  if (roomCode && password && isEvicted()) {
+    clearEvicted();
+    try { TrysteroRoomManager._room && TrysteroRoomManager._room.unsealInbound(); } catch {}
+  }
+  // Create the group from the invite if we're not already in one.
+  if (!GroupStore.exists() && roomCode && password) {
+    GroupStore.create(roomCode, password);
+  }
+  // Remember who invited us (for the member record), unless we're already known.
+  if (invitedBy && !GroupStore.isKnown(DEVICE_ID)) {
+    _pendingInvitedBy = invitedBy;
+  }
 }
 
 // Self-tombstone reaction: another device removed us. Identical end state to
@@ -6165,14 +6191,10 @@ async function onScanResult(data) {
       return;
     }
 
-    // Create group from scanned QR and navigate home immediately —
-    // connection happens in background via TrysteroRoomManager.
-    if (!GroupStore.exists() && roomCode && password) {
-      GroupStore.create(roomCode, password);
-    }
-    if (invitedBy && !GroupStore.isKnown(DEVICE_ID)) {
-      _pendingInvitedBy = invitedBy;
-    }
+    // Valid invite — run the shared admission steps (lift eviction, create
+    // group, remember inviter), then navigate home; connection happens in the
+    // background via TrysteroRoomManager.
+    admitToGroup(roomCode, password, invitedBy);
 
     restartToStart();
     renderGroupStatusBar('connecting');
@@ -9858,17 +9880,9 @@ async function autoJoinIfPending() {
       restartToStart();
       return;
     }
-    // A valid invitation is an explicit re-admission — lift any eviction
-    // before joining so the inbound gate opens.
-    if (peerId && pw && isEvicted()) {
-      clearEvicted();
-      try { TrysteroRoomManager._room && TrysteroRoomManager._room.unsealInbound(); } catch {}
-    }
-    // Group join: create group from QR params, then reinit room manager
-    if (!GroupStore.exists() && peerId && pw) {
-      GroupStore.create(peerId, pw);
-    }
-    if (invitedBy) _pendingInvitedBy = invitedBy;
+    // Valid invite — run the shared admission steps (lift eviction, create
+    // group from the QR params, remember inviter), then join the room.
+    admitToGroup(peerId, pw, invitedBy);
     // Joining a group is not a wait-for-peer handshake: you're a member as
     // soon as the room is joined, even if nobody else is online yet. Data
     // syncs in the background once any peer appears (last-write-wins merge
