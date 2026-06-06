@@ -660,7 +660,7 @@
           return;
         }
 
-        // Peer accepted — emit connected / reconnected
+        // Peer accepted — emit connected / reconnected.
         const pending = this._pendingPeerJoins.get(peerId);
         if (pending) {
           this._pendingPeerJoins.delete(peerId);
@@ -671,6 +671,15 @@
             this._log('ok', `Peer joined room (${peerId.slice(0, 8)}…)`);
             this.emit('connected', peerId);
           }
+        } else if (wasRejected) {
+          // No pending join, but this peer was rejected before and is now
+          // accepted (their fresh peer-info arrived). An abort can leave the
+          // peer in _connectedPeers without a new _onPeerJoin firing, so the
+          // normal pending-join path never runs. Emit connected here too so
+          // the seed chain runs and the rejoining device actually gets data.
+          this._connectedPeers.add(peerId);
+          this._log('ok', `Peer re-admitted (${peerId.slice(0, 8)}…)`);
+          this.emit('connected', peerId);
         }
 
         // Emit peer-info event with peerId attached
@@ -760,19 +769,42 @@
 
       this._connectedPeers.add(peerId);
       this._recentlyLeft.delete(peerId);   // back online — no longer "away"
+      // A rejoining peer must be evaluated fresh: clear any stale rejection so
+      // the onPeerAccept → seed chain runs again. Without this, a peer that was
+      // rejected earlier (or left after an abort) rejoins but has its data
+      // dropped at the gate until a full refresh.
+      this._rejectedPeers.delete(peerId);
       this._remotePeerId   = peerId;
       this._isReconnecting = false;
 
       this._log('info', `${this._strategy === 'mqtt' ? 'MQTT' : 'Nostr'}: peer found in room (${peerId.slice(0, 8)}…) — establishing WebRTC…`);
 
-      // Send peer-info specifically to this new peer
+      // Send peer-info to this new peer. The data channel may not be fully
+      // open at onPeerJoin time, so a single immediate send can be dropped —
+      // which would stall the whole accept→seed chain on the other side (the
+      // classic "data only shows up after a refresh" bug). So we send now and
+      // retry a few times over the next few seconds, stopping as soon as the
+      // peer is no longer pending our side / has left.
       if (this._sendPeerInfoAction && this.peerInfo) {
-        try {
-          this._sendPeerInfoAction(
-            { info: this.peerInfo, token: this._sessionToken },
-            peerId
-          );
-        } catch {}
+        const sendInfo = () => {
+          try {
+            this._sendPeerInfoAction(
+              { info: this.peerInfo, token: this._sessionToken },
+              peerId
+            );
+          } catch {}
+        };
+        sendInfo();
+        let tries = 0;
+        const retry = setInterval(() => {
+          tries++;
+          // Stop if the peer is gone, or after a handful of attempts.
+          if (tries > 4 || !this._connectedPeers.has(peerId)) {
+            clearInterval(retry);
+            return;
+          }
+          sendInfo();
+        }, 1200);
       }
 
       if (this.onPeerAccept) {
@@ -792,6 +824,12 @@
       this._connectedPeers.delete(peerId);
       this._pendingPeerJoins.delete(peerId);
       this._recentlyLeft.set(peerId, Date.now());   // start the "away" window
+      // Clear any stale rejection for this peer. Otherwise a peer that was
+      // briefly rejected (e.g. QR not visible at that instant) stays in the
+      // rejected set, and when it REJOINS its data is silently dropped at the
+      // inbound gate until a full page refresh rebuilds the transport. Leaving
+      // (or an abort) must reset that so a rejoin is evaluated fresh.
+      this._rejectedPeers.delete(peerId);
 
       if (this._remotePeerId === peerId) {
         this._remotePeerId = this._connectedPeers.size > 0
