@@ -2363,7 +2363,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '63';
+  const LOCAL_VERSION = '65';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -4038,44 +4038,66 @@ const TrysteroRoomManager = {
 };
 
 // =====================================================================
-// Sync gate — brief settling window after joining a group.
+// Source gate — block source upload while a newcomer awaits source sync.
 // =====================================================================
-// When a device first joins a group, its local report list may be empty for a
-// moment while the first data syncs in from peers. Adding a new report into
-// that not-yet-populated list is confusing, so we briefly block ADDING new
-// data (creating reports/tasks) right after joining. The block lifts as soon
-// as the first peer data arrives, or after a short timeout — so an empty or
-// offline group never leaves the user stuck. Editing existing items is never
-// blocked (there are none until sync arrives anyway).
-const SyncGate = {
-  _settling   : false,
-  _timer      : null,
-  SETTLE_MS   : 4000,   // safety timeout: lift the gate even if no data comes
+// Join gate — unified "wait until synced" guard after joining a group.
+// =====================================================================
+// When a device JOINS an existing group, its local data is briefly empty/stale
+// while the group's state syncs in. Acting on that incomplete data is risky or
+// confusing, so we gate three domains until each has received its first data
+// (or a per-domain timeout, so an empty/offline group never blocks forever):
+//
+//   • reports — block ADDING a new task (don't add into a not-yet-filled list)
+//   • members — block REMOVING a member or changing roles (don't act on an
+//               incomplete member list). Leaving the group is never blocked.
+//   • source  — block UPLOADING a source (don't race the incoming group source)
+//
+// This does NOT apply when you START a new group — there's no group state to
+// wait for, so nothing is gated. Each domain unlocks independently as its data
+// arrives. Editing existing reports is never blocked (there are none pre-sync).
+const JoinGate = {
+  _open : { reports: false, members: false, source: false },
+  _timers : { reports: null, members: null, source: null },
+  TIMEOUT_MS : { reports: 4000, members: 4000, source: 8000 },
 
-  // Begin the settling window. Called when a newcomer joins a group.
-  beginSettling() {
-    // Only meaningful right after a fresh join; ignore if already settling.
-    if (this._settling) return;
-    this._settling = true;
-    if (this._timer) clearTimeout(this._timer);
-    this._timer = setTimeout(() => this.clear(), this.SETTLE_MS);
+  // Begin gating all domains. Called when JOINING (not starting) a group.
+  begin() {
+    for (const domain of ['reports', 'members', 'source']) this._beginDomain(domain);
+    this._refreshUI();
   },
 
-  // Lift the gate (first data arrived, or timeout). Safe to call repeatedly.
-  clear() {
-    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-    this._settling = false;
+  _beginDomain(domain) {
+    if (this._open[domain]) return;
+    this._open[domain] = true;
+    if (this._timers[domain]) clearTimeout(this._timers[domain]);
+    this._timers[domain] = setTimeout(() => this.clear(domain), this.TIMEOUT_MS[domain]);
   },
 
-  // True while new data should be blocked.
-  isSettling() { return this._settling; },
+  // Lift the gate for one domain (its data arrived, nothing to wait for, or
+  // timeout). Safe to call repeatedly.
+  clear(domain) {
+    if (this._timers[domain]) { clearTimeout(this._timers[domain]); this._timers[domain] = null; }
+    if (!this._open[domain]) return;
+    this._open[domain] = false;
+    this._refreshUI();
+  },
 
-  // Guard for add-data entry points. Returns true if blocked (and shows a
+  // Lift every domain at once (e.g. on leaving the group).
+  clearAll() { for (const d of ['reports', 'members', 'source']) this.clear(d); },
+
+  isWaiting(domain) { return !!this._open[domain]; },
+
+  // Guard for an action in a domain. Returns true if blocked (and shows a
   // brief notice), false if the caller may proceed.
-  blockIfSettling() {
-    if (!this._settling) return false;
+  block(domain) {
+    if (!this._open[domain]) return false;
     showToast('Syncing with the group — one moment…');
     return true;
+  },
+
+  // Re-render any UI that depends on gate state.
+  _refreshUI() {
+    try { renderSourceSection(); } catch {}
   },
 };
 
@@ -4304,6 +4326,8 @@ const SourceSyncManager = {
       if (t) t.sendSourceRequest(peerId);
     } else {
       log(`Source: already have same or newer version — skipping.`, 'info');
+      // Nothing newer to wait for from this peer — lift the upload gate.
+      JoinGate.clear("source");
     }
   },
 
@@ -4349,6 +4373,7 @@ const SourceSyncManager = {
     await saveSource(src);
     _sourceData = src;
     GroupStore.setSourceHash(DEVICE_ID, hash);
+    JoinGate.clear("source");          // source arrived — upload available again
     renderSourceSection();
     log(`Source: received and saved "${filename}" (${rows.length} rows) from peer.`, 'ok');
     // Tell all peers we now have this version too
@@ -4489,6 +4514,8 @@ const SyncEngine = {
     const tombstones = (payload && payload.tombstones) || [];
     for (const t of tombstones) await this.mergeTombstone(name, t);
     for (const r of records)    await this.merge(name, r);
+    // Member list synced in from a peer — lift the members gate.
+    if (name === 'mbr' && (records.length || tombstones.length)) JoinGate.clear('members');
   },
 
   // Local record mutation → broadcast.
@@ -4656,7 +4683,7 @@ const SyncManager = {
   async receiveFull(sessions, fromPeerId) {
     if (!Array.isArray(sessions)) return;
     // First peer data has arrived — lift the post-join settling gate.
-    SyncGate.clear();
+    JoinGate.clear("reports");
     log(`Sync: received ${sessions.length} reports from peer.`, 'info');
     // Count how many are genuinely new/updated so we only flag a real transfer
     let changed = 0;
@@ -5426,7 +5453,7 @@ async function refreshPickList() {
   updateNavBar();
 }
 $('pick-new-btn').addEventListener('click', () => {
-  if (SyncGate.blockIfSettling()) return;
+  if (JoinGate.block("reports")) return;
   const today = new Date();
   const month = today.toLocaleString('en', { month: 'short' }).toLowerCase();
   const day   = today.getDate();
@@ -5481,6 +5508,8 @@ function refreshMyDeviceMembers() {
   // Re-wire remove buttons (other members)
   section.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Don't act on an incomplete member list — wait until it has synced in.
+      if (JoinGate.block('members')) return;
       if (confirm('Remove this device from the group? They will drop out of everyone\'s member list and their app will clear its shared group data (their profile is kept). They can rejoin with a new invite.')) {
         const deviceId = btn.dataset.deviceid;
         const removedAt = Date.now();
@@ -5663,6 +5692,28 @@ async function loadSourceData() {
 function renderSourceSection() {
   const el = $('source-section');
   if (!el) return;
+
+  // Newcomer awaiting the group's source: show a waiting state instead of the
+  // upload dropzone, so they don't upload their own and race the incoming one.
+  if (!_sourceData && JoinGate.isWaiting("source")) {
+    el.innerHTML = `
+      <div style="display:flex;gap:0;margin-bottom:1rem">
+        <div style="flex:1;min-width:0;padding-right:12px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Source data</div>
+          <div class="source-dropzone" style="opacity:.6;cursor:default;pointer-events:none">
+            <div style="font-size:24px;margin-bottom:6px">⏳</div>
+            <div style="font-weight:600;color:var(--ink);margin-bottom:4px">Syncing source from the group…</div>
+            <div>Please wait — importing becomes available once sync completes.</div>
+          </div>
+        </div>
+        <div style="width:1px;background:var(--line);flex-shrink:0;margin:0 4px"></div>
+        <div style="flex:1;min-width:0;padding-left:12px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Floor data</div>
+          <div style="color:var(--dim);font-size:13px">— not yet configured</div>
+        </div>
+      </div>`;
+    return;
+  }
 
   if (!_sourceData) {
     el.innerHTML = `
@@ -5902,7 +5953,7 @@ async function _handleSourceFile(file) {
 }
 
 $('home-new-btn').addEventListener('click', () => {
-  if (SyncGate.blockIfSettling()) return;
+  if (JoinGate.block("reports")) return;
   if (_sourceData) showCreateJobModal();
   else showSessionModal(null, 'start');
 });
@@ -6195,6 +6246,12 @@ async function onScanResult(data) {
     // group, remember inviter), then navigate home; connection happens in the
     // background via TrysteroRoomManager.
     admitToGroup(roomCode, password, invitedBy);
+
+    // Joining an existing group: gate reports/members/source until each syncs
+    // in (or per-domain timeout). Not for starting a group. If we already have
+    // a source, lift that domain immediately (nothing to wait for there).
+    JoinGate.begin();
+    if (_sourceData) JoinGate.clear('source');
 
     restartToStart();
     renderGroupStatusBar('connecting');
@@ -8989,6 +9046,8 @@ async function showMyDevicePanel() {
   // Remove buttons — for OTHER members. Drops them from everyone's list.
   backdrop.querySelectorAll('.mydev-unpair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Don't act on an incomplete member list — wait until it has synced in.
+      if (JoinGate.block('members')) return;
       if (confirm('Remove this device from the group? They will drop out of everyone\'s member list and their app will clear its shared group data (their profile is kept). They can rejoin with a new invite.')) {
         const deviceId = btn.dataset.deviceid;
         const removedAt = Date.now();
@@ -9892,10 +9951,11 @@ async function autoJoinIfPending() {
     try {
       await TrysteroRoomManager.reinit();
       log('Joined the group. Syncing with online members…', 'ok');
-      // Brief settling window: block adding new data until the first peer data
-      // arrives (or a short timeout), so the newcomer doesn't add into a list
-      // that's about to fill from the group.
-      SyncGate.beginSettling();
+      // Gate reports/members/source until each syncs in (or per-domain
+      // timeout), so the newcomer doesn't act on incomplete data. If we
+      // already have a source, lift that domain immediately.
+      JoinGate.begin();
+      if (_sourceData) JoinGate.clear('source');
       restartToStart();
     } catch (err) {
       _pendingInvitedBy = null;
