@@ -2387,7 +2387,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '72';
+  const LOCAL_VERSION = '73';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -7201,15 +7201,31 @@ function renderResumeBar() {
   const transferConnected = activeTransfer && !!activeTransfer._remotePeerId;
 
   const SIZE = 28;
-  const peers = groupPeers.filter(m => m.info).map(m => m.info);
-  if (peers.length === 0 && remotePeerInfo) peers.push(remotePeerInfo);
+  // Collect peer infos, deduped by deviceId and excluding our own device (a
+  // second tab of this app connects as a peer but isn't a different member).
+  const peers = [];
+  const seen = new Set();
+  for (const m of groupPeers) {
+    const info = m.info;
+    if (!info || !info.deviceId) continue;
+    if (info.deviceId === DEVICE_ID) continue;
+    if (seen.has(info.deviceId)) continue;
+    seen.add(info.deviceId);
+    peers.push(info);
+  }
+  if (peers.length === 0 && remotePeerInfo && remotePeerInfo.deviceId !== DEVICE_ID) {
+    peers.push(remotePeerInfo);
+  }
 
   if (peers.length > 0) {
-    const first = peers[0];
+    // Own avatar first, then every connected peer's avatar stacked — matches
+    // the topbar. No "N connected" text fallback; show the actual faces.
     avatars.innerHTML =
       renderDeviceSVG(identity ? identity.emoji : '?', { size: SIZE, color: identity ? identity.color : null }) +
-      renderDeviceSVG(first.emoji || '?', { size: SIZE, color: first.color });
-    label.textContent = peers.length === 1 ? (first.nickname || 'Peer') : `${peers.length} connected`;
+      peers.map(p => `<span style="margin-left:-8px">` + renderDeviceSVG(p.emoji || '?', { size: SIZE, color: p.color }) + `</span>`).join('');
+    label.textContent = peers.length === 1
+      ? (peers[0].nickname || 'Peer')
+      : `${peers.length} members`;
     sub.textContent = 'Connected — tap to continue';
   } else {
     avatars.innerHTML = renderDeviceSVG(identity ? identity.emoji : '?', { size: SIZE, color: identity ? identity.color : null });
