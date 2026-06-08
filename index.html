@@ -2387,7 +2387,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '78';
+  const LOCAL_VERSION = '80';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3997,6 +3997,7 @@ const TrysteroRoomManager = {
       renderResumeBar();
       renderHomeGroupMembers();
       refreshMyDeviceMembers();
+      renderGroupStatusBar();
     });
 
     // Demo features (note + lamp) now flow through SyncEngine's 'demo'
@@ -4084,14 +4085,20 @@ const TrysteroRoomManager = {
     if (typeof t._getRelaySockets === 'function' && t._getRelaySockets) {
       try {
         const sockets = t._getRelaySockets() || {};
-        const anyOpen = Object.values(sockets).some(ws => ws && ws.readyState === 1);
-        // Only treat "no sockets visible" as in-group; an explicit all-closed
-        // set means no signaling.
         const entries = Object.values(sockets);
-        if (entries.length > 0) return anyOpen;
+        // An empty set means signaling sockets aren't established (or were all
+        // closed after a failed retry) — that is NOT safely in-group. Only the
+        // truly un-inspectable case (no getRelaySockets at all) falls through
+        // to the optimistic "room exists" below.
+        if (entries.length > 0) {
+          return entries.some(ws => ws && ws.readyState === 1);
+        }
+        // Empty set: sockets not up. Treat as not-in-group so the status bar
+        // shows "reconnecting" rather than the calm "waiting for members".
+        return false;
       } catch {}
     }
-    // Can't inspect sockets — fall back to "room exists".
+    // Can't inspect sockets at all — fall back to "room exists".
     return true;
   },
 
@@ -4586,6 +4593,21 @@ function getOnlineDeviceIds() {
   // A clean departure overrides a still-fresh lastSeenAt: drop it immediately.
   for (const id of _explicitlyLeft) ids.delete(id);
   return ids;
+}
+
+// Canonical per-member online check — THE single definition of "online" used
+// by every presence view (avatars, My Group, member rows). Online means: it's
+// our own device, OR a direct WebRTC peer, OR a member with a fresh shared
+// lastSeenAt (reachable via the mesh) — and NOT a device that just left
+// cleanly. Keeping every view on this one helper is what makes the avatar
+// disappearing and the status flipping to "away" happen at the same moment.
+function isMemberOnline(deviceId) {
+  if (deviceId === DEVICE_ID) return true;
+  if (_explicitlyLeft.has(deviceId)) return false;   // clean departure → instantly offline
+  if (getActiveConnectedMembers().some(m => m.info && m.info.deviceId === deviceId)) return true;
+  const rec = GroupStore.getMember(deviceId);
+  if (rec && (rec.lastSeenAt || 0) > 0 && (Date.now() - rec.lastSeenAt) < FRESH_ONLINE_MS) return true;
+  return false;
 }
 
 // Returns peer-info-like records for all online members (for avatar display).
@@ -5660,14 +5682,14 @@ function refreshMyDeviceMembers() {
   const head = section.querySelector('.mydev-section-head');
   if (head) head.textContent = `Group members (${members.length})`;
 
-  const rows = sortMembersByPresence(members, getActiveConnectedMembers()).map(p => {
+  const rows = sortMembersByPresence(members).map(p => {
     const cachedInfo = getActivePeerInfo(p.deviceId);
     const emoji    = (p.deviceId === DEVICE_ID ? identity?.emoji : (cachedInfo?.emoji || p.emoji)) || '?';
     const color    = (p.deviceId === DEVICE_ID ? identity?.color : (cachedInfo?.color || p.color)) || null;
     const nickname = (p.deviceId === DEVICE_ID ? identity?.nickname : (cachedInfo?.nickname || p.nickname)) || '?';
     const role     = (p.deviceId === DEVICE_ID ? identity?.role : (cachedInfo?.role || p.role)) || null;
     const isYou    = p.deviceId === DEVICE_ID;
-    const connected = isYou || getActiveConnectedMembers().some(m => m.info?.deviceId === p.deviceId);
+    const connected = isMemberOnline(p.deviceId);
     const ls        = connected ? null : formatLastSeen(p.lastSeenAt);
     const statusColor = connected ? 'var(--ok)' : ls?.urgency === 'warn' ? '#d4a017' : ls?.urgency === 'danger' ? '#c0392b' : 'var(--dim)';
     const statusText  = isYou ? '● Online' : connected ? '● Online' : ls ? ls.text : 'never';
@@ -5741,15 +5763,13 @@ function archiveWipeStatus(session) {
 }
 
 // Sort members for display: online first, then away (recently seen), then the
-// rest by most-recently-seen. Online status is decided by whoever's actually
-// connected to us right now; presence beyond that uses the shared lastSeenAt.
-function sortMembersByPresence(members, connected) {
+// rest by most-recently-seen. Online status uses the shared isMemberOnline so
+// the ordering matches the status shown on each row.
+function sortMembersByPresence(members) {
   const AWAY_MS = 15 * 60 * 1000;
   const now = Date.now();
   const rank = (m) => {
-    const online = m.deviceId === DEVICE_ID ||
-      connected.some(c => c.info && c.info.deviceId === m.deviceId);
-    if (online) return 0;
+    if (isMemberOnline(m.deviceId)) return 0;
     const seenAgo = now - (m.lastSeenAt || 0);
     if ((m.lastSeenAt || 0) > 0 && seenAgo < AWAY_MS) return 1;  // away
     return 2;                                                    // offline
@@ -5772,7 +5792,6 @@ function renderHomeGroupMembers() {
   if (!GroupStore.exists()) { el.innerHTML = ''; return; }
 
   const members   = GroupStore.getMembers();
-  const connected = getActiveConnectedMembers();
 
   // "Away" window: a member who isn't online right now but whose last sighting
   // is recent is shown as Away (they may come right back) before becoming a
@@ -5787,16 +5806,16 @@ function renderHomeGroupMembers() {
   const myReports   = me.reportsHash;
   const mySource    = me.sourceHash;
 
-  el.innerHTML = sortMembersByPresence(members, connected).map(m => {
+  el.innerHTML = sortMembersByPresence(members).map(m => {
     // Online if we have a direct connection OR a very fresh shared lastSeenAt.
     // A recent lastSeenAt means the member is actively heartbeating into the
     // group and reached us (possibly relayed through another peer) — so they're
     // reachable even without a direct WebRTC socket. The window is comfortably
     // above the 30s heartbeat so a single missed beat doesn't flip them off.
-    const seenAgoNow = now - (m.lastSeenAt || 0);
-    const isOnline  = m.deviceId === DEVICE_ID ||
-      connected.some(c => c.info && c.info.deviceId === m.deviceId) ||
-      ((m.lastSeenAt || 0) > 0 && seenAgoNow < FRESH_ONLINE_MS);
+    // Online via the single shared definition (direct peer OR fresh shared
+    // lastSeenAt, minus clean departures) — so this status flips at the same
+    // moment the avatar appears/disappears elsewhere.
+    const isOnline  = isMemberOnline(m.deviceId);
     const cached    = getActivePeerInfo(m.deviceId);
     const emoji     = (m.deviceId === DEVICE_ID ? identity?.emoji : (cached?.emoji || m.emoji)) || '?';
     const color     = (m.deviceId === DEVICE_ID ? identity?.color : (cached?.color || m.color)) || null;
@@ -7197,7 +7216,7 @@ async function initWakeLock() {
     // on its own rather than lingering until the next unrelated render. (The
     // resume bar is left out — it manages its own visibility per screen.)
     if (GroupStore.exists()) {
-      try { renderHomeGroupMembers(); refreshMyDeviceMembers(); renderTopbarConnections(); } catch {}
+      try { renderHomeGroupMembers(); refreshMyDeviceMembers(); renderTopbarConnections(); renderGroupStatusBar(); } catch {}
     }
   }, HEARTBEAT_MS);
 
@@ -9240,9 +9259,7 @@ async function showMyDevicePanel() {
             const role  = isYou
               ? (identity.role || null)
               : ((cachedInfo && cachedInfo.role) || p.role || null);
-            const connected = TrysteroRoomManager.getConnectedMembers().some(m => {
-              return m.info && m.info.deviceId === p.deviceId;
-            });
+            const connected = isMemberOnline(p.deviceId);
             const lastSeen = p.lastSeenAt ? new Date(p.lastSeenAt).toLocaleString() : 'never';
             const roleLabel = role || (isYou ? '' : (p.invitedBy
               ? (() => {
