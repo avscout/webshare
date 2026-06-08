@@ -2387,7 +2387,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '76';
+  const LOCAL_VERSION = '77';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3968,6 +3968,10 @@ const TrysteroRoomManager = {
         GroupStore.touch(leftDeviceId);   // lastSeenAt = now (departure time)
         const rec = GroupStore.getMembers().find(m => m.deviceId === leftDeviceId);
         if (rec) SyncEngine.broadcastDelta('mbr', rec);
+        // Clean departure of a DIRECT peer is a definite signal — drop the
+        // avatar right away rather than waiting out the freshness window.
+        // Cleared if the device is seen again (heartbeat or rejoin).
+        _explicitlyLeft.add(leftDeviceId);
       }
       renderTopbarConnections();
       renderHomeGroupMembers();
@@ -3977,6 +3981,8 @@ const TrysteroRoomManager = {
     t.on('peer-info', (info) => {
       if (info && info.deviceId) {
         this._peerInfo.set(info.deviceId, info);
+        // Seen again — undo any clean-departure mark so the avatar returns.
+        _explicitlyLeft.delete(info.deviceId);
         if (GroupStore.isKnown(info.deviceId) && info.role !== undefined) {
           const group = GroupStore.load();
           if (group) {
@@ -4539,14 +4545,32 @@ function getActiveConnectedMembers() {
 
 // Window within which a shared lastSeenAt counts as "online" — comfortably
 // above the 30s heartbeat so a single missed beat doesn't flip a member off.
-const FRESH_ONLINE_MS = 70 * 1000;
+// Online-presence tuning. The heartbeat (a periodic "I'm alive" member-record
+// broadcast) runs every HEARTBEAT_MS; a member counts as online while its
+// shared lastSeenAt is newer than FRESH_ONLINE_MS. The window is kept at a bit
+// over 2× the heartbeat so a single missed beat (a brief hiccup on the flaky
+// public brokers) never flips a member off — only a sustained silence does.
+// Heartbeat travels over the WebRTC data channels, not a broker CONNECT, so a
+// faster beat doesn't touch the brokers' connect-rate limit.
+const HEARTBEAT_MS    = 15 * 1000;
+const FRESH_ONLINE_MS = 35 * 1000;
+
+// Devices that left CLEANLY (a direct peer's tab closed → peer-left fired).
+// A clean departure is a definite signal, so we drop the avatar immediately
+// instead of waiting out the freshness window — that's the responsiveness half
+// of the design. The mark is cleared the moment the device is seen again (a
+// fresh heartbeat or a rejoin). NOTE: this only covers DIRECT peers; a member
+// we only saw via relay gives no peer-left here, so for that indirect case we
+// still fall back to the FRESH_ONLINE_MS timeout.
+const _explicitlyLeft = new Set();
 
 // Returns the set of deviceIds that are online RIGHT NOW — either a direct
 // WebRTC peer, or a member whose shared lastSeenAt is very fresh (actively
 // heartbeating into the group and reaching us, possibly relayed through
 // another peer). This is the single source of truth for "who's online" so the
 // topbar, resume bar, and My Group view all agree, even in a 3+ mesh where not
-// every pair has a direct connection. Excludes our own device.
+// every pair has a direct connection. Excludes our own device, and any device
+// that just left cleanly.
 function getOnlineDeviceIds() {
   const ids = new Set();
   for (const m of getActiveConnectedMembers()) {
@@ -4557,6 +4581,8 @@ function getOnlineDeviceIds() {
     if (!m || !m.deviceId || m.deviceId === DEVICE_ID) continue;
     if ((m.lastSeenAt || 0) > 0 && (now - m.lastSeenAt) < FRESH_ONLINE_MS) ids.add(m.deviceId);
   }
+  // A clean departure overrides a still-fresh lastSeenAt: drop it immediately.
+  for (const id of _explicitlyLeft) ids.delete(id);
   return ids;
 }
 
@@ -4770,7 +4796,15 @@ SyncEngine.register({
   tsField : 'updatedAt',
   readAll : () => GroupStore.getMembers(),
   writeOne: (rec) => { GroupStore.mergeMemberList([rec]); },
-  onChange: () => {
+  onChange: (rec) => {
+    // A member record arrived with a fresh sighting — if we'd marked this
+    // device as cleanly-left, it's clearly back, so undo the mark. Covers the
+    // indirect case where a returning device's heartbeat reaches us via relay
+    // (no direct peer-info).
+    if (rec && rec.deviceId && (rec.lastSeenAt || 0) > 0
+        && (Date.now() - rec.lastSeenAt) < FRESH_ONLINE_MS) {
+      _explicitlyLeft.delete(rec.deviceId);
+    }
     renderHomeGroupMembers();
     refreshMyDeviceMembers();
     renderTopbarConnections();
@@ -7163,7 +7197,7 @@ async function initWakeLock() {
     if (GroupStore.exists()) {
       try { renderHomeGroupMembers(); refreshMyDeviceMembers(); renderTopbarConnections(); } catch {}
     }
-  }, 30000);
+  }, HEARTBEAT_MS);
 
   if (!('wakeLock' in navigator)) {
     if (DEV_MODE) log('Wake lock: not supported by this browser.', 'info');
