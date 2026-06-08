@@ -2387,7 +2387,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '77';
+  const LOCAL_VERSION = '78';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -4550,10 +4550,12 @@ function getActiveConnectedMembers() {
 // shared lastSeenAt is newer than FRESH_ONLINE_MS. The window is kept at a bit
 // over 2× the heartbeat so a single missed beat (a brief hiccup on the flaky
 // public brokers) never flips a member off — only a sustained silence does.
-// Heartbeat travels over the WebRTC data channels, not a broker CONNECT, so a
-// faster beat doesn't touch the brokers' connect-rate limit.
-const HEARTBEAT_MS    = 15 * 1000;
-const FRESH_ONLINE_MS = 35 * 1000;
+// NOTE: a faster beat (we tried 15s) made connections feel less stable on
+// mobile — the doubled work (broadcast + full re-render every tick) taxes
+// resource-constrained devices and the WebRTC layer. Back to 30s/70s; the
+// clean-departure path (option 3) still gives instant removal on a tidy close.
+const HEARTBEAT_MS    = 30 * 1000;
+const FRESH_ONLINE_MS = 70 * 1000;
 
 // Devices that left CLEANLY (a direct peer's tab closed → peer-left fired).
 // A clean departure is a definite signal, so we drop the avatar immediately
