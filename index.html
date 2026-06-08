@@ -2363,7 +2363,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '65';
+  const LOCAL_VERSION = '66';
   // Third-party libraries — no ordering constraint between them.
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
@@ -6714,20 +6714,29 @@ function renderTopbarConnections() {
 
   if (TrysteroRoomManager._room) {
     for (const { info } of TrysteroRoomManager.getConnectedMembers()) {
-      if (info) {
-        peers.push(info);
-        if (info.deviceId) seenDeviceIds.add(info.deviceId);
-      }
+      if (!info || !info.deviceId) continue;
+      // Skip our own device: another tab of this same app shares our DEVICE_ID
+      // and connects as a separate WebRTC peer, but it's not a different member.
+      if (info.deviceId === DEVICE_ID) continue;
+      // Dedupe by deviceId: the same device may hold multiple peer connections
+      // (e.g. several open tabs), but should appear once.
+      if (seenDeviceIds.has(info.deviceId)) continue;
+      seenDeviceIds.add(info.deviceId);
+      peers.push(info);
     }
   }
   // Fallback: include remotePeerInfo from active transfer (covers first-pairing
-  // window before TrysteroRoomManager._peerInfo is populated)
-  if (remotePeerInfo && remotePeerInfo.deviceId && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
+  // window before TrysteroRoomManager._peerInfo is populated). Never include
+  // our own device (another tab) or a duplicate deviceId.
+  if (remotePeerInfo && remotePeerInfo.deviceId && remotePeerInfo.deviceId !== DEVICE_ID
+      && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
     peers.push(remotePeerInfo);
+    seenDeviceIds.add(remotePeerInfo.deviceId);
   }
   // Non-Trystero active transfer (PeerJS/Raw)
   if (activeTransfer && !activeTransfer.persistent && activeTransfer._remotePeerId && remotePeerInfo
-      && currentBackend !== 'trystero' && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
+      && currentBackend !== 'trystero' && remotePeerInfo.deviceId !== DEVICE_ID
+      && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
     peers.push(remotePeerInfo);
   }
 
