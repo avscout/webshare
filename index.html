@@ -2387,7 +2387,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '73';
+  const LOCAL_VERSION = '75';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -7220,12 +7220,19 @@ function renderResumeBar() {
   if (peers.length > 0) {
     // Own avatar first, then every connected peer's avatar stacked — matches
     // the topbar. No "N connected" text fallback; show the actual faces.
+    // Wrap EVERY avatar (including our own) in the same flex span so they line
+    // up on one baseline; the overlap margin applies to all but the first.
+    const avatarSpan = (svg, first) =>
+      `<span style="display:inline-flex;align-items:center;${first ? '' : 'margin-left:-8px'}">${svg}</span>`;
+    const ownSvg = renderDeviceSVG(identity ? identity.emoji : '?', { size: SIZE, color: identity ? identity.color : null });
     avatars.innerHTML =
-      renderDeviceSVG(identity ? identity.emoji : '?', { size: SIZE, color: identity ? identity.color : null }) +
-      peers.map(p => `<span style="margin-left:-8px">` + renderDeviceSVG(p.emoji || '?', { size: SIZE, color: p.color }) + `</span>`).join('');
+      avatarSpan(ownSvg, true) +
+      peers.map(p => avatarSpan(renderDeviceSVG(p.emoji || '?', { size: SIZE, color: p.color }), false)).join('');
+    // Count includes ourselves (peers excludes us), so total = peers + 1.
+    const total = peers.length + 1;
     label.textContent = peers.length === 1
       ? (peers[0].nickname || 'Peer')
-      : `${peers.length} members`;
+      : `${total} members`;
     sub.textContent = 'Connected — tap to continue';
   } else {
     avatars.innerHTML = renderDeviceSVG(identity ? identity.emoji : '?', { size: SIZE, color: identity ? identity.color : null });
@@ -10056,7 +10063,20 @@ window.addEventListener('load', async () => {
     GroupReconnectManager.start();
     refreshReportsHash();   // seed our sync fingerprint at startup
     TrysteroRoomManager.init()
-      .then(() => renderGroupStatusBar())
+      .then(() => {
+        renderGroupStatusBar();
+        // After a fresh load we've joined the room, but nothing yet drives the
+        // presence re-announce if no peer is found. A returning device (e.g.
+        // tab closed then reopened) otherwise sits silent and never re-matches
+        // with peers the public brokers didn't retain. So if we're in a group
+        // but still have no peer shortly after joining, start the re-announce
+        // loop — the same one used when a peer drops mid-session.
+        setTimeout(() => {
+          if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
+            GroupReconnectManager._scheduleRetry();
+          }
+        }, 4000);
+      })
       .catch(e => log('Room init error: ' + e.message, 'err'));
   }
 });
