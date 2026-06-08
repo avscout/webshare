@@ -89,28 +89,6 @@
   }
   html.dev-mode-on .dev-badge { display: inline-block; }
 
-  /* Reconnect button — sits just left of the centred DEV badge. Absolutely
-     positioned so it stays put regardless of wordmark/identity widths. Shown
-     only when in a group but no peer is connected (toggled via .hidden). */
-  #topbar-reconnect {
-    position: absolute; left: 50%; top: 50%;
-    transform: translate(calc(-50% - 42px), -50%);
-    width: 28px; height: 28px; border-radius: 50%;
-    border: none; cursor: pointer; padding: 0;
-    background: var(--accent);
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  /* When dev mode is OFF there's no DEV badge, so centre the button instead. */
-  html:not(.dev-mode-on) #topbar-reconnect {
-    transform: translate(-50%, -50%);
-  }
-  #topbar-reconnect.hidden { display: none; }
-  #topbar-reconnect svg { width: 16px; height: 16px; }
-  /* Countdown text shown inside the button during cooldown (replaces the icon). */
-  #topbar-reconnect .reconnect-count {
-    color: #fff; font-size: 12px; font-weight: 700; font-family: var(--mono, monospace);
-  }
-
   /* ===== Header ===== */
   /* Wordmark on the left, DEV badge centered (absolute), identity on the
      right via margin-left: auto. Position: relative so the absolute DEV
@@ -2062,7 +2040,6 @@
   <button class="topbar-title-btn" id="topbar-title" aria-label="Go to home">Field<em style="color:var(--accent);font-style:normal">Sync</em></button>
   <span id="topbar-version" class="hidden" style="font-size:11px;font-weight:600;color:var(--dim);margin-left:8px;font-family:var(--mono);align-self:center"></span>
   <span class="dev-badge" aria-hidden="true">DEV</span>
-  <button id="topbar-reconnect" class="hidden" title="Reconnect — re-announce to the group" aria-label="Reconnect to the group"></button>
   <button class="identity-badge" id="topbar-identity" aria-label="My device">
     <span class="identity-badge-svg" id="topbar-identity-svg"></span>
     <span class="identity-badge-name" id="topbar-identity-name"></span>
@@ -2387,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '81';
+  const LOCAL_VERSION = '84';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3802,10 +3779,10 @@ const TrysteroRoomManager = {
   _peerInfo: new Map(),    // deviceId → peerInfo for all known connected peers
   _pendingGroup: null,     // { roomCode, password } — not yet committed to storage
   // Join throttle: minimum ms between two actual room joins (CONNECTs). All
-  // re-join paths — auto re-announce, the reconnect button, and a fresh page
-  // load via init() — funnel through here, so no single path (or a frustrated
-  // user spamming the button) can exceed the public brokers' connect-rate
-  // limits (HiveMQ returns CONNECTION_RATE_EXCEEDED if CONNECTs come too fast).
+  // re-join paths — auto re-announce, the wake-burst, the status-bar retry link,
+  // and a fresh page load via init() — funnel through here, so no single path
+  // can exceed the public brokers' connect-rate limits (HiveMQ returns
+  // CONNECTION_RATE_EXCEEDED if CONNECTs come too fast).
   _lastJoinAt   : 0,
   JOIN_THROTTLE_MS : 5000,
 
@@ -3918,11 +3895,17 @@ const TrysteroRoomManager = {
 
     t.on('connected', (peerId) => {
       GroupReconnectManager.onConnected();
+      // Explicit success line — confirms the re-join/announce actually landed a
+      // peer (the prior "no peer yet" lines are intermediate, not the verdict).
+      if (DEV_MODE) {
+        const n = (t && t._connectedPeers) ? t._connectedPeers.size : 1;
+        log(`Connected — peer joined (${peerId.slice(0, 8)}…), ${n} peer${n === 1 ? '' : 's'} now connected.`, 'ok');
+      }
       renderTopbarConnections();
       renderResumeBar();
       renderHomeGroupMembers();
       refreshMyDeviceMembers();
-      refreshMyDeviceMembers();
+      try { logReachabilityChanges(); } catch {}
       if (!GroupStore.exists()) {
         showConnectionBar();
         setConnectionBarStatus('connected');
@@ -3950,6 +3933,7 @@ const TrysteroRoomManager = {
       renderHomeGroupMembers();
       refreshMyDeviceMembers();
       renderGroupStatusBar();
+      try { logReachabilityChanges(); } catch {}
     });
     t.on('disconnected', () => {
       GroupReconnectManager.onDisconnected();
@@ -3985,6 +3969,7 @@ const TrysteroRoomManager = {
       renderTopbarConnections();
       renderHomeGroupMembers();
       refreshMyDeviceMembers();
+      try { logReachabilityChanges(); } catch {}
     });
 
     t.on('peer-info', (info) => {
@@ -4221,14 +4206,12 @@ const GroupReconnectManager = {
   start() {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
-        this._retryCount = 0;
-        this._doRetry();
+        this._wakeBurst();
       }
     });
     window.addEventListener('online', () => {
       if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
-        this._retryCount = 0;
-        this._doRetry();
+        this._wakeBurst();
       }
     });
   },
@@ -4251,7 +4234,7 @@ const GroupReconnectManager = {
           if (DEV_MODE) {
             const n = TrysteroRoomManager._room && TrysteroRoomManager._room._connectedPeers
               ? TrysteroRoomManager._room._connectedPeers.size : 0;
-            log(`Still no peer after re-join (${n} connected). If both devices are on 2/2 brokers, the public brokers may not be matching presence — try the reconnect button again, or use your own broker.`, 'info');
+            log(`No peer yet after this announce (${n} connected) — will keep re-announcing. On public brokers two devices only match when they announce in the same window, so this often succeeds on a later attempt (watch for a "Connected" line).`, 'info');
           }
           this._scheduleRetry();
         } else {
@@ -4322,6 +4305,49 @@ const GroupReconnectManager = {
   _stopReannounce() {
     if (this._reannounceTimer) { clearTimeout(this._reannounceTimer); this._reannounceTimer = null; }
     this._reannounceCount = 0;
+  },
+
+  // Wake burst — used when a tab returns to the foreground (or the network
+  // comes back) after being frozen. A frozen mobile tab runs no JS, so the
+  // moment it wakes is our first chance to reconnect. The hard part is that the
+  // public brokers only match two devices that announce in roughly the same
+  // window, and the OTHER device may be deep in its slow re-announce backoff
+  // (up to 30s apart). A single announce on wake has a low chance of landing in
+  // that window, so we fire a short SERIES of fresh announces instead, raising
+  // the odds that one coincides with the peer being reachable. The shared
+  // JOIN_THROTTLE_MS (5s) is the hard floor between joins — reinit() waits out
+  // the remainder itself — so this burst can never hammer the brokers past the
+  // rate limit; it just removes the long gaps for the first few attempts.
+  // After the burst, control falls through to the normal re-announce backoff.
+  WAKE_BURST_ATTEMPTS : 3,
+  _wakeBurstActive : false,
+  async _wakeBurst() {
+    if (this._wakeBurstActive) return;            // already bursting
+    if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) return;
+    this._wakeBurstActive = true;
+    // Cancel the slow backoff timers so they don't fire mid-burst; the burst
+    // takes over for now and hands back to _scheduleRetry when it's done.
+    this._stopReannounce();
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    this._retryCount = 0;
+    renderGroupStatusBar('connecting');
+    try {
+      for (let i = 0; i < this.WAKE_BURST_ATTEMPTS; i++) {
+        if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) break;
+        if (DEV_MODE) log(`Wake burst — announce attempt ${i + 1}/${this.WAKE_BURST_ATTEMPTS}…`, 'info');
+        try { await TrysteroRoomManager.reinit(); } catch {}
+        // reinit() already waits out the join-throttle floor before joining, so
+        // consecutive attempts are naturally ≥ JOIN_THROTTLE_MS apart. Give the
+        // broker a moment to match a peer before the next attempt.
+        await new Promise(res => setTimeout(res, 2500));
+      }
+    } finally {
+      this._wakeBurstActive = false;
+      // Hand back to the normal machinery: if we connected it settles the bar,
+      // otherwise it resumes the calm re-announce/backoff.
+      if (TrysteroRoomManager.isConnected()) renderGroupStatusBar();
+      else this._scheduleRetry();
+    }
   },
 
   // Tick the status bar every second so the "Reconnecting in Ns…" actually
@@ -4626,13 +4652,52 @@ function getOnlineDeviceIds() {
 // lastSeenAt (reachable via the mesh) — and NOT a device that just left
 // cleanly. Keeping every view on this one helper is what makes the avatar
 // disappearing and the status flipping to "away" happen at the same moment.
-function isMemberOnline(deviceId) {
-  if (deviceId === DEVICE_ID) return true;
-  if (_explicitlyLeft.has(deviceId)) return false;   // clean departure → instantly offline
-  if (getActiveConnectedMembers().some(m => m.info && m.info.deviceId === deviceId)) return true;
+//
+// Reachability classifier — the single place that decides HOW a member is
+// reachable. Returns one of:
+//   'self'    — our own device
+//   'direct'  — a live direct WebRTC peer (excludes ping-dead, see transport)
+//   'mesh'    — not a direct peer, but a fresh shared lastSeenAt reached us
+//               (so they're reachable indirectly, relayed through another peer)
+//   'offline' — none of the above (incl. a clean departure)
+// isMemberOnline is a thin wrapper: online === reachability !== 'offline'.
+function getMemberReachability(deviceId) {
+  if (deviceId === DEVICE_ID) return 'self';
+  if (_explicitlyLeft.has(deviceId)) return 'offline';   // clean departure → instantly offline
+  if (getActiveConnectedMembers().some(m => m.info && m.info.deviceId === deviceId)) return 'direct';
   const rec = GroupStore.getMember(deviceId);
-  if (rec && (rec.lastSeenAt || 0) > 0 && (Date.now() - rec.lastSeenAt) < FRESH_ONLINE_MS) return true;
-  return false;
+  if (rec && (rec.lastSeenAt || 0) > 0 && (Date.now() - rec.lastSeenAt) < FRESH_ONLINE_MS) return 'mesh';
+  return 'offline';
+}
+
+function isMemberOnline(deviceId) {
+  return getMemberReachability(deviceId) !== 'offline';
+}
+
+// Dev-only: log when a member's reachability CHANGES (direct ↔ mesh ↔ offline),
+// so the console shows HOW presence is flowing without flooding on every check.
+// isMemberOnline runs on every render for every member, so we never log there;
+// instead a periodic sweep (and the presence events) call this to diff against
+// the last-known state. Keyed by deviceId → last reachability string.
+const _lastReachability = new Map();
+function logReachabilityChanges() {
+  if (!DEV_MODE || !GroupStore.exists()) return;
+  for (const m of GroupStore.getMembers()) {
+    if (!m || !m.deviceId || m.deviceId === DEVICE_ID) continue;
+    const now  = getMemberReachability(m.deviceId);
+    const prev = _lastReachability.get(m.deviceId);
+    if (prev === now) continue;
+    _lastReachability.set(m.deviceId, now);
+    if (prev === undefined && now === 'offline') continue;   // don't announce members who start offline
+    const who = (getActivePeerInfo(m.deviceId)?.nickname) || m.nickname || m.deviceId.slice(0, 8);
+    const label = {
+      direct : `${who}: reachable DIRECT (live WebRTC peer)`,
+      mesh   : `${who}: reachable via MESH (relayed — fresh lastSeenAt, no direct socket)`,
+      offline: `${who}: now OFFLINE`,
+      self   : null,
+    }[now];
+    if (label) log(label, now === 'offline' ? 'info' : 'ok');
+  }
 }
 
 // Returns peer-info-like records for all online members (for avatar display).
@@ -6961,49 +7026,6 @@ function renderTopbarConnections() {
     }
   }
 
-  // Reconnect button (centre, left of the DEV badge): shown when we're in a
-  // group but have no peer connected — a manual "re-announce" for when the
-  // public brokers fail to match presence. Wired once; visibility updated
-  // every render.
-  const reconnectBtn = document.getElementById('topbar-reconnect');
-  if (reconnectBtn) {
-    const ICON_HTML =
-      `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">` +
-        `<path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/>` +
-      `</svg>`;
-    if (!reconnectBtn._wired) {
-      reconnectBtn._wired = true;
-      reconnectBtn.innerHTML = ICON_HTML;
-      reconnectBtn.addEventListener('click', () => {
-        if (reconnectBtn.disabled) return;
-        log('Manual reconnect — re-joining the room…', 'info');
-        GroupReconnectManager.forceRetry();
-        // Cooldown: disable the button for the throttle window so it can't be
-        // spammed into the brokers' connect-rate limit. Show a countdown of
-        // the remaining seconds inside the button instead of the icon.
-        reconnectBtn.disabled = true;
-        reconnectBtn.style.opacity = '0.6';
-        reconnectBtn.style.cursor = 'default';
-        let remaining = Math.ceil(TrysteroRoomManager.JOIN_THROTTLE_MS / 1000);
-        const showCount = () => { reconnectBtn.innerHTML = `<span class="reconnect-count">${remaining}</span>`; };
-        showCount();
-        if (reconnectBtn._cooldownTimer) clearInterval(reconnectBtn._cooldownTimer);
-        reconnectBtn._cooldownTimer = setInterval(() => {
-          remaining--;
-          if (remaining > 0) { showCount(); return; }
-          clearInterval(reconnectBtn._cooldownTimer);
-          reconnectBtn._cooldownTimer = null;
-          reconnectBtn.disabled = false;
-          reconnectBtn.style.opacity = '';
-          reconnectBtn.style.cursor = 'pointer';
-          reconnectBtn.innerHTML = ICON_HTML;   // restore the icon
-        }, 1000);
-      });
-    }
-    const alone = GroupStore.exists() && !TrysteroRoomManager.isConnected();
-    reconnectBtn.classList.toggle('hidden', !alone);
-  }
-
   if (!svgEl || !identity) return;
 
   // Gather online members — direct peers AND members reachable via the mesh
@@ -7242,6 +7264,7 @@ async function initWakeLock() {
     // resume bar is left out — it manages its own visibility per screen.)
     if (GroupStore.exists()) {
       try { renderHomeGroupMembers(); refreshMyDeviceMembers(); renderTopbarConnections(); renderGroupStatusBar(); } catch {}
+      try { logReachabilityChanges(); } catch {}
     }
   }, HEARTBEAT_MS);
 
@@ -10211,11 +10234,12 @@ window.addEventListener('load', async () => {
         // presence re-announce if no peer is found. A returning device (e.g.
         // tab closed then reopened) otherwise sits silent and never re-matches
         // with peers the public brokers didn't retain. So if we're in a group
-        // but still have no peer shortly after joining, start the re-announce
-        // loop — the same one used when a peer drops mid-session.
+        // but still have no peer shortly after joining, fire a wake burst — a
+        // few quick announces to raise the odds of matching a peer — which then
+        // hands off to the normal re-announce loop if still alone.
         setTimeout(() => {
           if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
-            GroupReconnectManager._scheduleRetry();
+            GroupReconnectManager._wakeBurst();
           }
         }, 4000);
       })
