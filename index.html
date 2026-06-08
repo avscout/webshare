@@ -2364,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '84';
+  const LOCAL_VERSION = '85';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3905,7 +3905,11 @@ const TrysteroRoomManager = {
       renderResumeBar();
       renderHomeGroupMembers();
       refreshMyDeviceMembers();
-      try { logReachabilityChanges(); } catch {}
+      // NOTE: reachability is NOT logged here — at the 'connected' instant the
+      // peer-info (and thus the deviceId) usually hasn't arrived yet, so the
+      // classifier can't match this peer as a direct connection and would
+      // mislabel it as MESH. The 'peer-info' handler logs it once the deviceId
+      // is known, which is the first moment it can be classified correctly.
       if (!GroupStore.exists()) {
         showConnectionBar();
         setConnectionBarStatus('connected');
@@ -3992,6 +3996,10 @@ const TrysteroRoomManager = {
       renderHomeGroupMembers();
       refreshMyDeviceMembers();
       renderGroupStatusBar();
+      // Now that the deviceId is known, the classifier can correctly see this
+      // peer as a direct connection — log the reachability here, not at
+      // 'connected' (where peer-info isn't in yet and it'd misread as MESH).
+      try { logReachabilityChanges(); } catch {}
     });
 
     // Demo features (note + lamp) now flow through SyncEngine's 'demo'
