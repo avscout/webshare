@@ -89,6 +89,26 @@
   }
   html.dev-mode-on .dev-badge { display: inline-block; }
 
+  /* Reconnect button — sits just left of the centred DEV badge. Absolutely
+     positioned so it stays put regardless of wordmark/identity widths. Shown
+     only when in a group but no peer is connected (toggled via .hidden). */
+  #topbar-reconnect {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(calc(-50% - 42px), -50%);
+    width: 28px; height: 28px; border-radius: 50%;
+    border: none; cursor: pointer; padding: 0;
+    background: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  /* When dev mode is OFF there's no DEV badge, so centre the button instead. */
+  html:not(.dev-mode-on) #topbar-reconnect {
+    transform: translate(-50%, -50%);
+  }
+  #topbar-reconnect.hidden { display: none; }
+  #topbar-reconnect svg { width: 16px; height: 16px; }
+  #topbar-reconnect.spinning svg { animation: reconnect-spin 0.6s ease; }
+  @keyframes reconnect-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
   /* ===== Header ===== */
   /* Wordmark on the left, DEV badge centered (absolute), identity on the
      right via margin-left: auto. Position: relative so the absolute DEV
@@ -2040,6 +2060,7 @@
   <button class="topbar-title-btn" id="topbar-title" aria-label="Go to home">Field<em style="color:var(--accent);font-style:normal">Sync</em></button>
   <span id="topbar-version" class="hidden" style="font-size:11px;font-weight:600;color:var(--dim);margin-left:8px;font-family:var(--mono);align-self:center"></span>
   <span class="dev-badge" aria-hidden="true">DEV</span>
+  <button id="topbar-reconnect" class="hidden" title="Reconnect — re-announce to the group" aria-label="Reconnect to the group"></button>
   <button class="identity-badge" id="topbar-identity" aria-label="My device">
     <span class="identity-badge-svg" id="topbar-identity-svg"></span>
     <span class="identity-badge-name" id="topbar-identity-name"></span>
@@ -2364,7 +2385,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '68';
+  const LOCAL_VERSION = '69';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -6732,6 +6753,30 @@ function renderTopbarConnections() {
     }
   }
 
+  // Reconnect button (centre, left of the DEV badge): shown when we're in a
+  // group but have no peer connected — a manual "re-announce" for when the
+  // public brokers fail to match presence. Wired once; visibility updated
+  // every render.
+  const reconnectBtn = document.getElementById('topbar-reconnect');
+  if (reconnectBtn) {
+    if (!reconnectBtn._wired) {
+      reconnectBtn._wired = true;
+      reconnectBtn.innerHTML =
+        `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">` +
+          `<path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/>` +
+        `</svg>`;
+      reconnectBtn.addEventListener('click', () => {
+        log('Manual reconnect — re-joining the room…', 'info');
+        reconnectBtn.classList.remove('spinning');
+        void reconnectBtn.offsetWidth;          // restart the CSS animation
+        reconnectBtn.classList.add('spinning');
+        GroupReconnectManager.forceRetry();
+      });
+    }
+    const alone = GroupStore.exists() && !TrysteroRoomManager.isConnected();
+    reconnectBtn.classList.toggle('hidden', !alone);
+  }
+
   if (!svgEl || !identity) return;
 
   // Gather connected peers from the group room
@@ -6774,36 +6819,6 @@ function renderTopbarConnections() {
   const ownSVG = renderDeviceSVG(identity.emoji, { size: SIZE, color: identity.color });
 
   if (peers.length === 0) {
-    // In a group but no peer connected: offer a force-rejoin button where a
-    // peer avatar would otherwise sit. Public test brokers sometimes fail to
-    // match peers' presence even when both are connected to the brokers — a
-    // clean room re-join (forceRetry → reinit) re-announces presence and
-    // usually breaks the stuck state without a full page refresh. Only shown
-    // when actually in a group (not during solo onboarding).
-    if (GroupStore.exists()) {
-      svgEl.innerHTML =
-        `<span class="topbar-peer-stack">` +
-          `<button id="topbar-force-rejoin" title="Reconnect — re-announce to the group" ` +
-            `style="width:${SIZE}px;height:${SIZE}px;border-radius:50%;border:none;cursor:pointer;` +
-            `background:var(--accent);display:inline-flex;align-items:center;justify-content:center;padding:0">` +
-            `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">` +
-              `<path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/>` +
-            `</svg>` +
-          `</button>` +
-        `</span>` +
-        `<span class="topbar-conn-amp">&amp;</span>` +
-        ownSVG;
-      nameEl.textContent = identity.nickname || '';
-      const btn = document.getElementById('topbar-force-rejoin');
-      if (btn) btn.addEventListener('click', () => {
-        log('Manual reconnect — re-joining the room…', 'info');
-        // Spin the icon briefly for feedback.
-        const svg = btn.querySelector('svg');
-        if (svg) { svg.style.transition = 'transform .6s'; svg.style.transform = 'rotate(360deg)'; }
-        GroupReconnectManager.forceRetry();
-      });
-      return;
-    }
     svgEl.innerHTML = ownSVG;
     nameEl.textContent = identity.nickname || '';
     return;
