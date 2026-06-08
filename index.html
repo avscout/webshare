@@ -2387,7 +2387,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '80';
+  const LOCAL_VERSION = '81';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3941,7 +3941,16 @@ const TrysteroRoomManager = {
       renderTopbarConnections(); renderResumeBar();
     });
     t.on('reconnecting', () => { renderTopbarConnections(); });
-
+    // A direct peer went silent to liveness pings (or recovered) — refresh the
+    // presence views so the avatar/status reflects it. (Mesh-reachable members
+    // stay online via their fresh lastSeenAt.)
+    t.on('peer-liveness', () => {
+      renderTopbarConnections();
+      renderResumeBar();
+      renderHomeGroupMembers();
+      refreshMyDeviceMembers();
+      renderGroupStatusBar();
+    });
     t.on('disconnected', () => {
       GroupReconnectManager.onDisconnected();
       renderTopbarConnections();
@@ -4070,7 +4079,17 @@ const TrysteroRoomManager = {
   },
 
   isConnected() {
-    return !!this._room && this._room._connectedPeers.size > 0;
+    if (!this._room) return false;
+    const dead = this._room._pingDead;
+    // Count only peers that haven't gone silent to liveness pings. If every
+    // direct peer is a zombie, we're effectively not connected — let the
+    // reconnect/re-announce machinery try to find live peers again. (We don't
+    // tear anything down; this just stops pretending a dead link is live.)
+    let live = 0;
+    for (const peerId of this._room._connectedPeers) {
+      if (!(dead && dead.has(peerId))) live++;
+    }
+    return live > 0;
   },
 
   // True when we're in the room AND have working signaling (at least one
@@ -4105,7 +4124,13 @@ const TrysteroRoomManager = {
   getConnectedMembers() {
     const result = [];
     if (!this._room) return result;
+    const pingDead = this._room._pingDead;
     for (const peerId of this._room._connectedPeers) {
+      // Skip peers that have gone silent to liveness pings — the connection is
+      // formally open but effectively dead, so don't count it as a live peer.
+      // (A member still reachable via the mesh keeps its online status through
+      // the fresh-lastSeenAt path in isMemberOnline.)
+      if (pingDead && pingDead.has(peerId)) continue;
       // Find matching peerInfo by _peerId
       let info = null;
       for (const [, pi] of this._peerInfo) {

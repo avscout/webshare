@@ -147,6 +147,15 @@
       // drops (they may come right back) before treating them as offline.
       // Independent of LEAVE_GRACE_MS (which drives the connection status bar).
       this._recentlyLeft    = new Map();
+      // Liveness ping: direct peers whose pings have repeatedly failed are
+      // treated as effectively gone (a "zombie" WebRTC connection that's
+      // formally open but silent). _pingDead holds those peerIds so the app's
+      // view of direct peers excludes them; _pingMisses counts consecutive
+      // failures per peer. This is detection only — we never tear down the
+      // connection here, just stop counting the peer as a live direct peer.
+      this._pingDead        = new Set();
+      this._pingMisses      = new Map();   // peerId → consecutive failed pings
+      this._pingTimer       = null;
       // When true, ALL inbound data messages are dropped at the central gate
       // (see _makeAction). Set when this device has left / been removed from
       // the group. Default-closed: any action, present or future, is blocked
@@ -262,6 +271,49 @@
           this.emit('relay-status', { connected: open, allDown: false });
         }
       }, 5000);
+    }
+
+    // Liveness ping loop. Periodically pings each direct peer; after a few
+    // consecutive failures the peer is marked ping-dead so the app stops
+    // counting it as a live direct peer (a "zombie" connection that's formally
+    // open but silent). Detection only — we never tear the connection down here;
+    // Trystero's own onPeerLeave still fires if/when it gives up, and a member
+    // reachable via the mesh (fresh lastSeenAt) stays online regardless.
+    _startPingCheck() {
+      const PING_INTERVAL_MS = 25000;
+      const PING_MAX_MISSES  = 3;
+      if (this._pingTimer) return;                 // already running
+      if (typeof this._room?.ping !== 'function') return;  // strategy without ping
+      this._pingTimer = setInterval(async () => {
+        if (!this._room || typeof this._room.ping !== 'function') {
+          clearInterval(this._pingTimer); this._pingTimer = null; return;
+        }
+        for (const peerId of [...this._connectedPeers]) {
+          let ok = false;
+          try {
+            // ping resolves to a round-trip time; treat a thrown/rejected or
+            // absurdly long result as a miss.
+            const rtt = await this._room.ping(peerId);
+            ok = typeof rtt === 'number' && isFinite(rtt);
+          } catch { ok = false; }
+          if (ok) {
+            // Healthy — reset miss count and clear any dead mark.
+            if (this._pingMisses.get(peerId)) this._pingMisses.delete(peerId);
+            if (this._pingDead.has(peerId)) {
+              this._pingDead.delete(peerId);
+              this.emit('peer-liveness', peerId);
+            }
+          } else {
+            const misses = (this._pingMisses.get(peerId) || 0) + 1;
+            this._pingMisses.set(peerId, misses);
+            if (misses >= PING_MAX_MISSES && !this._pingDead.has(peerId)) {
+              this._pingDead.add(peerId);
+              this._log('info', `Peer unresponsive to pings (${peerId.slice(0, 8)}…) — treating as offline.`);
+              this.emit('peer-liveness', peerId);
+            }
+          }
+        }
+      }, PING_INTERVAL_MS);
     }
 
     // Send peer-info to a specific peer, or broadcast if no targetId given.
@@ -418,6 +470,10 @@
 
       this._room = joinRoom(config, roomCode);
       const RELAY_URLS = isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS;
+
+      // Start the liveness ping loop for this room (no-op on strategies without
+      // ping support, or if already running).
+      this._startPingCheck();
 
       // Log relay status after 3s — only in dev mode, and only once per
       // strategy per page load. The guard is set NOW (at schedule time), not
@@ -830,6 +886,9 @@
       // inbound gate until a full page refresh rebuilds the transport. Leaving
       // (or an abort) must reset that so a rejoin is evaluated fresh.
       this._rejectedPeers.delete(peerId);
+      // Clear liveness-ping bookkeeping for the departed peer.
+      this._pingDead.delete(peerId);
+      this._pingMisses.delete(peerId);
 
       if (this._remotePeerId === peerId) {
         this._remotePeerId = this._connectedPeers.size > 0
@@ -879,6 +938,9 @@
     _doClose() {
       if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
       if (this._relayWatch) { clearInterval(this._relayWatch); this._relayWatch = null; }
+      if (this._pingTimer)  { clearInterval(this._pingTimer);  this._pingTimer = null; }
+      this._pingDead.clear();
+      this._pingMisses.clear();
       if (this._room) { try { this._room.leave(); } catch {} this._room = null; }
       this._remotePeerId          = null;
       this._connectedPeers.clear();
