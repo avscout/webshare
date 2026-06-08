@@ -2387,7 +2387,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '75';
+  const LOCAL_VERSION = '76';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3562,6 +3562,32 @@ const GroupStore = {
       m.deviceId === deviceId ? { ...m, lastSeenAt: Date.now() } : m);
     this._save(group);
   },
+  // Heartbeat for OUR OWN record: bump both lastSeenAt and updatedAt so the
+  // record genuinely "wins" the merge on other devices and propagates across
+  // the whole mesh via the normal delta gossip (including relayed through an
+  // intermediary peer). This is what lets a member that's only reachable
+  // indirectly still show as online everywhere. Safe to re-broadcast with
+  // unchanged fields — it just refreshes the timestamps; the _seen dedup stops
+  // it from looping. Only call for DEVICE_ID (bumping a peer's updatedAt would
+  // clobber their real field changes).
+  heartbeat(deviceId) {
+    const group = this.load();
+    if (!group) return null;
+    const now = Date.now();
+    let rec = null;
+    group.members = group.members.map(m => {
+      if (m.deviceId !== deviceId) return m;
+      rec = { ...m, lastSeenAt: now, updatedAt: now };
+      return rec;
+    });
+    if (rec) this._save(group);
+    return rec;
+  },
+  getMember(deviceId) {
+    const group = this.load();
+    if (!group) return null;
+    return group.members.find(m => m.deviceId === deviceId) || null;
+  },
   setSourceHash(deviceId, hash) {
     const group = this.load();
     if (!group) return;
@@ -4509,6 +4535,43 @@ function setActiveTransport(t) {
 // Returns the connected members from the active transport.
 function getActiveConnectedMembers() {
   return TrysteroRoomManager.getConnectedMembers();
+}
+
+// Window within which a shared lastSeenAt counts as "online" — comfortably
+// above the 30s heartbeat so a single missed beat doesn't flip a member off.
+const FRESH_ONLINE_MS = 70 * 1000;
+
+// Returns the set of deviceIds that are online RIGHT NOW — either a direct
+// WebRTC peer, or a member whose shared lastSeenAt is very fresh (actively
+// heartbeating into the group and reaching us, possibly relayed through
+// another peer). This is the single source of truth for "who's online" so the
+// topbar, resume bar, and My Group view all agree, even in a 3+ mesh where not
+// every pair has a direct connection. Excludes our own device.
+function getOnlineDeviceIds() {
+  const ids = new Set();
+  for (const m of getActiveConnectedMembers()) {
+    if (m.info && m.info.deviceId && m.info.deviceId !== DEVICE_ID) ids.add(m.info.deviceId);
+  }
+  const now = Date.now();
+  for (const m of GroupStore.getMembers()) {
+    if (!m || !m.deviceId || m.deviceId === DEVICE_ID) continue;
+    if ((m.lastSeenAt || 0) > 0 && (now - m.lastSeenAt) < FRESH_ONLINE_MS) ids.add(m.deviceId);
+  }
+  return ids;
+}
+
+// Returns peer-info-like records for all online members (for avatar display).
+// Prefers live peer-info, falls back to the stored member record.
+function getOnlineMembersForDisplay() {
+  const ids = getOnlineDeviceIds();
+  const out = [];
+  for (const deviceId of ids) {
+    const cached = getActivePeerInfo(deviceId);
+    const stored = GroupStore.getMember(deviceId);
+    const src = cached || stored;
+    if (src) out.push({ deviceId, emoji: src.emoji, color: src.color, nickname: src.nickname });
+  }
+  return out;
 }
 
 // Returns cached peer-info for a deviceId from the active transport.
@@ -5689,8 +5752,15 @@ function renderHomeGroupMembers() {
   const mySource    = me.sourceHash;
 
   el.innerHTML = sortMembersByPresence(members, connected).map(m => {
+    // Online if we have a direct connection OR a very fresh shared lastSeenAt.
+    // A recent lastSeenAt means the member is actively heartbeating into the
+    // group and reached us (possibly relayed through another peer) — so they're
+    // reachable even without a direct WebRTC socket. The window is comfortably
+    // above the 30s heartbeat so a single missed beat doesn't flip them off.
+    const seenAgoNow = now - (m.lastSeenAt || 0);
     const isOnline  = m.deviceId === DEVICE_ID ||
-      connected.some(c => c.info && c.info.deviceId === m.deviceId);
+      connected.some(c => c.info && c.info.deviceId === m.deviceId) ||
+      ((m.lastSeenAt || 0) > 0 && seenAgoNow < FRESH_ONLINE_MS);
     const cached    = getActivePeerInfo(m.deviceId);
     const emoji     = (m.deviceId === DEVICE_ID ? identity?.emoji : (cached?.emoji || m.emoji)) || '?';
     const color     = (m.deviceId === DEVICE_ID ? identity?.color : (cached?.color || m.color)) || null;
@@ -6856,26 +6926,16 @@ function renderTopbarConnections() {
 
   if (!svgEl || !identity) return;
 
-  // Gather connected peers from the group room
-  const peers = [];
-  const seenDeviceIds = new Set();
+  // Gather online members — direct peers AND members reachable via the mesh
+  // (fresh shared lastSeenAt). Uses the shared helper so the topbar agrees with
+  // My Group and the resume bar even in a 3+ mesh where not every pair has a
+  // direct socket. Already deduped and self-excluded.
+  const peers = getOnlineMembersForDisplay();
+  const seenDeviceIds = new Set(peers.map(p => p.deviceId));
 
-  if (TrysteroRoomManager._room) {
-    for (const { info } of TrysteroRoomManager.getConnectedMembers()) {
-      if (!info || !info.deviceId) continue;
-      // Skip our own device: another tab of this same app shares our DEVICE_ID
-      // and connects as a separate WebRTC peer, but it's not a different member.
-      if (info.deviceId === DEVICE_ID) continue;
-      // Dedupe by deviceId: the same device may hold multiple peer connections
-      // (e.g. several open tabs), but should appear once.
-      if (seenDeviceIds.has(info.deviceId)) continue;
-      seenDeviceIds.add(info.deviceId);
-      peers.push(info);
-    }
-  }
   // Fallback: include remotePeerInfo from active transfer (covers first-pairing
-  // window before TrysteroRoomManager._peerInfo is populated). Never include
-  // our own device (another tab) or a duplicate deviceId.
+  // window before peer-info/membership is populated). Never include our own
+  // device (another tab) or a duplicate deviceId.
   if (remotePeerInfo && remotePeerInfo.deviceId && remotePeerInfo.deviceId !== DEVICE_ID
       && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
     peers.push(remotePeerInfo);
@@ -7086,6 +7146,22 @@ async function initWakeLock() {
         t.peerInfo = buildLocalPeerInfo();
         try { t._sendPeerInfoAction && t._sendPeerInfoAction({ info: t.peerInfo }); } catch {}
       }
+      // Also refresh our own lastSeenAt and broadcast our member record. This
+      // is a periodic "I'm alive" signal that propagates across the whole group
+      // (including via relay through other peers), so members reachable only
+      // indirectly still show as online — presence reflects the real group, not
+      // just our direct WebRTC sockets.
+      try {
+        const me = GroupStore.heartbeat(DEVICE_ID);
+        if (me) SyncEngine.broadcastDelta('mbr', me);
+      } catch {}
+    }
+    // Re-render presence views regardless of connection state, so a member who
+    // stopped heartbeating (went truly offline) decays online → away → offline
+    // on its own rather than lingering until the next unrelated render. (The
+    // resume bar is left out — it manages its own visibility per screen.)
+    if (GroupStore.exists()) {
+      try { renderHomeGroupMembers(); refreshMyDeviceMembers(); renderTopbarConnections(); } catch {}
     }
   }, 30000);
 
@@ -7197,22 +7273,10 @@ function renderResumeBar() {
 
   bar.classList.remove('hidden');
 
-  const groupPeers     = TrysteroRoomManager.getConnectedMembers();
-  const transferConnected = activeTransfer && !!activeTransfer._remotePeerId;
-
   const SIZE = 28;
-  // Collect peer infos, deduped by deviceId and excluding our own device (a
-  // second tab of this app connects as a peer but isn't a different member).
-  const peers = [];
-  const seen = new Set();
-  for (const m of groupPeers) {
-    const info = m.info;
-    if (!info || !info.deviceId) continue;
-    if (info.deviceId === DEVICE_ID) continue;
-    if (seen.has(info.deviceId)) continue;
-    seen.add(info.deviceId);
-    peers.push(info);
-  }
+  // Online members — direct peers AND mesh-reachable (fresh lastSeenAt), via
+  // the shared helper so the resume bar agrees with the topbar and My Group.
+  const peers = getOnlineMembersForDisplay();
   if (peers.length === 0 && remotePeerInfo && remotePeerInfo.deviceId !== DEVICE_ID) {
     peers.push(remotePeerInfo);
   }
