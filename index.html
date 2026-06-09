@@ -2105,7 +2105,7 @@
 
       <!-- My group section -->
       <hr style="border:none;border-top:1px solid var(--line);margin:0 0 1rem">
-      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.75rem">My group</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.75rem">My group<span id="home-group-refresh-hint" class="hidden" style="text-transform:none;letter-spacing:normal;font-weight:500;color:var(--dim);margin-left:8px"></span></div>
       <div id="home-group-members"></div>
       <div id="home-pair-section">
         <p class="user-only-paragraph" style="font-size:13px;color:var(--dim);margin:0 0 .75rem">Invite devices once by scanning a QR code — after that they connect automatically whenever both are online.</p>
@@ -2364,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '88';
+  const LOCAL_VERSION = '90';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -4267,7 +4267,14 @@ const GroupReconnectManager = {
 
   _scheduleRetry() {
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
-    if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) { this._stopReannounce(); return; }
+    // We can stop entirely only when there's no group, OR we're connected AND
+    // nobody recently-seen is still missing. If we have a peer but a member who
+    // was online in the last few hours is absent, keep softly re-announcing so
+    // that member can rejoin without a manual refresh (the "third device can't
+    // get back in because the other two stopped announcing" case).
+    const settled = !GroupStore.exists() ||
+      (TrysteroRoomManager.isConnected() && !hasRecentMissingMember());
+    if (settled) { this._stopReannounce(); return; }
     // If we're in the room but simply have no peers online yet, that's the
     // calm "in-group" state — not an error, so no aggressive backoff. But the
     // public brokers don't reliably retain presence: two devices only match if
@@ -4275,6 +4282,8 @@ const GroupReconnectManager = {
     // reconnecting BOTH sides at once works, one side alone doesn't). So we
     // periodically re-announce (a soft re-join) while alone, so two stuck
     // devices eventually hit the same window and find each other on their own.
+    // This also runs when we DO have a peer but a recently-seen member is still
+    // missing — same mechanism, helping the absent member rejoin.
     if (TrysteroRoomManager.isInGroup && TrysteroRoomManager.isInGroup()) {
       this._stopCountdown();
       renderGroupStatusBar('in-group');
@@ -4309,13 +4318,24 @@ const GroupReconnectManager = {
         this.REANNOUNCE_MIN_MS * Math.pow(2, this._reannounceCount),
         this.REANNOUNCE_MAX_MS);
       this._reannounceTimer = setTimeout(async () => {
-        if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) { this._stopReannounce(); return; }
+        // Stop only when settled: no group, or connected with nobody
+        // recently-seen still missing. A bare peer connection is NOT enough to
+        // stop if a recently-seen member is still absent.
+        const settled = !GroupStore.exists() ||
+          (TrysteroRoomManager.isConnected() && !hasRecentMissingMember());
+        if (settled) { this._stopReannounce(); return; }
         if (!(TrysteroRoomManager.isInGroup && TrysteroRoomManager.isInGroup())) { this._stopReannounce(); return; }
-        if (DEV_MODE) log('Auto re-announce — re-joining to re-publish presence…', 'info');
+        if (DEV_MODE) {
+          const why = TrysteroRoomManager.isConnected()
+            ? 'a recently-seen member is still missing'
+            : 'still alone';
+          log(`Auto re-announce — re-joining to re-publish presence (${why})…`, 'info');
+        }
         this._reannounceCount++;
         try { await TrysteroRoomManager.reinit(); } catch {}
-        // If still alone after the re-join, schedule the next (longer) attempt.
-        if (!TrysteroRoomManager.isConnected()) schedule();
+        // Keep going unless we've settled (connected AND nobody recent missing).
+        const settledNow = TrysteroRoomManager.isConnected() && !hasRecentMissingMember();
+        if (!settledNow) schedule();
         else this._stopReannounce();
       }, delay);
     };
@@ -4394,8 +4414,60 @@ const GroupReconnectManager = {
     this._doRetry();
   },
 
+  // Manual retry from the status-bar "Try now" button. Unlike the automatic
+  // mechanisms (wake-burst, re-announce) — which must never reload the page out
+  // from under the user mid-work — a manual press is a deliberate "fix it now",
+  // so escalating to a full reload is acceptable and expected if the soft retry
+  // doesn't land. This covers the case the soft path can't: after a long deep
+  // sleep the OS kills the broker WebSockets, and Trystero's socket pool is
+  // module-level + cached, so a reinit can rejoin over dead sockets and still
+  // fail — only a fresh page load rebuilds them (v88 tries to close dead sockets
+  // first; this reload is the guaranteed fallback if that wasn't enough).
+  // Escalation: do the soft reinit first; if we're still not connected a few
+  // seconds later, reload.
+  _manualRetryReloadTimer: null,
+  MANUAL_RETRY_RELOAD_MS: 12000,
+  manualRetry() {
+    // Soft attempt first (benefits from the dead-socket close in _joinRoom).
+    this.forceRetry();
+    // Arm the reload fallback. If a connection comes up in the meantime,
+    // onConnected() clears it (see below), so a successful soft retry never
+    // triggers a reload.
+    if (this._manualRetryReloadTimer) clearTimeout(this._manualRetryReloadTimer);
+    this._manualRetryReloadTimer = setTimeout(() => {
+      this._manualRetryReloadTimer = null;
+      // Only reload if the BROKERS are still unreachable — that's the dead-socket
+      // condition a reload actually fixes. If brokers are reachable (isInGroup)
+      // but we just have no peer yet, a reload wouldn't help (we're simply
+      // alone, waiting for the other device), so don't disrupt with one.
+      const brokersDown = !(TrysteroRoomManager.isInGroup && TrysteroRoomManager.isInGroup());
+      if (GroupStore.exists() && !TrysteroRoomManager.isConnected() && brokersDown) {
+        if (DEV_MODE) log('Manual retry: brokers still unreachable after soft reconnect — reloading the page to rebuild sockets…', 'info');
+        try { location.reload(); } catch {}
+      } else if (DEV_MODE && !TrysteroRoomManager.isConnected()) {
+        log('Manual retry: brokers reachable but no peer yet — staying put (reload would not help).', 'info');
+      }
+    }, this.MANUAL_RETRY_RELOAD_MS);
+  },
+
   // Called by TrysteroRoomManager when connected/disconnected
-  onConnected()    { this._retryCount = 0; if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; } this._stopCountdown(); this._stopReannounce(); renderGroupStatusBar(); },
+  onConnected()    {
+    this._retryCount = 0;
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    if (this._manualRetryReloadTimer) { clearTimeout(this._manualRetryReloadTimer); this._manualRetryReloadTimer = null; }
+    this._stopCountdown();
+    // We got a peer — but if a recently-seen member is still missing, keep
+    // (softly) re-announcing so they can rejoin too. Only fully stand down when
+    // nobody recent is absent. This is what lets the present peers help a
+    // returning third device back in, instead of going quiet the moment two of
+    // them find each other.
+    if (hasRecentMissingMember()) {
+      this._scheduleRetry();
+    } else {
+      this._stopReannounce();
+    }
+    renderGroupStatusBar();
+  },
   onDisconnected() { this._scheduleRetry(); },
 };
 
@@ -4454,11 +4526,16 @@ function renderGroupStatusBar(state) {
     case 'waiting': {
       const remainingMs = GroupReconnectManager._retryDeadline - Date.now();
       const secs = Math.max(0, Math.ceil(remainingMs / 1000));
+      const counting = navigator.onLine && secs > 1;
       textEl.textContent = navigator.onLine
         ? (secs <= 1 ? 'Connecting…' : `Reconnecting in ${secs}s…`)
         : 'No network';
       if (dot) { dot.style.background = '#d4a017'; dot.style.animation = secs <= 1 ? 'pulse-dot 1.2s ease-in-out infinite' : ''; }
-      retryEl.classList.remove('hidden');
+      // Only offer "Try now" WHILE counting down — then it means "don't wait,
+      // attempt now". During the actual "Connecting…" moment an attempt is
+      // already in flight, so a retry button there is contradictory; hide it.
+      // (When offline there's nothing to retry against, so hide it too.)
+      retryEl.classList.toggle('hidden', !counting);
       break;
     }
     case 'offline':
@@ -4691,6 +4768,35 @@ function getMemberReachability(deviceId) {
 
 function isMemberOnline(deviceId) {
   return getMemberReachability(deviceId) !== 'offline';
+}
+
+// Recency window for "keep actively searching for an absent member": if a known
+// member isn't online now but was seen within this window, the present peers
+// keep re-announcing so that member can rejoin without anyone refreshing. Past
+// this window the member is treated as gone-for-now — we stop burning
+// re-announces (and disturbing the live connections) for someone who likely
+// won't return today; they can still rejoin via a manual refresh. 4 hours
+// comfortably covers a half work-day with breaks, while excluding members last
+// seen days/weeks ago.
+const SEARCH_RECENCY_MS = 4 * 60 * 60 * 1000;
+
+// True when at least one KNOWN member is offline and was last seen LONGER ago
+// than SEARCH_RECENCY_MS (or hasn't been seen in a tracked way) — i.e. someone
+// the active search has given up on. Used to surface a small "refresh to look
+// for them" hint, since they can still rejoin via a manual refresh even though
+// the present peers have stopped actively re-announcing for them. Excludes our
+// own device and members who have genuinely never been seen (lastSeenAt 0),
+// since there's nothing to refresh toward for those.
+function hasLongAbsentMember() {
+  if (!GroupStore.exists()) return false;
+  const now = Date.now();
+  for (const m of GroupStore.getMembers()) {
+    if (!m || !m.deviceId || m.deviceId === DEVICE_ID) continue;
+    if (isMemberOnline(m.deviceId)) continue;
+    const seen = m.lastSeenAt || 0;
+    if (seen > 0 && (now - seen) >= SEARCH_RECENCY_MS) return true;
+  }
+  return false;
 }
 
 // Dev-only: log when a member's reachability CHANGES (direct ↔ mesh ↔ offline),
@@ -5899,6 +6005,22 @@ function renderHomeGroupMembers() {
   if (!el) return;
 
   if (!GroupStore.exists()) { el.innerHTML = ''; return; }
+
+  // Refresh hint next to the "My group" heading: shown when a member has been
+  // absent longer than the active-search window (SEARCH_RECENCY_MS). Past that
+  // window the present peers stop re-announcing for them, so a manual refresh is
+  // the way to look for them again — this tells the user that, instead of
+  // leaving them wondering why a long-gone member never reappears.
+  const hintEl = $('home-group-refresh-hint');
+  if (hintEl) {
+    if (hasLongAbsentMember()) {
+      hintEl.textContent = '· refresh to look for absent members';
+      hintEl.classList.remove('hidden');
+    } else {
+      hintEl.textContent = '';
+      hintEl.classList.add('hidden');
+    }
+  }
 
   const members   = GroupStore.getMembers();
 
@@ -9816,7 +9938,7 @@ function showGenericInstallInstructions(backdrop) {
 
 // Wire the topbar identity badge to open the panel
 document.getElementById('group-status-retry').addEventListener('click', () => {
-  GroupReconnectManager.forceRetry();
+  GroupReconnectManager.manualRetry();
 });
 
 document.getElementById('topbar-identity').addEventListener('click', () => {
