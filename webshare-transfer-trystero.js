@@ -474,9 +474,15 @@
           const sockets = this._getRelaySockets() || {};
           for (const ws of Object.values(sockets)) {
             // readyState: 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED.
-            // Anything not OPEN after a wake is suspect — close it so it's
-            // rebuilt. A still-OPEN socket is left alone (it's healthy).
-            if (ws && ws.readyState !== 1) {
+            // Only close sockets that are genuinely DEAD (CLOSING/CLOSED) so
+            // Trystero rebuilds them. Crucially we must NOT touch CONNECTING (0)
+            // sockets: those are mid-handshake — exactly what we want — and
+            // closing them aborts the connection before it can open. (An earlier
+            // version closed everything !== OPEN, which, once the re-announce
+            // started running often, kept killing connecting sockets and left
+            // both devices stuck on "joining room".) OPEN (1) is healthy, leave
+            // it too.
+            if (ws && (ws.readyState === 2 || ws.readyState === 3)) {
               try { ws.close(); } catch {}
             }
           }
