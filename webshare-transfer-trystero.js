@@ -461,6 +461,28 @@
         if (this._relayWatch) { clearInterval(this._relayWatch); this._relayWatch = null; }
       }
 
+      // After a long deep sleep the OS kills the broker WebSockets, but
+      // Trystero's socket pool is module-level and cached across rejoins — so a
+      // plain reinit rejoins over the SAME dead sockets and still can't reach
+      // the brokers (the "retry does nothing, only a full refresh fixes it"
+      // bug). leave() doesn't reliably tear those pooled sockets down. So before
+      // rejoining we explicitly close any socket that isn't OPEN, which prompts
+      // Trystero to recreate fresh ones on the next joinRoom — getting us most
+      // of the way a page refresh would, without the reload.
+      if (this._getRelaySockets) {
+        try {
+          const sockets = this._getRelaySockets() || {};
+          for (const ws of Object.values(sockets)) {
+            // readyState: 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED.
+            // Anything not OPEN after a wake is suspect — close it so it's
+            // rebuilt. A still-OPEN socket is left alone (it's healthy).
+            if (ws && ws.readyState !== 1) {
+              try { ws.close(); } catch {}
+            }
+          }
+        } catch {}
+      }
+
       const config = {
         appId      : TRYSTERO_APP_ID,
         relayConfig: { urls: isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS },

@@ -2364,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '86';
+  const LOCAL_VERSION = '88';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -7279,10 +7279,14 @@ async function initWakeLock() {
     }
     // Re-render presence views regardless of connection state, so a member who
     // stopped heartbeating (went truly offline) decays online → away → offline
-    // on its own rather than lingering until the next unrelated render. (The
-    // resume bar is left out — it manages its own visibility per screen.)
+    // on its own rather than lingering until the next unrelated render. The
+    // resume bar (the "Demo" bar with peer avatars) is included only on the
+    // start screen — it force-shows itself, so calling it elsewhere would pop it
+    // up on the wrong screen; but on the start screen it must decay too, or a
+    // departed peer's avatar + "Connected" stays stuck on it.
     if (GroupStore.exists()) {
       try { renderHomeGroupMembers(); refreshMyDeviceMembers(); renderTopbarConnections(); renderGroupStatusBar(); } catch {}
+      try { if (currentScreenId() === 'start') renderResumeBar(); } catch {}
       try { logReachabilityChanges(); } catch {}
     }
   }, HEARTBEAT_MS);
@@ -7399,7 +7403,13 @@ function renderResumeBar() {
   // Online members — direct peers AND mesh-reachable (fresh lastSeenAt), via
   // the shared helper so the resume bar agrees with the topbar and My Group.
   const peers = getOnlineMembersForDisplay();
-  if (peers.length === 0 && remotePeerInfo && remotePeerInfo.deviceId !== DEVICE_ID) {
+  // Fallback to the last transfer peer ONLY when there's no group — that's the
+  // first-pairing case where membership/presence doesn't exist yet. In a
+  // persistent group, presence is authoritative: if nobody is online we must
+  // NOT resurrect a departed peer from the stale remotePeerInfo global (that's
+  // what left a peer's avatar + "Connected" stuck on the Demo bar forever).
+  if (peers.length === 0 && !GroupStore.exists()
+      && remotePeerInfo && remotePeerInfo.deviceId !== DEVICE_ID) {
     peers.push(remotePeerInfo);
   }
 
