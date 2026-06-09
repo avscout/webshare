@@ -2364,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '85';
+  const LOCAL_VERSION = '86';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3938,6 +3938,17 @@ const TrysteroRoomManager = {
       refreshMyDeviceMembers();
       renderGroupStatusBar();
       try { logReachabilityChanges(); } catch {}
+      // If the liveness check just left us with no LIVE peers (every direct
+      // connection went ping-dead — a zombie that never fired peer-left, e.g.
+      // the other device was off for a long time), kick the reconnect machinery.
+      // Without this, isConnected() is false but nothing acts on it: we'd sit on
+      // the dead connection, never re-announce, and a returning peer would have
+      // nobody to match with on our side (the "A only sees B again after a
+      // refresh" bug). Re-announcing republishes our presence so the broker can
+      // re-pair us.
+      if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
+        GroupReconnectManager.onDisconnected();
+      }
     });
     t.on('disconnected', () => {
       GroupReconnectManager.onDisconnected();
