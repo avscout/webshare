@@ -2364,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '92';
+  const LOCAL_VERSION = '93';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -4807,6 +4807,23 @@ function isMemberOnline(deviceId) {
 // comfortably covers a half work-day with breaks, while excluding members last
 // seen days/weeks ago.
 const SEARCH_RECENCY_MS = 4 * 60 * 60 * 1000;
+
+// True when at least one KNOWN member is currently offline but was last seen
+// within SEARCH_RECENCY_MS — i.e. someone who recently dropped and may well
+// come right back, so it's worth the present peers continuing to re-announce so
+// that member can rejoin without anyone refreshing. Excludes our own device and
+// members last seen long ago (or never).
+function hasRecentMissingMember() {
+  if (!GroupStore.exists()) return false;
+  const now = Date.now();
+  for (const m of GroupStore.getMembers()) {
+    if (!m || !m.deviceId || m.deviceId === DEVICE_ID) continue;
+    if (isMemberOnline(m.deviceId)) continue;
+    const seen = m.lastSeenAt || 0;
+    if (seen > 0 && (now - seen) < SEARCH_RECENCY_MS) return true;
+  }
+  return false;
+}
 
 // True when at least one KNOWN member is offline and was last seen LONGER ago
 // than SEARCH_RECENCY_MS (or hasn't been seen in a tracked way) — i.e. someone
