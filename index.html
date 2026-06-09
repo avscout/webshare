@@ -2364,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '94';
+  const LOCAL_VERSION = '96';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -4125,6 +4125,24 @@ const TrysteroRoomManager = {
     return true;
   },
 
+  // True when at least one broker/relay socket is still in the CONNECTING state
+  // (readyState 0). This means a reconnect is genuinely in progress — the
+  // socket hasn't opened yet, but it also hasn't failed. The wake-reload check
+  // uses this to hold off: if recovery is mid-handshake, give it more time
+  // rather than reloading out from under it. Returns false when we can't
+  // inspect sockets (then the caller falls back to its other guards).
+  isBrokerConnecting() {
+    if (!this._room) return false;
+    const t = this._room;
+    if (typeof t._getRelaySockets === 'function' && t._getRelaySockets) {
+      try {
+        const sockets = t._getRelaySockets() || {};
+        return Object.values(sockets).some(ws => ws && ws.readyState === 0);
+      } catch {}
+    }
+    return false;
+  },
+
   getConnectedMembers() {
     const result = [];
     if (!this._room) return result;
@@ -4222,10 +4240,43 @@ const GroupReconnectManager = {
   _countdownTimer : null,
   _reannounceTimer : null,
 
+  // Wake-reload: when the tab returns to the foreground after being hidden long
+  // enough that the OS has almost certainly killed the broker WebSockets (the
+  // "Keepalive timeout / WebSocket failed / Not authorized" storm in the
+  // console), a soft reinit can't recover — Trystero's socket pool is cached at
+  // module level, so it rejoins over the same dead/poisoned sockets. Only a
+  // full page reload re-imports the module and gets genuinely fresh sockets. So
+  // after a long sleep we give recovery a brief chance and then reload if the
+  // brokers are still unreachable. Guards below prevent reloading when it
+  // wouldn't help (merely alone) or looping (cooldown).
+  _lastHiddenAt : 0,
+  _wakeReloadTimer : null,
+  WAKE_RELOAD_MIN_HIDDEN_MS : 3 * 60 * 1000,   // only if hidden ≥ 3 min
+  WAKE_RELOAD_GRACE_MS      : 10000,           // let recovery try for ~10s first
+  WAKE_RELOAD_COOLDOWN_MS   : 60000,           // never auto-reload twice within 60s
+  _WAKE_RELOAD_KEY : 'fieldsync-wake-reload-at',
+
   start() {
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
+      if (document.hidden) {
+        // Remember when we went into the background, so on return we can tell a
+        // brief tab-switch from a long sleep that likely killed the sockets.
+        this._lastHiddenAt = Date.now();
+        return;
+      }
+      // Becoming visible again.
+      if (!GroupStore.exists()) return;
+      const hiddenFor = this._lastHiddenAt ? (Date.now() - this._lastHiddenAt) : 0;
+      this._lastHiddenAt = 0;
+      if (!TrysteroRoomManager.isConnected()) {
+        // Quick attempt regardless of how long we were away.
         this._wakeBurst();
+        // If we were away long enough that the sockets are probably dead, arm
+        // the reload fallback in case the soft recovery can't bring the brokers
+        // back (the module-level dead-socket case only a reload fixes).
+        if (hiddenFor >= this.WAKE_RELOAD_MIN_HIDDEN_MS) {
+          this._scheduleWakeReload();
+        }
       }
     });
     window.addEventListener('online', () => {
@@ -4233,6 +4284,60 @@ const GroupReconnectManager = {
         this._wakeBurst();
       }
     });
+  },
+
+  // Arm a one-shot reload check after a short grace period. When it fires, we
+  // reload ONLY if: still in a group, still not connected, the brokers are
+  // genuinely unreachable (not merely "alone, waiting for a peer"), and we
+  // didn't already auto-reload very recently (sessionStorage cooldown survives
+  // the reload but clears when the tab is truly closed). The cooldown means a
+  // broker that keeps refusing us ("Not authorized" rate-limiting) gets at most
+  // one reload, then we fall back to the normal re-announce/backoff instead of
+  // looping.
+  _scheduleWakeReload() {
+    if (this._wakeReloadTimer) return;   // already armed
+    // Respect the cooldown: if we auto-reloaded moments ago, don't do it again.
+    try {
+      const last = parseInt(sessionStorage.getItem(this._WAKE_RELOAD_KEY) || '0', 10);
+      if (last && (Date.now() - last) < this.WAKE_RELOAD_COOLDOWN_MS) {
+        if (DEV_MODE) log('Wake: skipping reload (auto-reloaded very recently) — using soft reconnect instead.', 'info');
+        return;
+      }
+    } catch {}
+    this._wakeReloadTimer = setTimeout(() => {
+      this._wakeReloadTimer = null;
+      // If a broker socket is still mid-handshake (CONNECTING), recovery is
+      // genuinely in progress — don't reload out from under it. Wait a little
+      // longer and re-check once. This is the difference between "dead/refused"
+      // (reload helps) and "reconnecting, just slow" (reload would needlessly
+      // disrupt). We only grant this one extension so a socket stuck CONNECTING
+      // forever can't block the reload indefinitely.
+      if (TrysteroRoomManager.isBrokerConnecting && TrysteroRoomManager.isBrokerConnecting()) {
+        if (DEV_MODE) log('Wake: a broker socket is still connecting — giving recovery a little longer before deciding on reload.', 'info');
+        this._wakeReloadTimer = setTimeout(() => {
+          this._wakeReloadTimer = null;
+          this._wakeReloadDecide();
+        }, this.WAKE_RELOAD_GRACE_MS);
+        return;
+      }
+      this._wakeReloadDecide();
+    }, this.WAKE_RELOAD_GRACE_MS);
+  },
+
+  // The actual reload decision, factored out so both the first check and the
+  // one-time "still connecting" extension share it. Reload ONLY when the
+  // brokers are genuinely unreachable (no open socket, none connecting) and we
+  // still have no peer — not when merely alone with live brokers.
+  _wakeReloadDecide() {
+    const brokersDown = !(TrysteroRoomManager.isInGroup && TrysteroRoomManager.isInGroup());
+    const stillConnecting = TrysteroRoomManager.isBrokerConnecting && TrysteroRoomManager.isBrokerConnecting();
+    if (GroupStore.exists() && !TrysteroRoomManager.isConnected() && brokersDown && !stillConnecting) {
+      if (DEV_MODE) log('Wake: brokers still unreachable after sleep — reloading to rebuild sockets…', 'info');
+      try { sessionStorage.setItem(this._WAKE_RELOAD_KEY, String(Date.now())); } catch {}
+      try { location.reload(); } catch {}
+    } else if (DEV_MODE && !TrysteroRoomManager.isConnected()) {
+      log('Wake: not reloading — brokers reachable or recovery still in progress (reload would not help).', 'info');
+    }
   },
 
   async _doRetry() {
@@ -4441,6 +4546,7 @@ const GroupReconnectManager = {
     this._retryCount = 0;
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     if (this._manualRetryReloadTimer) { clearTimeout(this._manualRetryReloadTimer); this._manualRetryReloadTimer = null; }
+    if (this._wakeReloadTimer) { clearTimeout(this._wakeReloadTimer); this._wakeReloadTimer = null; }
     this._stopCountdown();
     this._stopReannounce();
     renderGroupStatusBar();
