@@ -2364,7 +2364,7 @@
   // webshare-transfer.js) change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '91';
+  const LOCAL_VERSION = '92';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3948,6 +3948,11 @@ const TrysteroRoomManager = {
       // re-pair us.
       if (GroupStore.exists() && !TrysteroRoomManager.isConnected()) {
         GroupReconnectManager.onDisconnected();
+      } else {
+        // Still connected to someone, but a peer may have just gone ping-dead.
+        // If that leaves a recently-seen member missing, start searching for
+        // them too (same as a clean peer-left would).
+        try { GroupReconnectManager.onMembershipChanged(); } catch {}
       }
     });
     t.on('disconnected', () => {
@@ -3985,6 +3990,14 @@ const TrysteroRoomManager = {
       renderHomeGroupMembers();
       refreshMyDeviceMembers();
       try { logReachabilityChanges(); } catch {}
+      // A member just left. Even if we're still connected to OTHER peers, that
+      // departed member may be one we should keep searching for (seen within the
+      // recency window). Without this, the re-announce never starts in the
+      // "A+B stay connected, C left" case — A/B go quiet and C can't get back in
+      // until someone refreshes. Ask the reconnect manager to (re)evaluate:
+      // it starts the soft re-announce when hasRecentMissingMember() is true,
+      // and stays idle otherwise.
+      try { GroupReconnectManager.onMembershipChanged(); } catch {}
     });
 
     t.on('peer-info', (info) => {
@@ -4469,6 +4482,21 @@ const GroupReconnectManager = {
     renderGroupStatusBar();
   },
   onDisconnected() { this._scheduleRetry(); },
+
+  // Called when group membership/presence changes (e.g. a peer left) while we
+  // may still be connected to others. Decides whether to (re)start the soft
+  // re-announce search: if a recently-seen member is missing we kick it off,
+  // otherwise we stand down. This is the trigger that makes the present peers
+  // start looking for a just-departed member — onConnected only fires when WE
+  // (re)connect, which doesn't happen when a DIFFERENT peer leaves.
+  onMembershipChanged() {
+    if (!GroupStore.exists()) { this._stopReannounce(); return; }
+    if (hasRecentMissingMember()) {
+      this._scheduleRetry();      // starts _startReannounce via the in-group path
+    } else if (TrysteroRoomManager.isConnected()) {
+      this._stopReannounce();     // connected and nobody recent missing → idle
+    }
+  },
 };
 
 function renderGroupStatusBar(state) {
