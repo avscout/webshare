@@ -992,6 +992,16 @@
   .state-chip.active[data-f="sighted"] { background: rgba(0,166,214,0.10); border-color: rgba(0,107,145,0.5); color: #006B91; }
   .state-chip.active[data-f="todo"]    { background: var(--bg-subtle); border-color: var(--dim); color: var(--ink-soft); }
   .state-chip.active[data-f="never"]   { background: #f59e0b14; border-color: #f59e0b99; color: #b45309; }
+  .state-chip.active[data-f="storage"] { background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.5); color: #6D28D9; }
+  .state-chip.active[data-f="removed"] { background: rgba(224,60,49,0.08); border-color: rgba(224,60,49,0.5); color: var(--warn); }
+  /* WhatsApp-style back arrow in modal heads (replaces the corner ×). Keeps
+     the old close-button id, so all existing wiring works unchanged. */
+  .modal-back {
+    background: transparent; border: none; padding: 4px; margin: -4px 0 -4px -6px;
+    color: var(--ink-soft); cursor: pointer; display: inline-flex; align-items: center; flex-shrink: 0;
+  }
+  .modal-back:hover { color: var(--ink); }
+  .modal-head-icon { display: inline-flex; align-items: center; color: var(--dim); flex-shrink: 0; margin-right: -4px; }
 
   /* Search row below the sort toolbar. Magnifier icon on the left,
      clear (×) button appears on the right when the input has a value.
@@ -1102,7 +1112,7 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
   .photo-lightbox .lightbox-close {
-    position: absolute; top: 16px; right: 16px;
+    position: absolute; top: 16px; left: 16px;
     width: 40px; height: 40px;
     background: rgba(255, 255, 255, 0.15);
     border: none;
@@ -2116,7 +2126,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '110';
+  const LOCAL_VERSION = '111';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2269,6 +2279,7 @@ function applyAssetOverlay(key, baseItem) {
     ...baseItem,
     model: ov.model, category: ov.category, type: ov.type,
     serial: ov.serial, room: ov.room, notes: ov.notes,
+    disposition: ov.disposition,
   };
 }
 
@@ -2423,6 +2434,56 @@ function assetEyeState(assetId) {
   return sightedThisRound(assetId) ? 'sighted' : 'todo';
 }
 
+// ── Dispositions ─────────────────────────────────────────────────────────
+// Asset-level "where is it now" statuses, set from the item panel. They live
+// on the canonical overlay (so they sync as per-asset records, join the
+// Pending changes ledger, and travel toward the next export). Two families:
+// 'storage' (stored away — purple) and 'removed' (gone — red, struck title).
+const DISPOSITIONS = {
+  'storage-av': { label: 'Storage (AV)', family: 'storage' },
+  'storage-fm': { label: 'Storage (FM)', family: 'storage' },
+  'recycle-av': { label: 'Recycle (AV)', family: 'removed' },
+  'removed'   : { label: 'Removed',      family: 'removed' },
+};
+function assetDisposition(assetId) {
+  if (!assetId) return null;
+  const ov = AssetOverlay.get(assetId);
+  const d = ov && ov.disposition;
+  return d && DISPOSITIONS[d] ? d : null;
+}
+// Small glyphs for disposition UI (lucide/tabler-style strokes).
+function archiveGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>`;
+}
+function recycleGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17l-2 2l2 2"/><path d="M10 19h9a2 2 0 0 0 1.75-2.75l-.55-1"/><path d="M8.536 11l-.732-2.732l-2.732 .732"/><path d="M7.804 8.268l-4.5 7.794a2 2 0 0 0 1.506 2.89l1.141 .024"/><path d="M15.464 11l2.732 .732l.732-2.732"/><path d="M18.196 11.732l-4.5-7.794a2 2 0 0 0-3.256-.14l-.591 .976"/></svg>`;
+}
+function trashGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>`;
+}
+// 26px disposition circle — takes the eye's place in the row when set.
+function dispositionIconHTML(d) {
+  const def = DISPOSITIONS[d];
+  if (def.family === 'storage') {
+    return `<div title="${def.label} — stored away" style="width:26px;height:26px;border-radius:50%;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.35);display:flex;align-items:center;justify-content:center;color:#6D28D9;box-sizing:border-box;flex-shrink:0">${archiveGlyph('currentColor', 14)}</div>`;
+  }
+  const glyph = d === 'recycle-av' ? recycleGlyph('currentColor', 14) : trashGlyph('currentColor', 14);
+  return `<div title="${def.label} — travels in the next export" style="width:26px;height:26px;border-radius:50%;background:rgba(224,60,49,0.08);border:1px solid rgba(224,60,49,0.35);display:flex;align-items:center;justify-content:center;color:var(--warn);box-sizing:border-box;flex-shrink:0">${glyph}</div>`;
+}
+// Tiny status pill next to the title (purple for storage, red for removed).
+function dispositionPillHTML(d) {
+  const def = DISPOSITIONS[d];
+  const col = def.family === 'storage'
+    ? 'border:1px solid rgba(124,58,237,0.45);color:#6D28D9'
+    : 'border:1px solid rgba(224,60,49,0.45);color:var(--warn)';
+  return `<span style="display:inline-flex;align-items:center;${col};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${escapeHTML(def.label)}</span>`;
+}
+// Row state for the filter pills: disposition family wins, else eye state.
+function rowFilterState(assetId) {
+  const d = assetDisposition(assetId);
+  return d ? DISPOSITIONS[d].family : assetEyeState(assetId);
+}
+
 // The state-filter pill row. Multi-select union; "All" resets. The pills
 // carry their state's icon, so the row IS the legend.
 function stateChipRowHTML(idPrefix) {
@@ -2432,6 +2493,8 @@ function stateChipRowHTML(idPrefix) {
         <button class="state-chip" data-f="sighted" type="button">${eyeGlyph(true, '#006B91', 12)}Sighted</button>
         <button class="state-chip" data-f="todo" type="button">${eyeGlyph(false, 'currentColor', 12)}To do</button>
         <button class="state-chip" data-f="never" type="button"><span style="width:14px;height:14px;border-radius:50%;border:1.5px dashed #f59e0b99;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box"><span style="opacity:0.8;display:inline-flex">${eyeGlyph(false, '#b45309', 9)}</span></span>Never seen</button>
+        <button class="state-chip" data-f="storage" type="button">${archiveGlyph('#6D28D9', 12)}Storage</button>
+        <button class="state-chip" data-f="removed" type="button">${trashGlyph('var(--warn)', 12)}Removed</button>
       </div>`;
 }
 function wireStateChips(container, stateFilters, onChange) {
@@ -2527,6 +2590,9 @@ function pendingChangesFor(assetId, sourceRow) {
   const baseNotes = Array.isArray(base.notes) ? base.notes.join(' · ') : (base.notes || '');
   const ovNotes   = Array.isArray(ov.notes)   ? ov.notes.join(' · ')   : (ov.notes || '');
   if (baseNotes !== ovNotes) diffs.notes = { from: baseNotes, to: ovNotes };
+  if (ov.disposition && DISPOSITIONS[ov.disposition]) {
+    diffs.disposition = { from: '', to: DISPOSITIONS[ov.disposition].label };
+  }
   if (!Object.keys(diffs).length) return null;
   const events = ChangeFeed.forAsset(assetId).filter(ev => !gen || !ev.sourceHash || ev.sourceHash === gen);
   const reportNames = [...new Set(events.map(ev => ev.reportName).filter(Boolean))];
@@ -3107,7 +3173,7 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
     openWith('edit', `
       <div class="panel-head">
         <span>Edit task</span>
-        <button type="button" class="panel-close" data-pact="close" aria-label="Close">×</button>
+        <button type="button" class="panel-close" data-pact="close" aria-label="Dismiss"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6l6-6"/></svg></button>
       </div>
       <div class="panel-field">
         <label>Name</label>
@@ -3183,7 +3249,7 @@ function renderSessionRow(s, { container, onAfterChange, onRowClick, selectedId 
                <span class="when">${formatRelative(ev.at)}</span>
              </li>`).join('')}
          </ul>`;
-    openWith('history', `<div class="panel-head"><span>History</span><button type="button" class="panel-close" data-pact="close" aria-label="Close">×</button></div>${listHTML}`);
+    openWith('history', `<div class="panel-head"><span>History</span><button type="button" class="panel-close" data-pact="close" aria-label="Dismiss"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6l6-6"/></svg></button></div>${listHTML}`);
   }
 
   async function doSetStatus(newStatus) {
@@ -6975,7 +7041,7 @@ function showWhatChangedPanel(assetId, sourceRow) {
   backdrop.style.zIndex = 1000;
   document.body.appendChild(backdrop);
 
-  const fieldLabel = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes' };
+  const fieldLabel = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes', disposition: 'Status' };
   const memberTag = (deviceId) => {
     const m = GroupStore.getMember(deviceId);
     return m ? `${m.emoji || ''} ${escapeHTML(m.nickname || '')}`.trim() : 'unknown device';
@@ -6993,11 +7059,12 @@ function showWhatChangedPanel(assetId, sourceRow) {
     backdrop.innerHTML = `
       <div class="modal items-modal" style="max-width:480px">
         <div class="modal-head items-modal-head">
+          <button class="modal-back" id="wc-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+          <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l4 4l-4 4"/><path d="M10 7h10"/><path d="M8 13l-4 4l4 4"/><path d="M4 17h9"/></svg></span>
           <div class="items-modal-title">
             <h3>What changed</h3>
             <div class="items-modal-subtitle"><span class="origin-name">${escapeHTML(title)}</span><span class="origin-label"> · #${escapeHTML(assetId)}</span></div>
           </div>
-          <button class="close" id="wc-close" aria-label="Close">×</button>
         </div>
         <div class="modal-body" style="padding:4px 18px 14px 18px">
           ${Object.entries(pending.diffs).map(([f, d]) => `
@@ -7030,11 +7097,12 @@ function showWhatChangedPanel(assetId, sourceRow) {
     backdrop.innerHTML = `
       <div class="modal items-modal" style="max-width:480px">
         <div class="modal-head items-modal-head">
+          <button class="modal-back" id="cl-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+          <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></svg></span>
           <div class="items-modal-title">
             <h3>Changelog</h3>
             <div class="items-modal-subtitle"><span class="origin-name">${escapeHTML(title)}</span><span class="origin-label"> · ${n} change event${n === 1 ? '' : 's'}</span></div>
           </div>
-          <button class="close" id="cl-close" aria-label="Close">×</button>
         </div>
         <div class="modal-body" style="padding:4px 18px 14px 18px">
           ${events.length ? events.map(ev => ev.kind === 'source-import' ? `
@@ -7086,6 +7154,7 @@ function showSourceModal() {
   backdrop.innerHTML = `
     <div class="modal items-modal">
       <div class="modal-head items-modal-head">
+        <button class="modal-back" id="source-modal-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
         <div class="items-modal-origin">${_grailIcon()}</div>
         <div class="items-modal-title">
           <h3 style="margin:0">${escapeHTML(_sourceData.filename)}</h3>
@@ -7096,7 +7165,6 @@ function showSourceModal() {
             <span class="items-modal-count">${rows.length.toLocaleString()} assets</span>
           </div>
         </div>
-        <button class="close" id="source-modal-close" aria-label="Close">×</button>
       </div>
       <div class="items-search">
         <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -7180,15 +7248,18 @@ function showSourceModal() {
     const aid = String(r.id);
     const pending = pendingMap.get(aid);
     const sg = Sightings.get(aid);
+    const disp    = assetDisposition(aid);
+    const dispFam = disp ? DISPOSITIONS[disp].family : null;
     return `
-      <div class="src-row" data-asset-id="${escapeHTML(aid)}" style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch${pending ? ';cursor:pointer' : ''}">
+      <div class="src-row" data-asset-id="${escapeHTML(aid)}" style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch${pending ? ';cursor:pointer' : ''}${dispFam === 'removed' ? ';background:rgba(224,60,49,0.04)' : ''}">
         <div style="display:flex;align-items:center;flex-shrink:0">
-          ${eyeIconHTML(assetEyeState(aid))}
+          ${disp ? dispositionIconHTML(disp) : eyeIconHTML(assetEyeState(aid))}
         </div>
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
           <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
-            <div style="font-size:15px;font-weight:600;color:var(--ink)">${escapeHTML(r.model || r.type || '—')}</div>
+            <div style="font-size:15px;font-weight:600;color:var(--ink)${dispFam === 'removed' ? ';text-decoration:line-through;text-decoration-color:rgba(224,60,49,0.6);text-decoration-thickness:1.5px' : ''}">${escapeHTML(r.model || r.type || '—')}</div>
             <div style="font-size:12px;color:var(--dim);font-weight:400">#${escapeHTML(r.id)}</div>
+            ${disp ? dispositionPillHTML(disp) : ''}
           </div>
           <div style="font-size:12px;color:var(--dim);margin-top:3px">
             <span>${escapeHTML(r.type || '—')}</span>
@@ -7271,7 +7342,7 @@ function showSourceModal() {
           .some(v => v && String(v).toLowerCase().includes(query)))
       : rows;
     if (filterChanged) filtered = filtered.filter(r => pendingMap.has(String(r.id)));
-    if (stateFilters.size) filtered = filtered.filter(r => stateFilters.has(assetEyeState(String(r.id))));
+    if (stateFilters.size) filtered = filtered.filter(r => stateFilters.has(rowFilterState(String(r.id))));
 
     const sorted = [...filtered].sort((a, b) => {
       const ka = sortMode === 'building' ? a.building
@@ -7361,8 +7432,9 @@ function showCreateJobModal() {
   backdrop.innerHTML = `
     <div class="modal" style="display:flex;flex-direction:column;max-height:90vh">
       <div class="modal-head" style="display:flex;align-items:center;justify-content:space-between">
+        <button class="modal-back" id="cj-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+        <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h-2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-12a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M10 14h4"/><path d="M12 12v4"/></svg></span>
         <h3 style="margin:0;font-size:16px">New task</h3>
-        <button class="close" id="cj-close">×</button>
       </div>
       <div class="modal-body" style="overflow-y:auto;padding:14px 16px;flex:1">
         <div style="margin-bottom:14px">
@@ -7593,8 +7665,9 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
   backdrop.innerHTML = `
     <div class="modal">
       <div class="modal-head">
+        <button class="modal-back" id="sm-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+        <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h-2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-12a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h.01"/><path d="M13 12h2"/><path d="M9 16h.01"/><path d="M13 16h2"/></svg></span>
         <h3>Tasks</h3>
-        <button class="close" id="sm-close">×</button>
       </div>
       <div style="padding:0 16px">
         <div class="status-tabs" id="sm-tabs">
@@ -7713,6 +7786,8 @@ async function openItemEditor(sessionId, itemId) {
 
   const headHTML = (title) => `
         <div class="modal-head items-modal-head">
+          <button class="modal-back" id="item-panel-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+          <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5h8"/><path d="M13 9h5"/><path d="M13 15h8"/><path d="M13 19h5"/><rect x="3" y="4" width="6" height="6" rx="1"/><rect x="3" y="14" width="6" height="6" rx="1"/></svg></span>
           <div class="items-modal-title">
             <h3>${escapeHTML(title)}</h3>
             <div class="items-modal-subtitle">
@@ -7721,7 +7796,6 @@ async function openItemEditor(sessionId, itemId) {
               ${assetKey ? `<span class="origin-label"> · #${escapeHTML(assetKey)}</span>` : ''}
             </div>
           </div>
-          <button class="close" id="item-panel-close" aria-label="Close">×</button>
         </div>`;
   const wireHead = () => backdrop.querySelector('#item-panel-close').addEventListener('click', close);
 
@@ -7731,6 +7805,7 @@ async function openItemEditor(sessionId, itemId) {
     const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
     const sighting = assetKey ? Sightings.get(assetKey) : null;
     const eyeState = assetKey ? assetEyeState(assetKey) : 'todo';
+    const disp     = assetKey ? assetDisposition(assetKey) : null;
     const viewRow = (label, value, mono) => `
           <div style="padding:9px 0;border-bottom:0.5px solid var(--line-soft)">
             <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:3px">${escapeHTML(label)}</div>
@@ -7745,6 +7820,11 @@ async function openItemEditor(sessionId, itemId) {
           ${viewRow('Serial', it.serial, true)}
           ${viewRow('Room', it.room, true)}
           ${viewRow('Notes', notesText(it.notes))}
+          ${assetKey ? `
+          <div style="padding:9px 0;border-bottom:0.5px solid var(--line-soft)">
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:4px">Status</div>
+            ${disp ? dispositionPillHTML(disp) : '<span style="font-size:13px;color:var(--dim)">Active — in the field</span>'}
+          </div>` : ''}
           ${assetKey ? `
           <div style="padding:12px 0;border-bottom:0.5px solid var(--line-soft)">
             <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Sightings</div>
@@ -7763,12 +7843,17 @@ async function openItemEditor(sessionId, itemId) {
           </div>
         </div>
         <div class="modal-footer">
-          <button id="item-view-close">Close</button>
+          ${assetKey
+            ? `<button id="item-view-status">Status</button>`
+            : `<button id="item-view-close">Close</button>`}
           <button class="primary" id="item-view-edit" style="background:var(--accent);color:#fff;border-color:var(--accent)">Edit</button>
         </div>
       </div>`;
     wireHead();
-    backdrop.querySelector('#item-view-close').addEventListener('click', close);
+    const closeBtn = backdrop.querySelector('#item-view-close');
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    const statusBtn = backdrop.querySelector('#item-view-status');
+    if (statusBtn) statusBtn.addEventListener('click', renderStatusMenu);
     backdrop.querySelector('#item-view-edit').addEventListener('click', renderEdit);
     const markBtn = backdrop.querySelector('#item-mark-sighted');
     if (markBtn) markBtn.addEventListener('click', async () => {
@@ -7780,6 +7865,86 @@ async function openItemEditor(sessionId, itemId) {
       log('Sighting recorded.', 'ok');
       refreshReportsUI();   // the eyes in the list underneath open too
     });
+  }
+
+  // Status picker — the disposition menu behind the footer's Status button.
+  function renderStatusMenu() {
+    const cur = assetDisposition(assetKey);
+    const opt = (key) => {
+      const def = DISPOSITIONS[key];
+      const active = cur === key;
+      return `
+          <button class="status-opt" data-d="${key}" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;margin-bottom:8px;background:${active ? 'var(--bg-subtle)' : '#fff'};border:1px solid ${active ? 'var(--dim)' : 'var(--line)'};border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink)">
+            ${dispositionIconHTML(key)}
+            <span style="flex:1;text-align:left">${escapeHTML(def.label)}</span>
+            ${active ? '<span style="color:var(--dim);font-size:12px">current</span>' : ''}
+          </button>`;
+    };
+    backdrop.innerHTML = `
+      <div class="modal items-modal item-editor">
+        ${headHTML('Set status')}
+        <div class="modal-body" style="padding:14px 18px">
+          ${opt('storage-av')}
+          ${opt('storage-fm')}
+          ${opt('recycle-av')}
+          ${opt('removed')}
+          ${cur ? `
+          <button id="status-clear" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;background:#fff;border:1px dashed var(--line);border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--dim)">
+            ${eyeGlyph(true, 'var(--dim)', 14)}
+            <span style="flex:1;text-align:left">Clear status — back in the field</span>
+          </button>` : ''}
+          <div style="font-size:12px;color:var(--dim);margin-top:10px;line-height:1.5">Storage = the device is stored away (purple). Recycle and Removed mark it as gone (red, struck through). The status joins the Pending changes ledger and travels toward the next export.</div>
+        </div>
+        <div class="modal-footer">
+          <button id="status-cancel">Cancel</button>
+        </div>
+      </div>`;
+    wireHead();
+    backdrop.querySelector('#status-cancel').addEventListener('click', renderView);
+    backdrop.querySelectorAll('.status-opt').forEach(b => b.addEventListener('click', () => applyDisposition(b.dataset.d)));
+    const clr = backdrop.querySelector('#status-clear');
+    if (clr) clr.addEventListener('click', () => applyDisposition(null));
+  }
+
+  // Write the disposition onto the canonical overlay (current resolved
+  // values + the new status), emit a Changelog event, return to the view.
+  async function applyDisposition(newDisp) {
+    const cur = resolved();
+    const prev = AssetOverlay.get(assetKey);
+    const oldDisp = (prev && prev.disposition) || null;
+    if ((newDisp || null) === oldDisp) { renderView(); return; }
+    const lbl = (k) => (k && DISPOSITIONS[k]) ? DISPOSITIONS[k].label : '';
+    const rec = {
+      assetId : assetKey,
+      model   : cur.model || '',
+      category: cur.type || cur.category || '',
+      type    : cur.type || cur.category || '',
+      serial  : cur.serial || '',
+      room    : cur.room || '',
+      notes   : Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : []),
+      origin  : (prev && prev.origin) || 'edit',
+      disposition: newDisp || undefined,
+      syncedAt: Date.now(),
+      deviceId: DEVICE_ID,
+      sourceHash: currentSourceHash() || undefined,
+    };
+    await AssetOverlay.put(rec);
+    if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
+    const ev = {
+      changeId  : 'chg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+      assetId   : assetKey,
+      reportId  : sessionId,
+      reportName: session.name || '',
+      at        : Date.now(),
+      deviceId  : DEVICE_ID,
+      fields    : { disposition: { from: lbl(oldDisp), to: lbl(newDisp) } },
+      sourceHash: currentSourceHash() || undefined,
+    };
+    await ChangeFeed.put(ev);
+    if (GroupStore.exists()) SyncEngine.broadcastDelta('changes', ev);
+    log(newDisp ? `Status set: ${lbl(newDisp)}.` : 'Status cleared — back in the field.', 'ok');
+    refreshReportsUI();
+    renderView();
   }
 
   function renderEdit() {
@@ -7844,6 +8009,7 @@ async function openItemEditor(sessionId, itemId) {
           room    : newRoom,
           notes   : newNotes,
           origin  : (prev && prev.origin) || 'edit',
+          disposition: (prev && prev.disposition) || undefined,
           syncedAt: Date.now(),
           deviceId: DEVICE_ID,
           sourceHash: currentSourceHash() || undefined,
@@ -7941,6 +8107,8 @@ function showItemsModal(session) {
   backdrop.innerHTML = `
     <div class="modal items-modal">
       <div class="modal-head items-modal-head">
+        <button class="modal-back" id="items-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+        <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5h8"/><path d="M13 9h5"/><path d="M13 15h8"/><path d="M13 19h5"/><rect x="3" y="4" width="6" height="6" rx="1"/><rect x="3" y="14" width="6" height="6" rx="1"/></svg></span>
         <div class="items-modal-origin">${taskStatusIcon(session, 36)}</div>
         <div class="items-modal-title">
           <h3>${escapeHTML(session.name)}</h3>
@@ -7951,7 +8119,6 @@ function showItemsModal(session) {
             <span class="items-modal-count">${escapeHTML(subtitleStats)}</span>
           </div>
         </div>
-        <button class="close" id="items-close" aria-label="Close">×</button>
       </div>
       <div class="items-search">
         <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -8046,7 +8213,7 @@ function showItemsModal(session) {
     // Filter items within each group; drop groups that end up empty.
     const filtered = groups
       .map(g => Object.assign({}, g, { items: g.items.filter(e =>
-        itemMatches(e.item) && (stateFilters.size === 0 || stateFilters.has(assetEyeState(e.assetKey)))) }))
+        itemMatches(e.item) && (stateFilters.size === 0 || stateFilters.has(rowFilterState(e.assetKey)))) }))
       .filter(g => g.items.length > 0);
     if (filtered.length === 0) {
       bodyEl.innerHTML = `<div class="items-empty">${searchTerm
@@ -8210,7 +8377,7 @@ document.addEventListener('click', (e) => {
   if (!src) return;
   const lb = document.createElement('div');
   lb.className = 'photo-lightbox';
-  lb.innerHTML = `<img src="${src}" alt="Photo"><button class="lightbox-close" aria-label="Close">×</button>`;
+  lb.innerHTML = `<img src="${src}" alt="Photo"><button class="lightbox-close" aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>`;
   document.body.appendChild(lb);
   const close = () => lb.remove();
   lb.querySelector('.lightbox-close').addEventListener('click', close);
@@ -8240,14 +8407,17 @@ function itemRowHTML(entry, sortMode) {
   const evs    = entry.assetKey ? ChangeFeed.forAsset(entry.assetKey) : [];
   const lastEv = evs.length ? evs[evs.length - 1] : null;
   const sg     = entry.assetKey ? Sightings.get(entry.assetKey) : null;
+  const disp    = assetDisposition(entry.assetKey);
+  const dispFam = disp ? DISPOSITIONS[disp].family : null;
 
   return `
-    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:center;cursor:pointer">
-      ${eyeIconHTML(assetEyeState(entry.assetKey))}
+    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:center;cursor:pointer${dispFam === 'removed' ? ';background:rgba(224,60,49,0.04)' : ''}">
+      ${disp ? dispositionIconHTML(disp) : eyeIconHTML(assetEyeState(entry.assetKey))}
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
-          <div style="font-size:15px;font-weight:600;color:var(--ink)">${escapeHTML(title)}</div>
+          <div style="font-size:15px;font-weight:600;color:var(--ink)${dispFam === 'removed' ? ';text-decoration:line-through;text-decoration-color:rgba(224,60,49,0.6);text-decoration-thickness:1.5px' : ''}">${escapeHTML(title)}</div>
           <div style="font-size:12px;color:var(--dim);font-weight:400">#${entry.displayNum}</div>
+          ${disp ? dispositionPillHTML(disp) : ''}
           ${noteCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;margin-left:4px;color:var(--dim);font-size:12px">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 20l7-7"/><path d="M13 20v-6a1 1 0 0 1 1-1h6v-7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/></svg>
             ${noteCount}</span>` : ''}
@@ -8362,8 +8532,9 @@ function showSessionModal(existing, returnTo, defaultName) {
   backdrop.innerHTML = `
     <div class="modal">
       <div class="modal-head">
+        <button class="modal-back" id="m-cancel" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+        <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5-10.5a2.828 2.828 0 1 0-4-4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg></span>
         <h3>${isNew ? 'New task' : 'Edit task'}</h3>
-        <button class="close" id="m-cancel">×</button>
       </div>
       <div class="modal-body">
         ${isNew ? '<p class="dev-only" style="color:var(--dim); font-size:12px; margin-bottom:14px;">Report ID is auto-generated when you create.</p>'
@@ -8588,8 +8759,9 @@ function showIdentityModal(isEditing = false) {
     backdrop.innerHTML = `
       <div class="modal identity-modal">
         <div class="modal-head">
+          <button class="modal-back" id="id-cancel" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+          <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span>
           <h3 style="flex:1; text-align:center; margin:0;">${isEditing ? 'Edit this device' : 'Set up this device'}</h3>
-          ${isEditing ? '<button class="close" id="id-cancel">×</button>' : ''}
         </div>
         <div class="modal-body" style="display:flex; flex-direction:column; justify-content:center;">
           <div style="margin-bottom: 24px;">
@@ -8892,8 +9064,9 @@ async function showMyDevicePanel() {
   backdrop.innerHTML = `
     <div class="modal mydev-modal">
       <div class="modal-head">
+        <button class="modal-back" id="mydev-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+        <span class="modal-head-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span>
         <h3>My device</h3>
-        <button class="close" id="mydev-close">×</button>
       </div>
       <div class="modal-body">
 
