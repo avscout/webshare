@@ -2092,7 +2092,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '101';
+  const LOCAL_VERSION = '104';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2156,17 +2156,93 @@ $('log-dock-head').addEventListener('click', () => $('log-dock').classList.toggl
 const SESSION_DB = 'webshare-demo-sessions';
 function openSessionDb() {
   return new Promise((res, rej) => {
-    const req = indexedDB.open(SESSION_DB, 2);
+    const req = indexedDB.open(SESSION_DB, 3);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('source'))   db.createObjectStore('source',   { keyPath: 'id' });
+      // v3: canonical asset overlay — one record per EDITED (or scout-created)
+      // asset. Not a copy of the full source; see AssetOverlay below.
+      if (!db.objectStoreNames.contains('assets'))   db.createObjectStore('assets',   { keyPath: 'assetId' });
     };
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
   });
 }
 function txPromise(tx) { return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error); }); }
+
+// ── Canonical asset overlay ──────────────────────────────────────────────────
+// One truth per asset, ACROSS reports. Implemented as an overlay of
+// modifications rather than a copy of the full source: only assets that have
+// actually been edited (or, later, created by a scout) get a record here.
+// Reading an asset = the report's embedded copy as baseline, with the overlay
+// record applied on top when one exists. That gives cross-report consistency
+// (edit an item in report X and report Y shows it too — both resolve through
+// the same overlay) while keeping sync payloads tiny: an item edit travels as
+// one small per-asset record instead of the whole report.
+//
+// Identity: for source-imported assets the key is the TUDesc data key (the
+// session.data object key, e.g. "asset_001"). Scout-created assets (future)
+// get their own namespace ("scout-<device>-<n>") so they can never collide
+// with source ids. Array-shaped report data without per-item ids has no
+// stable identity — those items fall back to report-local editing.
+//
+// The in-memory map mirrors the IDB store so render paths (which are
+// synchronous) can resolve overlays without await. load() is kicked off at
+// startup; until it resolves, renders show the baseline (self-healing: the
+// UI refreshes on every overlay change).
+const AssetOverlay = {
+  _map: new Map(),
+  _loaded: null,
+  load() {
+    if (!this._loaded) {
+      this._loaded = (async () => {
+        const db = await openSessionDb();
+        const tx = db.transaction('assets', 'readonly');
+        const all = await new Promise((res, rej) => {
+          const r = tx.objectStore('assets').getAll();
+          r.onsuccess = () => res(r.result || []);
+          r.onerror   = () => rej(r.error);
+        });
+        db.close();
+        for (const rec of all) this._map.set(rec.assetId, rec);
+      })().catch(() => { this._loaded = null; });
+    }
+    return this._loaded;
+  },
+  get(id)  { return this._map.get(id) || null; },
+  all()    { return [...this._map.values()]; },
+  async put(rec) {
+    await this.load();
+    const db = await openSessionDb();
+    const tx = db.transaction('assets', 'readwrite');
+    tx.objectStore('assets').put(rec);
+    await txPromise(tx); db.close();
+    this._map.set(rec.assetId, rec);
+  },
+};
+
+// Stable asset key for a flat-list entry. Object-keyed data: the data key IS
+// the identity. Array-shaped data: use the item's own id field when present;
+// otherwise null (no cross-report identity possible).
+function assetKeyOf(entryId, item, isArr) {
+  if (!isArr) return entryId;
+  return (item && item.id != null) ? String(item.id) : null;
+}
+
+// Resolve an item through the overlay: returns the baseline item with the
+// overlay's edited fields applied on top. The overlay snapshot is complete
+// for the fields it carries (an intentionally cleared field stays cleared).
+function applyAssetOverlay(key, baseItem) {
+  if (!key) return baseItem;
+  const ov = AssetOverlay.get(key);
+  if (!ov) return baseItem;
+  return {
+    ...baseItem,
+    model: ov.model, category: ov.category, type: ov.type,
+    serial: ov.serial, room: ov.room, notes: ov.notes,
+  };
+}
 
 // ── Source data (imported Excel) ─────────────────────────────────────────────
 async function getSource() {
@@ -4877,6 +4953,24 @@ SyncEngine.register({
   onFull  : () => JoinGate.clear('reports'),
 });
 
+// Canonical asset overlay collection — per-asset records, LWW on syncedAt.
+// THIS is the per-asset sync: an item edit travels as one tiny record and
+// gossips to the whole group, independent of the (much larger) report blob.
+// No JoinGate domain: overlays are an enhancement layer on top of the
+// embedded baselines, so the UI renders fine while they trickle in.
+SyncEngine.register({
+  name    : 'assets',
+  keyField: 'assetId',
+  tsField : 'syncedAt',
+  readOne : async (id) => { await AssetOverlay.load(); return AssetOverlay.get(id); },
+  readAll : async ()   => { await AssetOverlay.load(); return AssetOverlay.all(); },
+  writeOne: (rec) => AssetOverlay.put(rec),
+  onChange: (rec, _isLocal, isNew) => {
+    log(`Sync: item "${rec.model || rec.category || rec.assetId}" ${isNew ? 'updated by the group' : 'updated'}.`, 'info');
+    refreshReportsUI();
+  },
+});
+
 // Refresh the report-list surfaces if currently visible. (Formerly
 // SyncManager._refreshUI, kept as a standalone helper now that reports
 // sync through SyncEngine.)
@@ -5065,48 +5159,6 @@ function dataRecordCount(data) {
 }
 function dataIsArray(data) { return Array.isArray(data); }
 
-// Merge two data values. Returns { merged, added, overwritten } where
-// added/overwritten describe what changed relative to `local`.
-// Behavior:
-//   - both objects → key-merge (incoming wins on overlap)
-//   - both arrays with id fields → merge by id (incoming wins on overlap)
-//   - both arrays without ids → concat (no dedup possible)
-//   - mismatched shapes → null (caller should use Replace instead)
-function mergeData(local, incoming) {
-  const localIsArr = Array.isArray(local);
-  const incomingIsArr = Array.isArray(incoming);
-  if (localIsArr !== incomingIsArr) return null;  // shape mismatch
-
-  if (!localIsArr) {
-    // Both objects: shallow merge, incoming wins on overlap
-    const merged = { ...local, ...incoming };
-    const overwritten = Object.keys(incoming).filter(k => k in local).length;
-    const added = Object.keys(merged).length - Object.keys(local).length;
-    return { merged, added, overwritten };
-  }
-
-  // Both arrays
-  const localHasIds    = local.every(r => r && typeof r === 'object' && 'id' in r);
-  const incomingHasIds = incoming.every(r => r && typeof r === 'object' && 'id' in r);
-  if (localHasIds && incomingHasIds) {
-    // Merge by id: incoming wins on overlap
-    const byId = new Map();
-    for (const r of local) byId.set(r.id, r);
-    let overwritten = 0;
-    for (const r of incoming) {
-      if (byId.has(r.id)) overwritten++;
-      byId.set(r.id, r);
-    }
-    const merged = Array.from(byId.values());
-    const added = merged.length - local.length;
-    return { merged, added, overwritten };
-  }
-  // No identifiers — append, with no dedup. Note this can grow indefinitely
-  // on repeated transfers; the user should consider using Replace instead.
-  const merged = [...local, ...incoming];
-  return { merged, added: incoming.length, overwritten: 0 };
-}
-
 function formatRelative(date) {
   if (!date) return '—';
   const d = new Date(date), ms = Date.now() - d.getTime();
@@ -5132,24 +5184,6 @@ function formatLastSeen(timestamp) {
   const text = formatRelative(new Date(timestamp));
   const urgency = days < 1 ? 'ok' : days < 14 ? 'neutral' : days < 30 ? 'warn' : 'danger';
   return { text, urgency };
-}
-
-// Merge two rooms objects from local + incoming during a 'merged'
-// receive. Photo arrays are unioned per room with no dedup (we don't
-// have a stable photo identity yet). Rooms not in one side are kept
-// as-is from the other. Photos are capped at 6 per room — the demo's
-// display limit — to keep payloads bounded if many merges chain.
-function mergeRooms(localRooms, incomingRooms) {
-  const a = localRooms || {};
-  const b = incomingRooms || {};
-  const out = {};
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const room of keys) {
-    const photosA = (a[room] && a[room].photos) || [];
-    const photosB = (b[room] && b[room].photos) || [];
-    out[room] = { photos: [...photosA, ...photosB].slice(0, 6) };
-  }
-  return out;
 }
 
 // Map a timestamp to a date-group bucket. Used by the items modal to
@@ -7098,6 +7132,164 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // The modal handles its own dismissal; no flow-state changes, so it
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
+// Item editor — opens a detail panel for a single asset, with its text
+// fields editable. Photos are shown read-only for now (the per-item vs
+// per-room photo data model is a deliberate separate decision); the panel
+// makes that explicit rather than leaving a dead area.
+//
+// Saving writes the edited item back into session.data (preserving whether
+// data is an object keyed by id or a plain array) and routes through
+// putSession, so the change stamps a fresh syncedAt and broadcasts to the
+// group like any other report edit. We re-read the session at save time and
+// merge only this one item's fields, so a concurrent synced update to a
+// DIFFERENT item in the same report isn't lost by writing back a stale copy.
+async function openItemEditor(sessionId, itemId) {
+  const session = await getSession(sessionId);
+  if (!session) { log('Cannot edit item: report not found in local storage.', 'err'); return; }
+  const data = session.data || {};
+  const isArr = dataIsArray(data);
+  const baseItem = isArr ? data[Number(itemId)] : data[itemId];
+  if (!baseItem) return;
+
+  // Resolve through the canonical overlay so the editor shows the item's
+  // CURRENT truth (possibly edited from another report or another device),
+  // not this report's embedded snapshot.
+  await AssetOverlay.load();
+  const assetKey = assetKeyOf(itemId, baseItem, isArr);
+  const item = applyAssetOverlay(assetKey, baseItem);
+
+  // notes may be a string OR an array of strings (both shapes exist in the
+  // wild; overlay notes are always an array). We edit as a single textarea;
+  // an array is shown joined by blank lines.
+  const notesIsArray = Array.isArray(item.notes);
+  const notesText = notesIsArray ? item.notes.join('\n\n') : (item.notes || '');
+
+  const roomKey = item.room || '';
+  const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
+
+  const fieldRow = (label, id, value, opts = {}) => `
+    <label class="field">
+      <span>${escapeHTML(label)}</span>
+      ${opts.textarea
+        ? `<textarea id="${id}" rows="${opts.rows || 4}" style="width:100%;resize:vertical">${escapeHTML(value || '')}</textarea>`
+        : `<input type="text" id="${id}" value="${escapeHTML(value || '')}" autocomplete="off">`}
+    </label>`;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal items-modal item-editor">
+      <div class="modal-head items-modal-head">
+        <div class="items-modal-title">
+          <h3>Edit item</h3>
+          <div class="items-modal-subtitle">
+            <span class="origin-label">in</span>
+            <span class="origin-name">${escapeHTML(session.name || 'report')}</span>
+          </div>
+        </div>
+        <button class="close" id="item-edit-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body" style="padding:18px">
+        ${fieldRow('Model', 'item-f-model', item.model)}
+        ${fieldRow('Category / type', 'item-f-category', item.type || item.category)}
+        ${fieldRow('Serial', 'item-f-serial', item.serial)}
+        ${fieldRow('Room', 'item-f-room', item.room)}
+        ${fieldRow('Notes', 'item-f-notes', notesText, { textarea: true, rows: 5 })}
+
+        <div class="field" style="margin-bottom:4px">
+          <span style="display:block;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;font-weight:700">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</span>
+          ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length
+            ? roomPhotosHTML(roomPhotos)
+            : `<div class="items-empty" style="padding:14px">No photos for this room.</div>`}
+          <div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.4">
+            Photos are currently managed per room and shown read-only here.
+            Editing photos per item is coming in a later update.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="item-edit-cancel">Cancel</button>
+        <button class="primary" id="item-edit-save" style="background:var(--accent);color:#fff;border-color:var(--accent)">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  const close = () => { document.removeEventListener('keydown', onKey); backdrop.remove(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  backdrop.querySelector('#item-edit-close').addEventListener('click', close);
+  backdrop.querySelector('#item-edit-cancel').addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+
+  backdrop.querySelector('#item-edit-save').addEventListener('click', async () => {
+    const val = (id) => backdrop.querySelector('#' + id).value.trim();
+    const newModel    = val('item-f-model');
+    const newCategory = val('item-f-category');
+    const newSerial   = val('item-f-serial');
+    const newRoom     = val('item-f-room');
+    const newNotesRaw = backdrop.querySelector('#item-f-notes').value;
+
+    if (assetKey) {
+      // Canonical path: the edit becomes a per-asset overlay record. It does
+      // NOT touch the report blob — every report containing this asset
+      // resolves through the same overlay, so the change shows everywhere
+      // (the cross-report requirement), travels as one tiny synced record,
+      // and two people editing DIFFERENT items can no longer clobber each
+      // other (separate records, separate LWW).
+      // Notes are normalized to an array in the overlay; category and type
+      // are both set so the resolved item displays consistently regardless
+      // of which field the baseline used.
+      const prev = AssetOverlay.get(assetKey);
+      const rec = {
+        assetId : assetKey,
+        model   : newModel,
+        category: newCategory,
+        type    : newCategory,
+        serial  : newSerial,
+        room    : newRoom,
+        notes   : newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean),
+        origin  : (prev && prev.origin) || 'edit',
+        syncedAt: Date.now(),
+        deviceId: DEVICE_ID,
+      };
+      await AssetOverlay.put(rec);
+      if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
+      log(`Edited item "${newModel || newCategory || assetKey}" — applies to every report containing it.`, 'ok');
+    } else {
+      // Fallback: array-shaped data without per-item ids has no stable
+      // identity, so the edit stays report-local (the pre-overlay behavior).
+      // Re-read fresh so we merge into the latest known report.
+      const fresh = await getSession(sessionId);
+      if (!fresh) { close(); return; }
+      const fdata = fresh.data || {};
+      const target = dataIsArray(fdata) ? fdata[Number(itemId)] : fdata[itemId];
+      if (!target) { close(); return; }
+      target.model = newModel;
+      if (target.type != null) target.type = newCategory;
+      if (target.category != null || target.type == null) target.category = newCategory;
+      target.serial = newSerial;
+      target.room   = newRoom;
+      target.notes  = notesIsArray
+        ? newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean)
+        : newNotesRaw.trim();
+      fresh.data = fdata;
+      await putSession(fresh);
+      log(`Edited item "${newModel || newCategory || itemId}" (report-local: no stable asset id).`, 'ok');
+    }
+    close();
+
+    // Refresh the report surfaces (counts/lists). refreshReportsUI also
+    // re-opens the items modal underneath with fresh data, so the edit shows
+    // immediately — no separate items-modal refresh needed (calling it twice
+    // would close+reopen the modal twice, a visible flicker).
+    refreshReportsUI();
+  });
+
+  // Focus the first field for quick keyboard editing.
+  const first = backdrop.querySelector('#item-f-model');
+  if (first) first.focus();
+}
+
 function showItemsModal(session) {
   const data = session.data || {};
   const rooms = session.rooms || {};
@@ -7108,9 +7300,17 @@ function showItemsModal(session) {
   // when possible (e.g. "asset_001" → 1), or just the index+1 as a
   // stable fallback. Stable means it doesn't change when the user
   // re-sorts, so "item 5" refers to one specific item.
+  // Each entry resolves through the canonical asset overlay, so an item
+  // edited in ANY report shows its current truth here. assetKey rides along
+  // for the editor (null = no stable identity → report-local editing).
   const flat = dataIsArray(data)
-    ? data.map((item, i) => ({ id: String(i), displayNum: i + 1, item }))
-    : Object.keys(data).map((id, i) => ({ id, displayNum: parseDisplayNum(id, i), item: data[id] }));
+    ? data.map((item, i) => {
+        const key = assetKeyOf(String(i), item, true);
+        return { id: String(i), assetKey: key, displayNum: i + 1, item: applyAssetOverlay(key, item) };
+      })
+    : Object.keys(data).map((id, i) => {
+        return { id, assetKey: id, displayNum: parseDisplayNum(id, i), item: applyAssetOverlay(id, data[id]) };
+      });
 
   let sortMode = 'room';   // 'room' | 'time' | 'object'
 
@@ -7173,6 +7373,27 @@ function showItemsModal(session) {
   const bodyEl = backdrop.querySelector('#items-body');
   const searchInput = backdrop.querySelector('#items-search-input');
   const searchClear = backdrop.querySelector('#items-search-clear');
+
+  // Tapping (or keyboard-activating) an item row opens its edit panel.
+  // Delegated on bodyEl so it survives every rerender. We re-read the item
+  // fresh from the session by id at open-time, so an edit made via a synced
+  // update from a peer isn't clobbered by a stale closure value.
+  function onItemRowActivate(e) {
+    // Photo thumbnails have their own lightbox handler — don't open the
+    // editor when a thumb inside the row is tapped.
+    if (e.target.closest('.room-photo-thumb')) return;
+    const row = e.target.closest('.item-row-clickable');
+    if (!row) return;
+    const itemId = row.getAttribute('data-item-id');
+    if (itemId == null) return;
+    openItemEditor(session.id, itemId);
+  }
+  bodyEl.addEventListener('click', onItemRowActivate);
+  bodyEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (e.target.closest('.item-row-clickable')) { e.preventDefault(); onItemRowActivate(e); }
+    }
+  });
 
   let searchTerm = '';   // normalized lowercase substring; '' = no filter
 
@@ -7404,7 +7625,7 @@ function itemRowHTML(entry, sortMode) {
   const avatarColor = item._creatorColor || '#eee';
 
   return `
-    <div style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:stretch">
+    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:stretch;cursor:pointer">
       <div style="display:flex;align-items:center;flex-shrink:0">
         <div style="display:flex;flex-direction:column;gap:4px;align-items:center;flex-shrink:0">
           <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
@@ -8897,6 +9118,10 @@ $('nav-next').addEventListener('click', async () => {
 // Visibility-based liveness check
 // =====================================================================
 window.addEventListener('load', async () => {
+  // Warm the canonical asset-overlay cache early so item lists resolve
+  // overlays synchronously from the first open. Failure is non-fatal
+  // (baselines render; the cache self-heals on the next overlay change).
+  AssetOverlay.load();
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS.', 'err');
   }
