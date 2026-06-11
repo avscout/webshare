@@ -2092,7 +2092,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '104';
+  const LOCAL_VERSION = '105';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2156,7 +2156,7 @@ $('log-dock-head').addEventListener('click', () => $('log-dock').classList.toggl
 const SESSION_DB = 'webshare-demo-sessions';
 function openSessionDb() {
   return new Promise((res, rej) => {
-    const req = indexedDB.open(SESSION_DB, 3);
+    const req = indexedDB.open(SESSION_DB, 4);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
@@ -2164,6 +2164,10 @@ function openSessionDb() {
       // v3: canonical asset overlay — one record per EDITED (or scout-created)
       // asset. Not a copy of the full source; see AssetOverlay below.
       if (!db.objectStoreNames.contains('assets'))   db.createObjectStore('assets',   { keyPath: 'assetId' });
+      // v4: the "see the future" ledger — append-only change events (the
+      // Changelog) and per-asset sightings (last seen in the field).
+      if (!db.objectStoreNames.contains('changes'))   db.createObjectStore('changes',   { keyPath: 'changeId' });
+      if (!db.objectStoreNames.contains('sightings')) db.createObjectStore('sightings', { keyPath: 'assetId' });
     };
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
@@ -2242,6 +2246,144 @@ function applyAssetOverlay(key, baseItem) {
     model: ov.model, category: ov.category, type: ov.type,
     serial: ov.serial, room: ov.room, notes: ov.notes,
   };
+}
+
+// ── Change feed (the Changelog) ──────────────────────────────────────────────
+// Append-only events: one immutable record per save that actually changed
+// fields. Records never conflict under sync (every event has a unique id),
+// so the full film merges perfectly across devices. Events carry the
+// sourceHash they were made against — the Pending changes ledger shows only
+// the current generation; older events stay stored (the film survives) but
+// leave the ledger once a new source arrives.
+//   { changeId, assetId, reportId, reportName, at, deviceId,
+//     fields: { field: { from, to } }, sourceHash }
+const ChangeFeed = {
+  _byAsset: new Map(),   // assetId → [events] (sorted by at, ascending)
+  _byId: new Map(),      // changeId → event
+  _loaded: null,
+  load() {
+    if (!this._loaded) {
+      this._loaded = (async () => {
+        const db = await openSessionDb();
+        const tx = db.transaction('changes', 'readonly');
+        const all = await new Promise((res, rej) => {
+          const r = tx.objectStore('changes').getAll();
+          r.onsuccess = () => res(r.result || []);
+          r.onerror   = () => rej(r.error);
+        });
+        db.close();
+        for (const ev of all) this._index(ev);
+      })().catch(() => { this._loaded = null; });
+    }
+    return this._loaded;
+  },
+  _index(ev) {
+    if (this._byId.has(ev.changeId)) return;
+    this._byId.set(ev.changeId, ev);
+    const list = this._byAsset.get(ev.assetId) || [];
+    list.push(ev);
+    list.sort((a, b) => (a.at || 0) - (b.at || 0));
+    this._byAsset.set(ev.assetId, list);
+  },
+  forAsset(assetId) { return this._byAsset.get(assetId) || []; },
+  byId(changeId) { return this._byId.get(changeId) || null; },
+  all() { const out = []; for (const l of this._byAsset.values()) out.push(...l); return out; },
+  async put(ev) {
+    await this.load();
+    const db = await openSessionDb();
+    const tx = db.transaction('changes', 'readwrite');
+    tx.objectStore('changes').put(ev);
+    await txPromise(tx); db.close();
+    this._index(ev);
+  },
+};
+
+// ── Sightings (last seen in the field) ───────────────────────────────────────
+// One tiny record per asset: { assetId, seenAt, seenBy, via }. tsField is
+// seenAt, so last-write-wins degenerates into exactly the right semantics —
+// monotonic max: the most recent sighting always wins, everywhere.
+// Deliberately NOT generation-scoped: a sighting is an observation of the
+// physical device and stays meaningful across source imports.
+const Sightings = {
+  _map: new Map(),
+  _loaded: null,
+  load() {
+    if (!this._loaded) {
+      this._loaded = (async () => {
+        const db = await openSessionDb();
+        const tx = db.transaction('sightings', 'readonly');
+        const all = await new Promise((res, rej) => {
+          const r = tx.objectStore('sightings').getAll();
+          r.onsuccess = () => res(r.result || []);
+          r.onerror   = () => rej(r.error);
+        });
+        db.close();
+        for (const rec of all) this._map.set(rec.assetId, rec);
+      })().catch(() => { this._loaded = null; });
+    }
+    return this._loaded;
+  },
+  get(assetId) { return this._map.get(assetId) || null; },
+  all() { return [...this._map.values()]; },
+  async put(rec) {
+    await this.load();
+    const prev = this._map.get(rec.assetId);
+    if (prev && (prev.seenAt || 0) >= (rec.seenAt || 0)) return;  // monotonic
+    const db = await openSessionDb();
+    const tx = db.transaction('sightings', 'readwrite');
+    tx.objectStore('sightings').put(rec);
+    await txPromise(tx); db.close();
+    this._map.set(rec.assetId, rec);
+  },
+};
+
+// Record a sighting locally and share it with the group.
+async function recordSighting(assetId, via) {
+  if (!assetId) return;
+  const rec = { assetId, seenAt: Date.now(), seenBy: DEVICE_ID, via: via || 'mark' };
+  await Sightings.put(rec);
+  if (GroupStore.exists()) SyncEngine.broadcastDelta('sightings', rec);
+}
+
+// Render the "Last sighting" line for an asset. Reuses the member
+// formatLastSeen wording and looks up the sighter's emoji/nickname.
+function sightingLineHTML(rec) {
+  if (!rec) return '<span style="color:var(--dim)">Never sighted</span>';
+  const m = GroupStore.getMember(rec.seenBy);
+  const who = m ? `${m.emoji || ''} ${escapeHTML(m.nickname || '')}`.trim() : 'unknown device';
+  const how = rec.via === 'edit' ? 'via an edit' : 'marked';
+  return `Last sighting: <strong>${escapeHTML(formatLastSeen(rec.seenAt) || new Date(rec.seenAt).toLocaleDateString())}</strong> · ${who} <span style="color:var(--dim)">(${how})</span>`;
+}
+
+// Current source generation hash ('' when no source loaded yet).
+function currentSourceHash() { return (_sourceData && _sourceData.hash) || ''; }
+
+// Pending changes for one asset in the CURRENT generation: the net diff of
+// the overlay against the source baseline, plus which reports touched it
+// (from the change feed). Returns null when there's nothing pending.
+function pendingChangesFor(assetId, sourceRow) {
+  const ov = AssetOverlay.get(assetId);
+  if (!ov) return null;
+  const gen = currentSourceHash();
+  if (ov.sourceHash && gen && ov.sourceHash !== gen) return null;  // older generation
+  const base = sourceRow || {};
+  const diffs = {};
+  const cmp = (field, baseVal, ovVal) => {
+    const a = (baseVal == null) ? '' : String(baseVal);
+    const b = (ovVal   == null) ? '' : String(ovVal);
+    if (a !== b) diffs[field] = { from: a, to: b };
+  };
+  cmp('model',  base.model,    ov.model);
+  cmp('type',   base.type,     ov.type);
+  cmp('serial', base.serial,   ov.serial);
+  cmp('room',   base.roomName ?? base.room, ov.room);
+  const baseNotes = Array.isArray(base.notes) ? base.notes.join(' · ') : (base.notes || '');
+  const ovNotes   = Array.isArray(ov.notes)   ? ov.notes.join(' · ')   : (ov.notes || '');
+  if (baseNotes !== ovNotes) diffs.notes = { from: baseNotes, to: ovNotes };
+  if (!Object.keys(diffs).length) return null;
+  const events = ChangeFeed.forAsset(assetId).filter(ev => !gen || !ev.sourceHash || ev.sourceHash === gen);
+  const reportNames = [...new Set(events.map(ev => ev.reportName).filter(Boolean))];
+  return { diffs, reportNames, events };
 }
 
 // ── Source data (imported Excel) ─────────────────────────────────────────────
@@ -4971,6 +5113,33 @@ SyncEngine.register({
   },
 });
 
+// The Changelog — append-only change events, one per effective item save.
+// keyField is the event's unique id, so LWW degenerates to insert-once:
+// events never conflict, and the full film merges losslessly across devices.
+SyncEngine.register({
+  name    : 'changes',
+  keyField: 'changeId',
+  tsField : 'at',
+  readOne : async (id) => { await ChangeFeed.load(); return ChangeFeed.byId(id); },
+  readAll : async ()   => { await ChangeFeed.load(); return ChangeFeed.all(); },
+  writeOne: (ev) => ChangeFeed.put(ev),
+  onChange: () => { if (_liveSourceModalRefresh) _liveSourceModalRefresh(); },
+});
+
+// Sightings — one tiny record per asset; with seenAt as the LWW timestamp the
+// merge behaves as a monotonic max: the most recent sighting always wins,
+// everywhere. Deliberately not generation-scoped (an observation of the
+// physical device stays meaningful across source imports).
+SyncEngine.register({
+  name    : 'sightings',
+  keyField: 'assetId',
+  tsField : 'seenAt',
+  readOne : async (id) => { await Sightings.load(); return Sightings.get(id); },
+  readAll : async ()   => { await Sightings.load(); return Sightings.all(); },
+  writeOne: (rec) => Sightings.put(rec),
+  onChange: () => { if (_liveSourceModalRefresh) _liveSourceModalRefresh(); },
+});
+
 // Refresh the report-list surfaces if currently visible. (Formerly
 // SyncManager._refreshUI, kept as a standalone helper now that reports
 // sync through SyncEngine.)
@@ -5901,6 +6070,28 @@ async function _handleSourceFile(file) {
     const t2 = performance.now();
 
     const hash = hashData(parsed);
+
+    // Generation handover. Pending changes keep WORKING in existing reports
+    // (overlay resolution is generation-independent), but a new source means
+    // they leave the Pending changes ledger — their future has arrived. The
+    // user explicitly asked to be told before that happens.
+    if (_sourceData && _sourceData.hash !== hash) {
+      await AssetOverlay.load(); await ChangeFeed.load();
+      const oldRows = new Map((_sourceData.rows || []).map(r => [String(r.id), r]));
+      let pendingCount = 0;
+      for (const ov of AssetOverlay.all()) {
+        if (pendingChangesFor(String(ov.assetId), oldRows.get(String(ov.assetId)))) pendingCount++;
+      }
+      if (pendingCount > 0) {
+        const ok = confirm(
+          `You have ${pendingCount} pending change${pendingCount === 1 ? '' : 's'} against the current source.\n\n` +
+          `They will keep working in existing reports, but they leave the ` +
+          `Pending changes ledger once the new source is imported.\n\n` +
+          `Continue with the import?`);
+        if (!ok) { log('Source import cancelled — pending changes kept in the ledger.', 'info'); return; }
+      }
+    }
+
     const src  = { filename: file.name, uploadedAt: Date.now(), hash, rows: parsed };
     await saveSource(src);
     _sourceData = src;
@@ -6599,12 +6790,114 @@ $('resume-session-bar').addEventListener('click', async () => {
 
 
 
+// "What changed" — the front door of the see-the-future ledger for one
+// asset: the net diff against the source baseline, with which reports
+// touched it and the last sighting. Behind it sits the Changelog — the full
+// film of change events for the current source generation. Stacks on top of
+// the source modal (own backdrop, appended later in the DOM).
+function showWhatChangedPanel(assetId, sourceRow) {
+  const pending = pendingChangesFor(assetId, sourceRow);
+  if (!pending) return;
+  const sighting = Sightings.get(assetId);
+  const title = (sourceRow && (sourceRow.model || sourceRow.type)) || assetId;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.style.zIndex = 1000;
+  document.body.appendChild(backdrop);
+
+  const fieldLabel = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes' };
+  const memberTag = (deviceId) => {
+    const m = GroupStore.getMember(deviceId);
+    return m ? `${m.emoji || ''} ${escapeHTML(m.nickname || '')}`.trim() : 'unknown device';
+  };
+  const fromTo = (d) => `
+      <span style="color:var(--dim);text-decoration:line-through">${escapeHTML(d.from || '—')}</span>
+      <span style="color:var(--dim)"> → </span><strong>${escapeHTML(d.to || '—')}</strong>`;
+
+  const close = () => { document.removeEventListener('keydown', onKey); backdrop.remove(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+
+  function renderSummary() {
+    backdrop.innerHTML = `
+      <div class="modal items-modal" style="max-width:480px">
+        <div class="modal-head items-modal-head">
+          <div class="items-modal-title">
+            <h3>What changed</h3>
+            <div class="items-modal-subtitle"><span class="origin-name">${escapeHTML(title)}</span><span class="origin-label"> · #${escapeHTML(assetId)}</span></div>
+          </div>
+          <button class="close" id="wc-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body" style="padding:4px 18px 14px 18px">
+          ${Object.entries(pending.diffs).map(([f, d]) => `
+            <div style="padding:10px 0;border-bottom:0.5px solid var(--line-soft)">
+              <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:4px">${escapeHTML(fieldLabel[f] || f)}</div>
+              <div style="font-size:13px">${fromTo(d)}</div>
+            </div>`).join('')}
+          ${pending.reportNames.length ? `<div style="font-size:12px;color:var(--dim);margin-top:12px">Edited in: <strong style="color:var(--ink-soft)">${pending.reportNames.map(escapeHTML).join('</strong>, <strong style="color:var(--ink-soft)">')}</strong></div>` : ''}
+          <div style="font-size:12px;color:var(--dim);margin-top:6px">${sightingLineHTML(sighting)}</div>
+        </div>
+        <div class="modal-footer">
+          <button id="wc-log">View changelog</button>
+          <button class="primary" id="wc-done" style="background:var(--accent);color:#fff;border-color:var(--accent)">Close</button>
+        </div>
+      </div>`;
+    backdrop.querySelector('#wc-close').addEventListener('click', close);
+    backdrop.querySelector('#wc-done').addEventListener('click', close);
+    backdrop.querySelector('#wc-log').addEventListener('click', renderLog);
+  }
+
+  function renderLog() {
+    const gen = currentSourceHash();
+    const events = [...ChangeFeed.forAsset(assetId)]
+      .filter(ev => !gen || !ev.sourceHash || ev.sourceHash === gen)
+      .reverse();  // newest first
+    backdrop.innerHTML = `
+      <div class="modal items-modal" style="max-width:480px">
+        <div class="modal-head items-modal-head">
+          <div class="items-modal-title">
+            <h3>Changelog</h3>
+            <div class="items-modal-subtitle"><span class="origin-name">${escapeHTML(title)}</span><span class="origin-label"> · ${events.length} event${events.length === 1 ? '' : 's'} this generation</span></div>
+          </div>
+          <button class="close" id="cl-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body" style="padding:4px 18px 14px 18px">
+          ${events.map(ev => `
+            <div style="padding:10px 0;border-bottom:0.5px solid var(--line-soft)">
+              <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--dim)">
+                <span>${memberTag(ev.deviceId)}${ev.reportName ? ` · in <strong style="color:var(--ink-soft)">${escapeHTML(ev.reportName)}</strong>` : ''}</span>
+                <span style="flex-shrink:0">${new Date(ev.at).toLocaleDateString()} ${new Date(ev.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              <div style="margin-top:4px">
+                ${Object.entries(ev.fields || {}).map(([f, d]) => `
+                  <div style="font-size:13px;margin-top:2px"><span style="color:var(--dim)">${escapeHTML(fieldLabel[f] || f)}:</span>${fromTo(d)}</div>`).join('')}
+              </div>
+            </div>`).join('')}
+        </div>
+        <div class="modal-footer">
+          <button id="cl-back">← What changed</button>
+          <button class="primary" id="cl-done" style="background:var(--accent);color:#fff;border-color:var(--accent)">Close</button>
+        </div>
+      </div>`;
+    backdrop.querySelector('#cl-close').addEventListener('click', close);
+    backdrop.querySelector('#cl-done').addEventListener('click', close);
+    backdrop.querySelector('#cl-back').addEventListener('click', renderSummary);
+  }
+
+  renderSummary();
+}
+
 function showSourceModal() {
   if (!_sourceData) return;
   const rows = _sourceData.rows;
+  const rowsById = new Map(rows.map(r => [String(r.id), r]));
 
   let sortMode = 'building';
   let query    = '';
+  let filterChanged = false;       // "Changed" toolbar filter
+  const pendingMap = new Map();    // assetId → pendingChangesFor(...) result
 
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -6632,7 +6925,9 @@ function showSourceModal() {
         <button class="items-sort-btn active" data-sort="building">Building</button>
         <button class="items-sort-btn" data-sort="type">Type</button>
         <button class="items-sort-btn" data-sort="room">Room</button>
+        <button class="items-sort-btn" id="source-filter-changed" title="Only assets with pending changes">Changed</button>
       </div>
+      <div id="source-pending-line" class="hidden" style="padding:8px 16px;font-size:12px;color:#b45309;background:#f59e0b14;border-bottom:1px solid var(--line-soft)"></div>
       <div class="modal-body" id="source-modal-body"></div>
       <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end">
         <button id="source-modal-replace" style="background:#c0392b;color:#fff;border:1px solid #a93226;padding:8px 16px;font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:pointer">Replace source file</button>
@@ -6645,11 +6940,25 @@ function showSourceModal() {
   fi.type = 'file'; fi.accept = '.xlsx';
   fi.addEventListener('change', async (e) => {
     await _handleSourceFile(e.target.files[0]);
+    _liveSourceModalRefresh = null;
     backdrop.remove();
   });
 
   backdrop.querySelector('#source-modal-replace').addEventListener('click', () => fi.click());
-  backdrop.querySelector('#source-modal-close').addEventListener('click', () => backdrop.remove());
+  backdrop.querySelector('#source-modal-close').addEventListener('click', () => {
+    _liveSourceModalRefresh = null;
+    backdrop.remove();
+  });
+
+  // Toggle the Pending-changes filter. Lives next to the sort buttons but is
+  // a filter, not a sort — hence no data-sort attribute (the sort wiring
+  // above is scoped to [data-sort] so this button doesn't hijack sortMode).
+  const changedBtn = backdrop.querySelector('#source-filter-changed');
+  changedBtn.addEventListener('click', () => {
+    filterChanged = !filterChanged;
+    changedBtn.classList.toggle('active', filterChanged);
+    render();
+  });
 
   const bodyEl    = backdrop.querySelector('#source-modal-body');
   const searchEl  = backdrop.querySelector('#source-modal-search');
@@ -6666,7 +6975,7 @@ function showSourceModal() {
     render();
   });
 
-  backdrop.querySelectorAll('.items-sort-btn').forEach(btn => {
+  backdrop.querySelectorAll('.items-sort-btn[data-sort]').forEach(btn => {
     btn.addEventListener('click', () => {
       sortMode = btn.dataset.sort;
       backdrop.querySelectorAll('.items-sort-btn').forEach(b => b.classList.remove('active'));
@@ -6681,8 +6990,11 @@ function showSourceModal() {
 
   // Build the HTML for a single source row.
   function rowHtml(r, isLast) {
+    const aid = String(r.id);
+    const pending = pendingMap.get(aid);
+    const sg = Sightings.get(aid);
     return `
-      <div style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch">
+      <div class="src-row" data-asset-id="${escapeHTML(aid)}" style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch${pending ? ';cursor:pointer' : ''}">
         <div style="display:flex;align-items:center;flex-shrink:0">
           <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
             <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
@@ -6699,6 +7011,8 @@ function showSourceModal() {
             <span>${escapeHTML(r.type || '—')}</span>
             ${r.roomName ? `<span style="font-family:var(--mono);margin-left:4px">· ${escapeHTML(r.roomName)}</span>` : ''}
           </div>
+          ${pending ? `<div style="margin-top:6px"><span style="display:inline-block;background:#f59e0b1a;color:#b45309;border:1px solid #f59e0b55;border-radius:999px;padding:2px 9px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">${Object.keys(pending.diffs).length} pending change${Object.keys(pending.diffs).length === 1 ? '' : 's'}</span></div>` : ''}
+          ${sg ? `<div style="font-size:11px;color:var(--dim);margin-top:4px">Last sighting: ${escapeHTML(formatLastSeen(sg.seenAt) || '')}${(() => { const m = GroupStore.getMember(sg.seenBy); return m && m.emoji ? ' · ' + m.emoji : ''; })()}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0;text-align:right">
           ${r.dateInOperation ? `<div style="font-size:12px;color:var(--dim)">${escapeHTML(r.dateInOperation)}</div>` : ''}
@@ -6736,10 +7050,31 @@ function showSourceModal() {
   }
 
   function render() {
+    // The Pending changes ledger for the CURRENT source generation: net diff
+    // of each overlay record against its baseline row, with report
+    // attribution. Overlay volume is small (touched assets only), so
+    // rebuilding per render is cheap — and it keeps the view live when
+    // changes sync in while the modal is open.
+    pendingMap.clear();
+    for (const ov of AssetOverlay.all()) {
+      const aid = String(ov.assetId);
+      const p = pendingChangesFor(aid, rowsById.get(aid));
+      if (p) pendingMap.set(aid, p);
+    }
+    const pendingLine = backdrop.querySelector('#source-pending-line');
+    if (pendingLine) {
+      pendingLine.classList.toggle('hidden', pendingMap.size === 0);
+      pendingLine.textContent = pendingMap.size
+        ? `${pendingMap.size} pending change${pendingMap.size === 1 ? '' : 's'} for the next export — tap a marked asset for details`
+        : '';
+    }
+    changedBtn.textContent = pendingMap.size ? `Changed ${pendingMap.size}` : 'Changed';
+
     let filtered = query
       ? rows.filter(r => [r.type, r.building, r.room, r.roomName, r.model, r.id]
           .some(v => v && String(v).toLowerCase().includes(query)))
       : rows;
+    if (filterChanged) filtered = filtered.filter(r => pendingMap.has(String(r.id)));
 
     const sorted = [...filtered].sort((a, b) => {
       const ka = sortMode === 'building' ? a.building
@@ -6799,7 +7134,20 @@ function showSourceModal() {
     }
   });
 
+  // Tapping an asset with pending changes opens its What changed panel.
+  bodyEl.addEventListener('click', (e) => {
+    const row = e.target.closest('.src-row');
+    if (!row) return;
+    const aid = row.getAttribute('data-asset-id');
+    if (!aid || !pendingMap.has(aid)) return;
+    showWhatChangedPanel(aid, rowsById.get(aid) || null);
+  });
+
   render();
+
+  // Live refresh while open: incoming changes/sightings/overlays re-render
+  // the list (cheap — only the visible batch is rebuilt).
+  _liveSourceModalRefresh = () => { try { render(); } catch {} };
 }
 
 function showCreateJobModal() {
@@ -7038,6 +7386,7 @@ async function refreshSessionsCount() {
 // Live refresh hooks for open modals — set by showSessionsModal / showItemsModal
 let _liveSessionsModalRefresh = null;
 let _liveItemsModalRefresh    = null;
+let _liveSourceModalRefresh   = null;
 
 async function showSessionsModal({ hideNewReport = false } = {}) {
   let activeTab = 'open';
@@ -7155,8 +7504,11 @@ async function openItemEditor(sessionId, itemId) {
   // CURRENT truth (possibly edited from another report or another device),
   // not this report's embedded snapshot.
   await AssetOverlay.load();
+  await ChangeFeed.load();
+  await Sightings.load();
   const assetKey = assetKeyOf(itemId, baseItem, isArr);
   const item = applyAssetOverlay(assetKey, baseItem);
+  const sighting = assetKey ? Sightings.get(assetKey) : null;
 
   // notes may be a string OR an array of strings (both shapes exist in the
   // wild; overlay notes are always an array). We edit as a single textarea;
@@ -7196,6 +7548,14 @@ async function openItemEditor(sessionId, itemId) {
         ${fieldRow('Room', 'item-f-room', item.room)}
         ${fieldRow('Notes', 'item-f-notes', notesText, { textarea: true, rows: 5 })}
 
+        ${assetKey ? `
+        <div class="field" style="margin-bottom:14px">
+          <span style="display:block;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;font-weight:700">Sightings</span>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span id="item-sighting-line" style="font-size:13px;color:var(--ink-soft)">${sightingLineHTML(sighting)}</span>
+            <button id="item-mark-sighted" type="button" style="font-size:12px;padding:6px 12px">Mark as sighted</button>
+          </div>
+        </div>` : ''}
         <div class="field" style="margin-bottom:4px">
           <span style="display:block;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;font-weight:700">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</span>
           ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length
@@ -7219,6 +7579,13 @@ async function openItemEditor(sessionId, itemId) {
   document.addEventListener('keydown', onKey);
   backdrop.querySelector('#item-edit-close').addEventListener('click', close);
   backdrop.querySelector('#item-edit-cancel').addEventListener('click', close);
+  const markBtn = backdrop.querySelector('#item-mark-sighted');
+  if (markBtn) markBtn.addEventListener('click', async () => {
+    await recordSighting(assetKey, 'mark');
+    const line = backdrop.querySelector('#item-sighting-line');
+    if (line) line.innerHTML = sightingLineHTML(Sightings.get(assetKey));
+    log('Sighting recorded.', 'ok');
+  });
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 
   backdrop.querySelector('#item-edit-save').addEventListener('click', async () => {
@@ -7239,6 +7606,25 @@ async function openItemEditor(sessionId, itemId) {
       // Notes are normalized to an array in the overlay; category and type
       // are both set so the resolved item displays consistently regardless
       // of which field the baseline used.
+      // What actually changed, against the resolved state the editor opened
+      // with? No diff → no write: a save that changed nothing doesn't bump
+      // syncedAt, doesn't emit a Changelog event, doesn't count as a sighting.
+      const newNotes = newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
+      const norm = (v) => (v == null) ? '' : String(v);
+      const prevNotes = Array.isArray(item.notes) ? item.notes.join(' · ') : norm(item.notes);
+      const diffs = {};
+      if (norm(item.model) !== newModel)  diffs.model  = { from: norm(item.model),  to: newModel };
+      const prevCat = norm(item.type || item.category);
+      if (prevCat !== newCategory)        diffs.type   = { from: prevCat,           to: newCategory };
+      if (norm(item.serial) !== newSerial) diffs.serial = { from: norm(item.serial), to: newSerial };
+      if (norm(item.room) !== newRoom)    diffs.room   = { from: norm(item.room),   to: newRoom };
+      if (prevNotes !== newNotes.join(' · ')) diffs.notes = { from: prevNotes, to: newNotes.join(' · ') };
+      if (!Object.keys(diffs).length) {
+        log('No changes — nothing saved.', 'info');
+        close();
+        return;
+      }
+
       const prev = AssetOverlay.get(assetKey);
       const rec = {
         assetId : assetKey,
@@ -7247,13 +7633,36 @@ async function openItemEditor(sessionId, itemId) {
         type    : newCategory,
         serial  : newSerial,
         room    : newRoom,
-        notes   : newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean),
+        notes   : newNotes,
         origin  : (prev && prev.origin) || 'edit',
         syncedAt: Date.now(),
         deviceId: DEVICE_ID,
+        // Generation tag: the Pending changes ledger shows this overlay only
+        // while THIS source is current. Resolution in reports stays
+        // generation-independent (edits keep working after a new import).
+        sourceHash: currentSourceHash() || undefined,
       };
       await AssetOverlay.put(rec);
       if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
+
+      // One immutable Changelog event per effective save — who, when, from
+      // which report, which fields. Unique id → merges losslessly under sync.
+      const ev = {
+        changeId  : 'chg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+        assetId   : assetKey,
+        reportId  : sessionId,
+        reportName: session.name || '',
+        at        : Date.now(),
+        deviceId  : DEVICE_ID,
+        fields    : diffs,
+        sourceHash: currentSourceHash() || undefined,
+      };
+      await ChangeFeed.put(ev);
+      if (GroupStore.exists()) SyncEngine.broadcastDelta('changes', ev);
+
+      // Both sighting triggers count — an edit is also a field observation.
+      recordSighting(assetKey, 'edit');
+
       log(`Edited item "${newModel || newCategory || assetKey}" — applies to every report containing it.`, 'ok');
     } else {
       // Fallback: array-shaped data without per-item ids has no stable
@@ -9122,6 +9531,8 @@ window.addEventListener('load', async () => {
   // overlays synchronously from the first open. Failure is non-fatal
   // (baselines render; the cache self-heals on the next overlay change).
   AssetOverlay.load();
+  ChangeFeed.load();
+  Sightings.load();
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS.', 'err');
   }
