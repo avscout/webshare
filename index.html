@@ -977,6 +977,21 @@
     letter-spacing: .06em; text-transform: uppercase; cursor: pointer;
   }
   .src-changed-toggle.active { background: #f59e0b; border-color: #f59e0b; color: #fff; }
+  /* State filter pills (items + source modal). Multi-select toggles; "All"
+     resets. Each pill carries its state's icon, so the row doubles as the
+     legend — active pills take their state's color family. */
+  .state-chip-row { display: flex; gap: 6px; padding: 8px 18px 4px; flex-wrap: wrap; flex-shrink: 0; }
+  .state-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--line); background: transparent; color: var(--dim);
+    border-radius: 999px; padding: 4px 11px; cursor: pointer;
+    font-family: var(--sans); font-size: 11px; font-weight: 700;
+    letter-spacing: .05em; text-transform: uppercase;
+  }
+  .state-chip svg { flex-shrink: 0; }
+  .state-chip.active[data-f="sighted"] { background: rgba(0,166,214,0.10); border-color: rgba(0,107,145,0.5); color: #006B91; }
+  .state-chip.active[data-f="todo"]    { background: var(--bg-subtle); border-color: var(--dim); color: var(--ink-soft); }
+  .state-chip.active[data-f="never"]   { background: #f59e0b14; border-color: #f59e0b99; color: #b45309; }
 
   /* Search row below the sort toolbar. Magnifier icon on the left,
      clear (×) button appears on the right when the input has a value.
@@ -1658,7 +1673,7 @@
   .modal-head h3 { font-size: 16px; font-weight: 700; flex: 1; }
   .modal-head .close { background: transparent; border: none; font-size: 22px; padding: 4px 8px; cursor: pointer; color: var(--dim); }
   .modal-body { flex: 1; padding: 18px; overflow-y: auto; }
-  .modal-footer { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; }
+  .modal-footer { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; flex-wrap: wrap; }
   /* Modal-footer buttons inherit a sensible touch-friendly size by
      default (44px min-height, decent padding, consistent typography).
      Individual buttons that pass inline styles still take precedence,
@@ -2101,7 +2116,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '106';
+  const LOCAL_VERSION = '110';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2361,8 +2376,131 @@ function sightingLineHTML(rec) {
   const m = GroupStore.getMember(rec.seenBy);
   const who = m ? `${m.emoji || ''} ${escapeHTML(m.nickname || '')}`.trim() : 'unknown device';
   const how = rec.via === 'edit' ? 'via an edit' : 'marked';
-  return `Last sighting: <strong>${escapeHTML(formatLastSeen(rec.seenAt).text || new Date(rec.seenAt).toLocaleDateString())}</strong> · ${who} <span style="color:var(--dim)">(${how})</span>`;
+  const prev = (rec.seenAt || 0) < currentRoundStart() ? ' <span style="color:var(--dim)">(previous round)</span>' : '';
+  return `Last sighting: <strong>${escapeHTML(formatLastSeen(rec.seenAt).text || new Date(rec.seenAt).toLocaleDateString())}</strong> · ${who} <span style="color:var(--dim)">(${how})</span>${prev}`;
 }
+
+// Generation-scoped eye state for the row indicators: has this asset been
+// sighted since the CURRENT source was imported? A new source closes every
+// eye — each baseline starts a fresh verification round. (The sighting
+// record itself is eternal; only this indicator resets.)
+// Start of the current verification round = the moment the current source
+// was imported. Everything before it is "a previous round".
+function currentRoundStart() { return (_sourceData && _sourceData.uploadedAt) || 0; }
+
+function sightedThisRound(assetId) {
+  if (!assetId) return false;
+  const sg = Sightings.get(assetId);
+  if (!sg) return false;
+  return (sg.seenAt || 0) >= currentRoundStart();
+}
+
+// Bare eye glyph (open, or closed with a slash), lucide-style strokes.
+function eyeGlyph(open, color, size) {
+  const c = color || 'currentColor'; const z = size || 13;
+  return open
+    ? `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0-4 0"/><path d="M21 12c-2.4 4-5.4 6-9 6c-3.6 0-6.6-2-9-6c2.4-4 5.4-6 9-6c3.6 0 6.6 2 9 6"/></svg>`
+    : `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+}
+
+// The 20×20 eye badge in row indicator columns, under the green status
+// square. Open = green (sighted since the current source); closed = muted.
+// Three-state eye — THE primary row status icon (the green square is gone):
+//   'sighted' → open, TU-blue tint   (seen since the current source)
+//   'todo'    → closed, muted        (known device, not yet this round)
+//   'never'   → closed, dashed amber (never edited or sighted by anyone, ever)
+function eyeIconHTML(state) {
+  if (state === 'sighted') return `<div title="Sighted since the current source" style="width:26px;height:26px;border-radius:50%;background:rgba(0,166,214,0.10);border:1px solid rgba(0,166,214,0.30);display:flex;align-items:center;justify-content:center;color:#006B91;box-sizing:border-box;flex-shrink:0">${eyeGlyph(true, 'currentColor', 15)}</div>`;
+  if (state === 'never') return `<div title="Never edited or sighted — exists on paper only" style="width:26px;height:26px;border-radius:50%;background:transparent;border:1.5px dashed #f59e0b99;display:flex;align-items:center;justify-content:center;color:#b45309;box-sizing:border-box;flex-shrink:0"><span style="opacity:0.7;display:inline-flex">${eyeGlyph(false, 'currentColor', 15)}</span></div>`;
+  return `<div title="Not sighted since the current source" style="width:26px;height:26px;border-radius:50%;background:var(--bg-subtle);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);box-sizing:border-box;flex-shrink:0">${eyeGlyph(false, 'currentColor', 15)}</div>`;
+}
+
+// Map an asset to its eye state. Identity-less items read as 'todo' — we
+// can't track them, so we don't claim anything stronger.
+function assetEyeState(assetId) {
+  if (!assetId) return 'todo';
+  if (assetNeverTouched(assetId)) return 'never';
+  return sightedThisRound(assetId) ? 'sighted' : 'todo';
+}
+
+// The state-filter pill row. Multi-select union; "All" resets. The pills
+// carry their state's icon, so the row IS the legend.
+function stateChipRowHTML(idPrefix) {
+  return `
+      <div class="state-chip-row" id="${idPrefix}-chips">
+        <button class="state-chip" data-f="all" type="button">All</button>
+        <button class="state-chip" data-f="sighted" type="button">${eyeGlyph(true, '#006B91', 12)}Sighted</button>
+        <button class="state-chip" data-f="todo" type="button">${eyeGlyph(false, 'currentColor', 12)}To do</button>
+        <button class="state-chip" data-f="never" type="button"><span style="width:14px;height:14px;border-radius:50%;border:1.5px dashed #f59e0b99;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box"><span style="opacity:0.8;display:inline-flex">${eyeGlyph(false, '#b45309', 9)}</span></span>Never seen</button>
+      </div>`;
+}
+function wireStateChips(container, stateFilters, onChange) {
+  if (!container) return;
+  container.querySelectorAll('.state-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const f = chip.dataset.f;
+      if (f === 'all') {
+        stateFilters.clear();
+        container.querySelectorAll('.state-chip').forEach(x => x.classList.remove('active'));
+      } else if (stateFilters.has(f)) {
+        stateFilters.delete(f); chip.classList.remove('active');
+      } else {
+        stateFilters.add(f); chip.classList.add('active');
+      }
+      onChange();
+    });
+  });
+}
+
+// Has this asset NEVER been touched — no edit, no sighting, ever? Drives
+// the amber star badge: these are the true unknowns, devices that exist only
+// on paper and that nobody has ever confirmed in the field. New assets enter
+// the dataset starred; the first edit or sighting removes the star forever
+// (both the ChangeFeed and Sightings stores are eternal, so this is exact).
+// Distinct from the closed eye, which means "not seen THIS round" — a closed
+// eye on an unstarred row is a known device awaiting its round.
+function assetNeverTouched(assetId) {
+  if (!assetId) return false;
+  return ChangeFeed.forAsset(assetId).length === 0
+      && !Sightings.get(assetId)
+      && !AssetOverlay.get(assetId);
+}
+
+// Ultra-compact relative time for row meta lines: now / 15m / 3h / 12d.
+function relShort(ts) {
+  if (!ts) return '';
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  if (s < 60) return 'now';
+  const m = Math.floor(s / 60); if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60); if (h < 24) return h + 'h';
+  const d = Math.floor(h / 24); if (d < 30) return d + 'd';
+  return new Date(ts).toLocaleDateString();
+}
+
+// One compact "who + when" meta line for item rows: a small icon, the
+// member's mini avatar (emoji on their color), and a short relative time.
+// The ICON COLOR carries the round information: colored = done within the
+// current import (pencil amber, eye blue), gray = done in a previous import.
+// Text and avatar stay fully readable either way — only the color tells time.
+function metaLineHTML(kind, deviceId, ts) {
+  const now = (ts || 0) >= currentRoundStart();
+  const c = !now ? '#A6ADB3' : (kind === 'edit' ? '#b45309' : '#006B91');
+  const icon = kind === 'edit'
+    ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5-10.5a2.828 2.828 0 1 0-4-4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>`
+    : eyeGlyph(true, c, 11);
+  const m = GroupStore.getMember(deviceId);
+  const emoji = (m && m.emoji) || '?';
+  const color = (m && m.color) || '#eee';
+  const t = kind === 'edit'
+    ? (now ? 'Edited this round' : 'Edited in a previous round')
+    : (now ? 'Sighted this round' : 'Sighted in a previous round');
+  return `<div title="${t}" style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);white-space:nowrap;line-height:1.3">
+      <span style="display:inline-flex">${icon}</span>
+      <span style="width:14px;height:14px;border-radius:50%;background:${escapeHTML(color)};display:flex;align-items:center;justify-content:center;font-size:8px;flex-shrink:0">${emoji}</span>
+      <span style="font-size:11px;color:var(--dim);min-width:24px;text-align:right">${escapeHTML(relShort(ts))}</span>
+    </div>`;
+}
+
 
 // Current source generation hash ('' when no source loaded yet).
 function currentSourceHash() { return (_sourceData && _sourceData.hash) || ''; }
@@ -6940,6 +7078,7 @@ function showSourceModal() {
   let sortMode = 'building';
   let query    = '';
   let filterChanged = false;       // "Changed" toolbar filter
+  const stateFilters = new Set();  // multi-select eye-state filters (union)
   const pendingMap = new Map();    // assetId → pendingChangesFor(...) result
 
   const backdrop = document.createElement('div');
@@ -6969,10 +7108,12 @@ function showSourceModal() {
         <button class="items-sort-btn" data-sort="type">Type</button>
         <button class="items-sort-btn" data-sort="room">Room</button>
       </div>
+      ${stateChipRowHTML('source')}
       <div id="source-pending-line" class="hidden" style="padding:8px 16px;font-size:12px;color:#b45309;background:#f59e0b14;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:10px">
         <span id="source-pending-text" style="flex:1"></span>
         <button class="src-changed-toggle" id="source-filter-changed" title="Show only assets with pending changes">Only changed</button>
       </div>
+      <div id="source-sighted-line" style="padding:6px 16px;font-size:11px;color:var(--dim);border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:6px"></div>
       <div class="modal-body" id="source-modal-body"></div>
       <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end">
         <button id="source-modal-replace" style="background:#c0392b;color:#fff;border:1px solid #a93226;padding:8px 16px;font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:pointer">Replace source file</button>
@@ -7004,6 +7145,7 @@ function showSourceModal() {
     changedBtn.classList.toggle('active', filterChanged);
     render();
   });
+  wireStateChips(backdrop.querySelector('#source-chips'), stateFilters, () => render());
 
   const bodyEl    = backdrop.querySelector('#source-modal-body');
   const searchEl  = backdrop.querySelector('#source-modal-search');
@@ -7041,11 +7183,7 @@ function showSourceModal() {
     return `
       <div class="src-row" data-asset-id="${escapeHTML(aid)}" style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch${pending ? ';cursor:pointer' : ''}">
         <div style="display:flex;align-items:center;flex-shrink:0">
-          <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
-            <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a1 1 0 0 0 .8.7l6.1 0l-4.9 3.6a1 1 0 0 0-.4 1.1l1.9 5.8l-4.9-3.6a1 1 0 0 0-1.2 0l-4.9 3.6l1.9-5.8a1 1 0 0 0-.4-1.1l-4.9-3.6l6.1 0a1 1 0 0 0 .8-.7l1.9-5.8z"/></svg>
-            </div>
-          </div>
+          ${eyeIconHTML(assetEyeState(aid))}
         </div>
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
           <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
@@ -7118,12 +7256,22 @@ function showSourceModal() {
     if (pendingText) pendingText.textContent = pendingMap.size
       ? `${pendingMap.size} pending change${pendingMap.size === 1 ? '' : 's'} for the next export — tap a marked asset for details`
       : '';
+    // Verification-round progress: how many assets have an open eye. This is
+    // what makes the eye semantics obvious — the line spells out what the
+    // icons mean and a new source visibly resets it to zero.
+    const sightedLine = backdrop.querySelector('#source-sighted-line');
+    if (sightedLine) {
+      let sighted = 0;
+      for (const r of rows) if (sightedThisRound(String(r.id))) sighted++;
+      sightedLine.innerHTML = `${eyeGlyph(sighted > 0, 'var(--dim)', 12)}<span><strong>${sighted}</strong> of ${rows.length} assets sighted since the current source</span>`;
+    }
 
     let filtered = query
       ? rows.filter(r => [r.type, r.building, r.room, r.roomName, r.model, r.id]
           .some(v => v && String(v).toLowerCase().includes(query)))
       : rows;
     if (filterChanged) filtered = filtered.filter(r => pendingMap.has(String(r.id)));
+    if (stateFilters.size) filtered = filtered.filter(r => stateFilters.has(assetEyeState(String(r.id))));
 
     const sorted = [...filtered].sort((a, b) => {
       const ka = sortMode === 'building' ? a.building
@@ -7530,222 +7678,229 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // The modal handles its own dismissal; no flow-state changes, so it
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
-// Item editor — opens a detail panel for a single asset, with its text
-// fields editable. Photos are shown read-only for now (the per-item vs
-// per-room photo data model is a deliberate separate decision); the panel
-// makes that explicit rather than leaving a dead area.
-//
-// Saving writes the edited item back into session.data (preserving whether
-// data is an object keyed by id or a plain array) and routes through
-// putSession, so the change stamps a fresh syncedAt and broadcasts to the
-// group like any other report edit. We re-read the session at save time and
-// merge only this one item's fields, so a concurrent synced update to a
-// DIFFERENT item in the same report isn't lost by writing back a stale copy.
+// Item panel — ProtonPass-style: tapping a row opens a read-only VIEW of
+// the asset's current truth (resolved through the canonical overlay). The
+// sighting action lives in the view — you confirm "I'm looking at this
+// device" without needing a save. Editing is an explicit step behind the
+// Edit button; Save writes the overlay + Changelog event and returns to the
+// view. An effective save still counts as a sighting (you were standing in
+// front of it); the view's eye button covers the common inspection case
+// where the device is fine and there is nothing to edit.
 async function openItemEditor(sessionId, itemId) {
   const session = await getSession(sessionId);
-  if (!session) { log('Cannot edit item: report not found in local storage.', 'err'); return; }
+  if (!session) { log('Cannot open item: report not found in local storage.', 'err'); return; }
   const data = session.data || {};
   const isArr = dataIsArray(data);
   const baseItem = isArr ? data[Number(itemId)] : data[itemId];
   if (!baseItem) return;
-
-  // Resolve through the canonical overlay so the editor shows the item's
-  // CURRENT truth (possibly edited from another report or another device),
-  // not this report's embedded snapshot.
   await AssetOverlay.load();
   await ChangeFeed.load();
   await Sightings.load();
   const assetKey = assetKeyOf(itemId, baseItem, isArr);
-  const item = applyAssetOverlay(assetKey, baseItem);
-  const sighting = assetKey ? Sightings.get(assetKey) : null;
-
-  // notes may be a string OR an array of strings (both shapes exist in the
-  // wild; overlay notes are always an array). We edit as a single textarea;
-  // an array is shown joined by blank lines.
-  const notesIsArray = Array.isArray(item.notes);
-  const notesText = notesIsArray ? item.notes.join('\n\n') : (item.notes || '');
-
-  const roomKey = item.room || '';
-  const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
-
-  const fieldRow = (label, id, value, opts = {}) => `
-    <label class="field">
-      <span>${escapeHTML(label)}</span>
-      ${opts.textarea
-        ? `<textarea id="${id}" rows="${opts.rows || 4}" style="width:100%;resize:vertical">${escapeHTML(value || '')}</textarea>`
-        : `<input type="text" id="${id}" value="${escapeHTML(value || '')}" autocomplete="off">`}
-    </label>`;
 
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `
-    <div class="modal items-modal item-editor">
-      <div class="modal-head items-modal-head">
-        <div class="items-modal-title">
-          <h3>Edit item</h3>
-          <div class="items-modal-subtitle">
-            <span class="origin-label">in</span>
-            <span class="origin-name">${escapeHTML(session.name || 'report')}</span>
-          </div>
-        </div>
-        <button class="close" id="item-edit-close" aria-label="Close">×</button>
-      </div>
-      <div class="modal-body" style="padding:18px">
-        ${fieldRow('Model', 'item-f-model', item.model)}
-        ${fieldRow('Category / type', 'item-f-category', item.type || item.category)}
-        ${fieldRow('Serial', 'item-f-serial', item.serial)}
-        ${fieldRow('Room', 'item-f-room', item.room)}
-        ${fieldRow('Notes', 'item-f-notes', notesText, { textarea: true, rows: 5 })}
-
-        ${assetKey ? `
-        <div class="field" style="margin-bottom:14px">
-          <span style="display:block;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;font-weight:700">Sightings</span>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <span id="item-sighting-line" style="font-size:13px;color:var(--ink-soft)">${sightingLineHTML(sighting)}</span>
-            <button id="item-mark-sighted" type="button" style="font-size:12px;padding:6px 12px">Mark as sighted</button>
-          </div>
-        </div>` : ''}
-        <div class="field" style="margin-bottom:4px">
-          <span style="display:block;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;font-weight:700">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</span>
-          ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length
-            ? roomPhotosHTML(roomPhotos)
-            : `<div class="items-empty" style="padding:14px">No photos for this room.</div>`}
-          <div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.4">
-            Photos are currently managed per room and shown read-only here.
-            Editing photos per item is coming in a later update.
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="item-edit-cancel">Cancel</button>
-        <button class="primary" id="item-edit-save" style="background:var(--accent);color:#fff;border-color:var(--accent)">Save</button>
-      </div>
-    </div>`;
   document.body.appendChild(backdrop);
-
   const close = () => { document.removeEventListener('keydown', onKey); backdrop.remove(); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
-  backdrop.querySelector('#item-edit-close').addEventListener('click', close);
-  backdrop.querySelector('#item-edit-cancel').addEventListener('click', close);
-  const markBtn = backdrop.querySelector('#item-mark-sighted');
-  if (markBtn) markBtn.addEventListener('click', async () => {
-    await recordSighting(assetKey, 'mark');
-    const line = backdrop.querySelector('#item-sighting-line');
-    if (line) line.innerHTML = sightingLineHTML(Sightings.get(assetKey));
-    log('Sighting recorded.', 'ok');
-  });
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 
-  backdrop.querySelector('#item-edit-save').addEventListener('click', async () => {
-    const val = (id) => backdrop.querySelector('#' + id).value.trim();
-    const newModel    = val('item-f-model');
-    const newCategory = val('item-f-category');
-    const newSerial   = val('item-f-serial');
-    const newRoom     = val('item-f-room');
-    const newNotesRaw = backdrop.querySelector('#item-f-notes').value;
+  // Always read through the overlay so the panel shows the asset's CURRENT
+  // truth — including edits that synced in while the panel was open.
+  const resolved  = () => applyAssetOverlay(assetKey, baseItem);
+  const notesText = (n) => Array.isArray(n) ? n.join('\n\n') : (n || '');
 
-    if (assetKey) {
-      // Canonical path: the edit becomes a per-asset overlay record. It does
-      // NOT touch the report blob — every report containing this asset
-      // resolves through the same overlay, so the change shows everywhere
-      // (the cross-report requirement), travels as one tiny synced record,
-      // and two people editing DIFFERENT items can no longer clobber each
-      // other (separate records, separate LWW).
-      // Notes are normalized to an array in the overlay; category and type
-      // are both set so the resolved item displays consistently regardless
-      // of which field the baseline used.
-      // What actually changed, against the resolved state the editor opened
-      // with? No diff → no write: a save that changed nothing doesn't bump
-      // syncedAt, doesn't emit a Changelog event, doesn't count as a sighting.
-      const newNotes = newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
-      const norm = (v) => (v == null) ? '' : String(v);
-      const prevNotes = Array.isArray(item.notes) ? item.notes.join(' · ') : norm(item.notes);
-      const diffs = {};
-      if (norm(item.model) !== newModel)  diffs.model  = { from: norm(item.model),  to: newModel };
-      const prevCat = norm(item.type || item.category);
-      if (prevCat !== newCategory)        diffs.type   = { from: prevCat,           to: newCategory };
-      if (norm(item.serial) !== newSerial) diffs.serial = { from: norm(item.serial), to: newSerial };
-      if (norm(item.room) !== newRoom)    diffs.room   = { from: norm(item.room),   to: newRoom };
-      if (prevNotes !== newNotes.join(' · ')) diffs.notes = { from: prevNotes, to: newNotes.join(' · ') };
-      if (!Object.keys(diffs).length) {
-        log('No changes — nothing saved.', 'info');
-        close();
-        return;
+  const headHTML = (title) => `
+        <div class="modal-head items-modal-head">
+          <div class="items-modal-title">
+            <h3>${escapeHTML(title)}</h3>
+            <div class="items-modal-subtitle">
+              <span class="origin-label">in</span>
+              <span class="origin-name">${escapeHTML(session.name || 'report')}</span>
+              ${assetKey ? `<span class="origin-label"> · #${escapeHTML(assetKey)}</span>` : ''}
+            </div>
+          </div>
+          <button class="close" id="item-panel-close" aria-label="Close">×</button>
+        </div>`;
+  const wireHead = () => backdrop.querySelector('#item-panel-close').addEventListener('click', close);
+
+  function renderView() {
+    const it = resolved();
+    const roomKey = it.room || '';
+    const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
+    const sighting = assetKey ? Sightings.get(assetKey) : null;
+    const eyeState = assetKey ? assetEyeState(assetKey) : 'todo';
+    const viewRow = (label, value, mono) => `
+          <div style="padding:9px 0;border-bottom:0.5px solid var(--line-soft)">
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:3px">${escapeHTML(label)}</div>
+            <div style="font-size:14px;color:var(--ink);${mono ? 'font-family:var(--mono);' : ''}white-space:pre-line">${escapeHTML(value || '—')}</div>
+          </div>`;
+    backdrop.innerHTML = `
+      <div class="modal items-modal item-editor">
+        ${headHTML(it.model || it.category || it.type || 'Item')}
+        <div class="modal-body" style="padding:4px 18px 14px 18px">
+          ${viewRow('Model', it.model)}
+          ${viewRow('Category / type', it.type || it.category)}
+          ${viewRow('Serial', it.serial, true)}
+          ${viewRow('Room', it.room, true)}
+          ${viewRow('Notes', notesText(it.notes))}
+          ${assetKey ? `
+          <div style="padding:12px 0;border-bottom:0.5px solid var(--line-soft)">
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Sightings</div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span id="item-eye">${eyeIconHTML(eyeState)}</span>
+              <span id="item-sighting-line" style="font-size:13px;color:var(--ink-soft);flex:1;min-width:160px">${sightingLineHTML(sighting)}</span>
+              <button id="item-mark-sighted" type="button" style="font-size:12px;padding:7px 12px;display:inline-flex;align-items:center;gap:6px">${eyeGlyph(true, 'currentColor', 13)}Mark as sighted</button>
+            </div>
+          </div>` : ''}
+          <div style="padding:12px 0 4px 0">
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</div>
+            ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length
+              ? roomPhotosHTML(roomPhotos)
+              : `<div class="items-empty" style="padding:12px">No photos for this room.</div>`}
+            <div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.4">Photos are managed per room and shown read-only here.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="item-view-close">Close</button>
+          <button class="primary" id="item-view-edit" style="background:var(--accent);color:#fff;border-color:var(--accent)">Edit</button>
+        </div>
+      </div>`;
+    wireHead();
+    backdrop.querySelector('#item-view-close').addEventListener('click', close);
+    backdrop.querySelector('#item-view-edit').addEventListener('click', renderEdit);
+    const markBtn = backdrop.querySelector('#item-mark-sighted');
+    if (markBtn) markBtn.addEventListener('click', async () => {
+      await recordSighting(assetKey, 'mark');
+      const line = backdrop.querySelector('#item-sighting-line');
+      if (line) line.innerHTML = sightingLineHTML(Sightings.get(assetKey));
+      const eye = backdrop.querySelector('#item-eye');
+      if (eye) eye.innerHTML = eyeIconHTML('sighted');
+      log('Sighting recorded.', 'ok');
+      refreshReportsUI();   // the eyes in the list underneath open too
+    });
+  }
+
+  function renderEdit() {
+    const cur = resolved();
+    const curNotesIsArray = Array.isArray(cur.notes);
+    const fieldRow = (label, id, value, opts = {}) => `
+          <label class="field">
+            <span>${escapeHTML(label)}</span>
+            ${opts.textarea
+              ? `<textarea id="${id}" rows="${opts.rows || 4}" style="width:100%;resize:vertical">${escapeHTML(value || '')}</textarea>`
+              : `<input type="text" id="${id}" value="${escapeHTML(value || '')}" autocomplete="off">`}
+          </label>`;
+    backdrop.innerHTML = `
+      <div class="modal items-modal item-editor">
+        ${headHTML('Edit item')}
+        <div class="modal-body" style="padding:18px">
+          ${fieldRow('Model', 'item-f-model', cur.model)}
+          ${fieldRow('Category / type', 'item-f-category', cur.type || cur.category)}
+          ${fieldRow('Serial', 'item-f-serial', cur.serial)}
+          ${fieldRow('Room', 'item-f-room', cur.room)}
+          ${fieldRow('Notes', 'item-f-notes', notesText(cur.notes), { textarea: true, rows: 5 })}
+        </div>
+        <div class="modal-footer">
+          <button id="item-edit-cancel">Cancel</button>
+          <button class="primary" id="item-edit-save" style="background:var(--accent);color:#fff;border-color:var(--accent)">Save</button>
+        </div>
+      </div>`;
+    wireHead();
+    backdrop.querySelector('#item-edit-cancel').addEventListener('click', renderView);
+    backdrop.querySelector('#item-edit-save').addEventListener('click', async () => {
+      const val = (id) => backdrop.querySelector('#' + id).value.trim();
+      const newModel    = val('item-f-model');
+      const newCategory = val('item-f-category');
+      const newSerial   = val('item-f-serial');
+      const newRoom     = val('item-f-room');
+      const newNotesRaw = backdrop.querySelector('#item-f-notes').value;
+
+      if (assetKey) {
+        const newNotes = newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
+        const norm = (v) => (v == null) ? '' : String(v);
+        const prevNotes = Array.isArray(cur.notes) ? cur.notes.join(' · ') : norm(cur.notes);
+        const diffs = {};
+        if (norm(cur.model) !== newModel)    diffs.model  = { from: norm(cur.model),  to: newModel };
+        const prevCat = norm(cur.type || cur.category);
+        if (prevCat !== newCategory)         diffs.type   = { from: prevCat,          to: newCategory };
+        if (norm(cur.serial) !== newSerial)  diffs.serial = { from: norm(cur.serial), to: newSerial };
+        if (norm(cur.room) !== newRoom)      diffs.room   = { from: norm(cur.room),   to: newRoom };
+        if (prevNotes !== newNotes.join(' · ')) diffs.notes = { from: prevNotes, to: newNotes.join(' · ') };
+        if (!Object.keys(diffs).length) {
+          log('No changes — nothing saved.', 'info');
+          renderView();
+          return;
+        }
+
+        const prev = AssetOverlay.get(assetKey);
+        const rec = {
+          assetId : assetKey,
+          model   : newModel,
+          category: newCategory,
+          type    : newCategory,
+          serial  : newSerial,
+          room    : newRoom,
+          notes   : newNotes,
+          origin  : (prev && prev.origin) || 'edit',
+          syncedAt: Date.now(),
+          deviceId: DEVICE_ID,
+          sourceHash: currentSourceHash() || undefined,
+        };
+        await AssetOverlay.put(rec);
+        if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
+
+        const ev = {
+          changeId  : 'chg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+          assetId   : assetKey,
+          reportId  : sessionId,
+          reportName: session.name || '',
+          at        : Date.now(),
+          deviceId  : DEVICE_ID,
+          fields    : diffs,
+          sourceHash: currentSourceHash() || undefined,
+        };
+        await ChangeFeed.put(ev);
+        if (GroupStore.exists()) SyncEngine.broadcastDelta('changes', ev);
+
+        // An effective edit is also an observation — you were standing in
+        // front of the device. Sight-without-edit lives in the view.
+        recordSighting(assetKey, 'edit');
+        log(`Edited item "${newModel || newCategory || assetKey}" — applies to every report containing it.`, 'ok');
+      } else {
+        // Report-local fallback for items without a stable identity.
+        const fresh = await getSession(sessionId);
+        if (!fresh) { close(); return; }
+        const fdata = fresh.data || {};
+        const target = dataIsArray(fdata) ? fdata[Number(itemId)] : fdata[itemId];
+        if (!target) { close(); return; }
+        target.model = newModel;
+        if (target.type != null) target.type = newCategory;
+        if (target.category != null || target.type == null) target.category = newCategory;
+        target.serial = newSerial;
+        target.room   = newRoom;
+        target.notes  = curNotesIsArray
+          ? newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean)
+          : newNotesRaw.trim();
+        fresh.data = fdata;
+        await putSession(fresh);
+        // Mirror onto our local baseline so the view shows the new values.
+        Object.assign(baseItem, {
+          model: target.model, type: target.type, category: target.category,
+          serial: target.serial, room: target.room, notes: target.notes,
+        });
+        log(`Edited item "${newModel || newCategory || itemId}" (report-local: no stable asset id).`, 'ok');
       }
 
-      const prev = AssetOverlay.get(assetKey);
-      const rec = {
-        assetId : assetKey,
-        model   : newModel,
-        category: newCategory,
-        type    : newCategory,
-        serial  : newSerial,
-        room    : newRoom,
-        notes   : newNotes,
-        origin  : (prev && prev.origin) || 'edit',
-        syncedAt: Date.now(),
-        deviceId: DEVICE_ID,
-        // Generation tag: the Pending changes ledger shows this overlay only
-        // while THIS source is current. Resolution in reports stays
-        // generation-independent (edits keep working after a new import).
-        sourceHash: currentSourceHash() || undefined,
-      };
-      await AssetOverlay.put(rec);
-      if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
+      refreshReportsUI();   // lists underneath update; this panel stays open
+      renderView();         // ProtonPass-style: back to the view, fresh values
+    });
+    const first = backdrop.querySelector('#item-f-model');
+    if (first) first.focus();
+  }
 
-      // One immutable Changelog event per effective save — who, when, from
-      // which report, which fields. Unique id → merges losslessly under sync.
-      const ev = {
-        changeId  : 'chg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
-        assetId   : assetKey,
-        reportId  : sessionId,
-        reportName: session.name || '',
-        at        : Date.now(),
-        deviceId  : DEVICE_ID,
-        fields    : diffs,
-        sourceHash: currentSourceHash() || undefined,
-      };
-      await ChangeFeed.put(ev);
-      if (GroupStore.exists()) SyncEngine.broadcastDelta('changes', ev);
-
-      // Both sighting triggers count — an edit is also a field observation.
-      recordSighting(assetKey, 'edit');
-
-      log(`Edited item "${newModel || newCategory || assetKey}" — applies to every report containing it.`, 'ok');
-    } else {
-      // Fallback: array-shaped data without per-item ids has no stable
-      // identity, so the edit stays report-local (the pre-overlay behavior).
-      // Re-read fresh so we merge into the latest known report.
-      const fresh = await getSession(sessionId);
-      if (!fresh) { close(); return; }
-      const fdata = fresh.data || {};
-      const target = dataIsArray(fdata) ? fdata[Number(itemId)] : fdata[itemId];
-      if (!target) { close(); return; }
-      target.model = newModel;
-      if (target.type != null) target.type = newCategory;
-      if (target.category != null || target.type == null) target.category = newCategory;
-      target.serial = newSerial;
-      target.room   = newRoom;
-      target.notes  = notesIsArray
-        ? newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean)
-        : newNotesRaw.trim();
-      fresh.data = fdata;
-      await putSession(fresh);
-      log(`Edited item "${newModel || newCategory || itemId}" (report-local: no stable asset id).`, 'ok');
-    }
-    close();
-
-    // Refresh the report surfaces (counts/lists). refreshReportsUI also
-    // re-opens the items modal underneath with fresh data, so the edit shows
-    // immediately — no separate items-modal refresh needed (calling it twice
-    // would close+reopen the modal twice, a visible flicker).
-    refreshReportsUI();
-  });
-
-  // Focus the first field for quick keyboard editing.
-  const first = backdrop.querySelector('#item-f-model');
-  if (first) first.focus();
+  renderView();
 }
 
 function showItemsModal(session) {
@@ -7811,6 +7966,7 @@ function showItemsModal(session) {
         <button class="items-sort-btn" data-sort="time">Date</button>
         <button class="items-sort-btn" data-sort="object">Object</button>
       </div>
+      ${stateChipRowHTML('items')}
       <div class="modal-body" id="items-body"></div>
     </div>`;
   document.body.appendChild(backdrop);
@@ -7854,6 +8010,8 @@ function showItemsModal(session) {
   });
 
   let searchTerm = '';   // normalized lowercase substring; '' = no filter
+  const stateFilters = new Set();   // multi-select eye-state filters (union)
+  wireStateChips(backdrop.querySelector('#items-chips'), stateFilters, () => rerender());
 
   // Universal substring match: returns true if the item has the term
   // anywhere in room, category, serial, or notes. Case-insensitive.
@@ -7887,10 +8045,13 @@ function showItemsModal(session) {
     const groups = buildGroups(flat, sortMode);
     // Filter items within each group; drop groups that end up empty.
     const filtered = groups
-      .map(g => Object.assign({}, g, { items: g.items.filter(e => itemMatches(e.item)) }))
+      .map(g => Object.assign({}, g, { items: g.items.filter(e =>
+        itemMatches(e.item) && (stateFilters.size === 0 || stateFilters.has(assetEyeState(e.assetKey)))) }))
       .filter(g => g.items.length > 0);
     if (filtered.length === 0) {
-      bodyEl.innerHTML = `<div class="items-empty">No items match “${escapeHTML(searchTerm)}”.</div>`;
+      bodyEl.innerHTML = `<div class="items-empty">${searchTerm
+        ? `No items match “${escapeHTML(searchTerm)}”.`
+        : 'No items match the active filters.'}</div>`;
       return;
     }
     bodyEl.innerHTML = filtered.map(g => {
@@ -8072,26 +8233,17 @@ function itemRowHTML(entry, sortMode) {
   const noteCount = item.notes ? (Array.isArray(item.notes) ? item.notes.length : 1) : 0;
   const typePart = item.type || item.category || '';
   const idPart   = item.serial || item.id || '';
-  const when     = item.createdAt || item.dateInOperation;
-  let dateStr = '', timeStr = '';
-  if (when) {
-    const d = new Date(when);
-    dateStr = d.toLocaleDateString();
-    timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  const avatarEmoji = item._creatorEmoji || '?';
-  const avatarColor = item._creatorColor || '#eee';
+
+  // Right-hand meta column: who last edited (pencil + mini avatar + short
+  // time) and who last sighted (eye + the same). Reads straight from the
+  // in-memory ChangeFeed / Sightings mirrors, so it's cheap per row.
+  const evs    = entry.assetKey ? ChangeFeed.forAsset(entry.assetKey) : [];
+  const lastEv = evs.length ? evs[evs.length - 1] : null;
+  const sg     = entry.assetKey ? Sightings.get(entry.assetKey) : null;
 
   return `
-    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:stretch;cursor:pointer">
-      <div style="display:flex;align-items:center;flex-shrink:0">
-        <div style="display:flex;flex-direction:column;gap:4px;align-items:center;flex-shrink:0">
-          <div style="width:20px;height:20px;background:#22c55e;border-radius:4px;display:flex;align-items:center;justify-content:center">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a1 1 0 0 0 .8.7l6.1 0l-4.9 3.6a1 1 0 0 0-.4 1.1l1.9 5.8l-4.9-3.6a1 1 0 0 0-1.2 0l-4.9 3.6l1.9-5.8a1 1 0 0 0-.4-1.1l-4.9-3.6l6.1 0a1 1 0 0 0 .8-.7l1.9-5.8z"/></svg>
-          </div>
-          <div style="width:20px;height:20px;border-radius:50%;background:${avatarColor};display:flex;align-items:center;justify-content:center;font-size:11px">${avatarEmoji}</div>
-        </div>
-      </div>
+    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:center;cursor:pointer">
+      ${eyeIconHTML(assetEyeState(entry.assetKey))}
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
           <div style="font-size:15px;font-weight:600;color:var(--ink)">${escapeHTML(title)}</div>
@@ -8105,9 +8257,9 @@ function itemRowHTML(entry, sortMode) {
           ${idPart ? `<span style="font-family:var(--mono);margin-left:4px">· ${escapeHTML(idPart)}</span>` : ''}
         </div>
       </div>
-      ${dateStr ? `<div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0">
-        <div style="font-size:12px;color:var(--dim);text-align:right">${escapeHTML(dateStr)}</div>
-        <div style="font-size:12px;color:var(--dim);text-align:right;margin-top:3px">${escapeHTML(timeStr)}</div>
+      ${(lastEv || sg) ? `<div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:center;flex-shrink:0;gap:3px">
+        ${lastEv ? metaLineHTML('edit', lastEv.deviceId, lastEv.at) : ''}
+        ${sg ? metaLineHTML('sight', sg.seenBy, sg.seenAt) : ''}
       </div>` : ''}
     </div>`;
 }
