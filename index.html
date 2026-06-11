@@ -968,6 +968,15 @@
     background: var(--accent);
     color: #fff;
   }
+  /* "Only changed" toggle in the pending-changes bar of the source modal.
+     A pill toggle, deliberately NOT styled as a sort tab. */
+  .src-changed-toggle {
+    border: 1px solid #f59e0b88; background: transparent; color: #b45309;
+    border-radius: 999px; padding: 4px 12px; flex-shrink: 0;
+    font-family: var(--sans); font-size: 11px; font-weight: 700;
+    letter-spacing: .06em; text-transform: uppercase; cursor: pointer;
+  }
+  .src-changed-toggle.active { background: #f59e0b; border-color: #f59e0b; color: #fff; }
 
   /* Search row below the sort toolbar. Magnifier icon on the left,
      clear (×) button appears on the right when the input has a value.
@@ -2092,7 +2101,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '105';
+  const LOCAL_VERSION = '106';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2352,7 +2361,7 @@ function sightingLineHTML(rec) {
   const m = GroupStore.getMember(rec.seenBy);
   const who = m ? `${m.emoji || ''} ${escapeHTML(m.nickname || '')}`.trim() : 'unknown device';
   const how = rec.via === 'edit' ? 'via an edit' : 'marked';
-  return `Last sighting: <strong>${escapeHTML(formatLastSeen(rec.seenAt) || new Date(rec.seenAt).toLocaleDateString())}</strong> · ${who} <span style="color:var(--dim)">(${how})</span>`;
+  return `Last sighting: <strong>${escapeHTML(formatLastSeen(rec.seenAt).text || new Date(rec.seenAt).toLocaleDateString())}</strong> · ${who} <span style="color:var(--dim)">(${how})</span>`;
 }
 
 // Current source generation hash ('' when no source loaded yet).
@@ -6092,10 +6101,32 @@ async function _handleSourceFile(file) {
       }
     }
 
+    const prevHash = _sourceData ? _sourceData.hash : '';
     const src  = { filename: file.name, uploadedAt: Date.now(), hash, rows: parsed };
     await saveSource(src);
     _sourceData = src;
     GroupStore.setSourceHash(DEVICE_ID, hash);
+
+    // Generation boundary marker in the Changelog. Lives under the reserved
+    // '__source__' asset key and is interleaved into every asset's changelog
+    // view, so "why did the ledger reset?" is always answerable in-place.
+    if (prevHash !== hash) {
+      const marker = {
+        changeId  : 'imp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+        kind      : 'source-import',
+        assetId   : '__source__',
+        reportId  : '',
+        reportName: '',
+        at        : Date.now(),
+        deviceId  : DEVICE_ID,
+        fields    : {},
+        filename  : file.name,
+        fromHash  : prevHash,
+        toHash    : hash,
+      };
+      await ChangeFeed.put(marker);
+      if (GroupStore.exists()) SyncEngine.broadcastDelta('changes', marker);
+    }
     renderSourceSection();
     const t3 = performance.now();
     log(`Source imported: ${parsed.length} rows`, 'ok');
@@ -6850,21 +6881,32 @@ function showWhatChangedPanel(assetId, sourceRow) {
   }
 
   function renderLog() {
-    const gen = currentSourceHash();
-    const events = [...ChangeFeed.forAsset(assetId)]
-      .filter(ev => !gen || !ev.sourceHash || ev.sourceHash === gen)
-      .reverse();  // newest first
+    // The film shows EVERYTHING for this asset — across source generations —
+    // interleaved with import markers, so "why did the ledger reset?" is
+    // answerable right here. The ledger out front is generation-scoped; the
+    // changelog is history, and history's job is not to forget.
+    const fieldEvents = ChangeFeed.forAsset(assetId);
+    const markers     = ChangeFeed.forAsset('__source__');
+    const events = [...fieldEvents, ...markers].sort((a, b) => (b.at || 0) - (a.at || 0));  // newest first
+    const n = fieldEvents.length;
     backdrop.innerHTML = `
       <div class="modal items-modal" style="max-width:480px">
         <div class="modal-head items-modal-head">
           <div class="items-modal-title">
             <h3>Changelog</h3>
-            <div class="items-modal-subtitle"><span class="origin-name">${escapeHTML(title)}</span><span class="origin-label"> · ${events.length} event${events.length === 1 ? '' : 's'} this generation</span></div>
+            <div class="items-modal-subtitle"><span class="origin-name">${escapeHTML(title)}</span><span class="origin-label"> · ${n} change event${n === 1 ? '' : 's'}</span></div>
           </div>
           <button class="close" id="cl-close" aria-label="Close">×</button>
         </div>
         <div class="modal-body" style="padding:4px 18px 14px 18px">
-          ${events.map(ev => `
+          ${events.length ? events.map(ev => ev.kind === 'source-import' ? `
+            <div style="padding:10px 12px;margin:10px 0;background:#f59e0b14;border:1px dashed #f59e0b66;border-radius:8px">
+              <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#b45309;font-weight:700">
+                <span>New source imported${ev.filename ? ': ' + escapeHTML(ev.filename) : ''}</span>
+                <span style="flex-shrink:0;font-weight:400">${new Date(ev.at).toLocaleDateString()} ${new Date(ev.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              <div style="font-size:11px;color:var(--dim);margin-top:3px">Pending changes made before this point left the ledger; they keep working in their reports.</div>
+            </div>` : `
             <div style="padding:10px 0;border-bottom:0.5px solid var(--line-soft)">
               <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--dim)">
                 <span>${memberTag(ev.deviceId)}${ev.reportName ? ` · in <strong style="color:var(--ink-soft)">${escapeHTML(ev.reportName)}</strong>` : ''}</span>
@@ -6874,7 +6916,8 @@ function showWhatChangedPanel(assetId, sourceRow) {
                 ${Object.entries(ev.fields || {}).map(([f, d]) => `
                   <div style="font-size:13px;margin-top:2px"><span style="color:var(--dim)">${escapeHTML(fieldLabel[f] || f)}:</span>${fromTo(d)}</div>`).join('')}
               </div>
-            </div>`).join('')}
+            </div>`).join('') : `
+            <div class="items-empty" style="padding:18px 0">No recorded change events for this asset. The pending diff was made before the changelog existed, so it shows in What changed but has no film.</div>`}
         </div>
         <div class="modal-footer">
           <button id="cl-back">← What changed</button>
@@ -6925,9 +6968,11 @@ function showSourceModal() {
         <button class="items-sort-btn active" data-sort="building">Building</button>
         <button class="items-sort-btn" data-sort="type">Type</button>
         <button class="items-sort-btn" data-sort="room">Room</button>
-        <button class="items-sort-btn" id="source-filter-changed" title="Only assets with pending changes">Changed</button>
       </div>
-      <div id="source-pending-line" class="hidden" style="padding:8px 16px;font-size:12px;color:#b45309;background:#f59e0b14;border-bottom:1px solid var(--line-soft)"></div>
+      <div id="source-pending-line" class="hidden" style="padding:8px 16px;font-size:12px;color:#b45309;background:#f59e0b14;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:10px">
+        <span id="source-pending-text" style="flex:1"></span>
+        <button class="src-changed-toggle" id="source-filter-changed" title="Show only assets with pending changes">Only changed</button>
+      </div>
       <div class="modal-body" id="source-modal-body"></div>
       <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end">
         <button id="source-modal-replace" style="background:#c0392b;color:#fff;border:1px solid #a93226;padding:8px 16px;font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:pointer">Replace source file</button>
@@ -6950,9 +6995,9 @@ function showSourceModal() {
     backdrop.remove();
   });
 
-  // Toggle the Pending-changes filter. Lives next to the sort buttons but is
-  // a filter, not a sort — hence no data-sort attribute (the sort wiring
-  // above is scoped to [data-sort] so this button doesn't hijack sortMode).
+  // Toggle the Pending-changes filter — a pill toggle inside the amber
+  // ledger bar (visible only when there ARE pending changes), deliberately
+  // not styled as a fourth sort tab.
   const changedBtn = backdrop.querySelector('#source-filter-changed');
   changedBtn.addEventListener('click', () => {
     filterChanged = !filterChanged;
@@ -7012,7 +7057,7 @@ function showSourceModal() {
             ${r.roomName ? `<span style="font-family:var(--mono);margin-left:4px">· ${escapeHTML(r.roomName)}</span>` : ''}
           </div>
           ${pending ? `<div style="margin-top:6px"><span style="display:inline-block;background:#f59e0b1a;color:#b45309;border:1px solid #f59e0b55;border-radius:999px;padding:2px 9px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">${Object.keys(pending.diffs).length} pending change${Object.keys(pending.diffs).length === 1 ? '' : 's'}</span></div>` : ''}
-          ${sg ? `<div style="font-size:11px;color:var(--dim);margin-top:4px">Last sighting: ${escapeHTML(formatLastSeen(sg.seenAt) || '')}${(() => { const m = GroupStore.getMember(sg.seenBy); return m && m.emoji ? ' · ' + m.emoji : ''; })()}</div>` : ''}
+          ${sg ? `<div style="font-size:11px;color:var(--dim);margin-top:4px">Last sighting: ${escapeHTML(formatLastSeen(sg.seenAt).text || '')}${(() => { const m = GroupStore.getMember(sg.seenBy); return m && m.emoji ? ' · ' + m.emoji : ''; })()}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;justify-content:center;flex-shrink:0;text-align:right">
           ${r.dateInOperation ? `<div style="font-size:12px;color:var(--dim)">${escapeHTML(r.dateInOperation)}</div>` : ''}
@@ -7062,13 +7107,17 @@ function showSourceModal() {
       if (p) pendingMap.set(aid, p);
     }
     const pendingLine = backdrop.querySelector('#source-pending-line');
-    if (pendingLine) {
-      pendingLine.classList.toggle('hidden', pendingMap.size === 0);
-      pendingLine.textContent = pendingMap.size
-        ? `${pendingMap.size} pending change${pendingMap.size === 1 ? '' : 's'} for the next export — tap a marked asset for details`
-        : '';
+    const pendingText = backdrop.querySelector('#source-pending-text');
+    if (pendingMap.size === 0 && filterChanged) {
+      // Nothing left to filter — drop the filter so the (now hidden) toggle
+      // can't leave the list stuck on empty.
+      filterChanged = false;
+      changedBtn.classList.remove('active');
     }
-    changedBtn.textContent = pendingMap.size ? `Changed ${pendingMap.size}` : 'Changed';
+    if (pendingLine) pendingLine.classList.toggle('hidden', pendingMap.size === 0);
+    if (pendingText) pendingText.textContent = pendingMap.size
+      ? `${pendingMap.size} pending change${pendingMap.size === 1 ? '' : 's'} for the next export — tap a marked asset for details`
+      : '';
 
     let filtered = query
       ? rows.filter(r => [r.type, r.building, r.room, r.roomName, r.model, r.id]
