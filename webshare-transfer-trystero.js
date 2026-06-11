@@ -1,13 +1,13 @@
 /**
  * webshare-transfer-trystero.js
  *
- * TrysteroTransfer — persistent, multi-peer WebRTC via Nostr signaling.
+ * TrysteroTransfer — persistent, multi-peer WebRTC over MQTT signaling.
  *
  * Key differences from PeerJS/Raw:
  *  - Persistent rooms: roomcode never expires, auto-reconnect after any outage
  *  - Multi-peer: multiple devices can share the same room simultaneously
  *  - Group password: room access requires knowing the shared secret (in QR)
- *  - Sync actions: sync-full / sync-delta / sync-request for automatic data sync
+ *  - Collection sync: collection-delta / collection-full (SyncEngine) for automatic data sync
  *
  * Loads Trystero lazily via dynamic import() from esm.run (jsDelivr) — the
  * officially recommended CDN. Pre-fetched at script load to avoid cold-start
@@ -26,45 +26,41 @@
   // esm.run is jsDelivr's ESM CDN — the officially recommended way to load
   // Trystero in a browser without a bundler.
   //
-  // Trystero split each signaling strategy into its own package. The legacy
-  // `trystero/mqtt` subpath now throws a deprecation error, so MQTT must be
-  // loaded from the dedicated @trystero-p2p/mqtt package. Nostr still works
-  // via the main package's /nostr subpath.
-  const TRYSTERO_VERSION = '0.23.0';
-  const TRYSTERO_CDN_NOSTR = `https://esm.run/trystero@${TRYSTERO_VERSION}/nostr`;
-  const TRYSTERO_CDN_MQTT  = `https://esm.run/@trystero-p2p/mqtt`;
+  // Trystero split each signaling strategy into its own package. MQTT is the
+  // only strategy FieldSync uses, loaded from the dedicated @trystero-p2p/mqtt
+  // package.
+  //
+  // PINNED VERSION. This URL used to be unpinned, which meant esm.run served
+  // whatever the latest release was — and the library changed under us:
+  // 0.23 announced presence exactly ONCE per room join (hence all the
+  // app-level re-announce machinery), while 0.25 re-announces by itself every
+  // ~5.3s per relay (with 233/533/1333ms warmup bursts) without disturbing
+  // peer connections, and handles browser online events internally
+  // (watchOnline). Pinning makes behavior deterministic and reproducible;
+  // upgrade DELIBERATELY by bumping this version after reading the changelog,
+  // and bump LOCAL_VERSION in index.html alongside it.
+  const TRYSTERO_VERSION   = '0.25.1';
+  const TRYSTERO_CDN_MQTT  = `https://esm.run/@trystero-p2p/mqtt@${TRYSTERO_VERSION}`;
 
-  // Pre-fetch the Trystero modules. Each strategy is a separate module;
-  // we cache them by strategy name so switching backends is instant.
-  // On failure we clear the cache entry so a later attempt can retry,
-  // and resolve to null so callers can detect the failure cleanly.
-  const _trysteroModules = {};
-  function _prefetchTrystero(strategy = 'nostr') {
-    if (!_trysteroModules[strategy]) {
-      const url = strategy === 'mqtt' ? TRYSTERO_CDN_MQTT : TRYSTERO_CDN_NOSTR;
-      _trysteroModules[strategy] = import(url).catch((e) => {
-        _trysteroModules[strategy] = null;  // allow retry next time
-        return null;                         // resolve to null, not undefined
+  // Pre-fetch the Trystero MQTT module. On failure we clear the cache entry so
+  // a later attempt can retry, and resolve to null so callers can detect the
+  // failure cleanly.
+  let _trysteroModule = undefined;
+  function _prefetchTrystero() {
+    if (_trysteroModule === undefined) {
+      _trysteroModule = import(TRYSTERO_CDN_MQTT).catch((e) => {
+        _trysteroModule = undefined;  // allow retry next time
+        return null;                  // resolve to null, not undefined
       });
     }
-    return _trysteroModules[strategy];
+    return _trysteroModule;
   }
-  _prefetchTrystero('mqtt');
-  _prefetchTrystero('nostr');
+  _prefetchTrystero();
 
-  // Relay diagnostics should run at most once per strategy per page load —
-  // repeated joins (reconnects) must not stack extra test WebSockets, which
-  // would get the app rate-limited. Switching strategy (MQTT↔Nostr) tests
-  // the new strategy's relays once.
-  const _relayDiagnosticsRun = {};
-
-  // Public Nostr relays — all fully open, no signup or payment required.
-  const NOSTR_RELAY_URLS = [
-    'wss://nos.lol',
-    'wss://relay.snort.social',
-    'wss://relay.primal.net',
-    'wss://nostr.mom',
-  ];
+  // Broker diagnostics should run at most once per page load — repeated joins
+  // (reconnects) must not stack extra test WebSockets, which would get the app
+  // rate-limited.
+  let _relayDiagnosticsRun = false;
 
   // Public MQTT brokers with WebSocket support — used by the MQTT strategy.
   // These mirror the @trystero-p2p/mqtt package's own default broker list,
@@ -129,10 +125,8 @@
      * @param {string}   [options.password]        - Shared group password for Trystero encryption.
      * @param {Function} [options.onPeerAccept]   - (deviceId, peerInfo) => boolean.
      */
-    constructor({ peerInfo, iceServers, persistent = false, password = null, onPeerAccept = null, strategy = 'mqtt' } = {}) {
+    constructor({ peerInfo, iceServers, persistent = false, password = null, onPeerAccept = null } = {}) {
       super({ iceServers, peerInfo });
-
-      this._strategy = strategy;  // 'nostr' or 'mqtt'
 
       // Trystero room state
       this._room            = null;
@@ -142,11 +136,6 @@
       this._isReconnecting  = false;
       this._pendingPeerJoins = new Map(); // peerId → { isReconnect }
       this._rejectedPeers   = new Set();
-      // Per-peer departure times: peerId → timestamp when they left. Used by
-      // the member list to show an "Away" status during a window after a peer
-      // drops (they may come right back) before treating them as offline.
-      // Independent of LEAVE_GRACE_MS (which drives the connection status bar).
-      this._recentlyLeft    = new Map();
       // Liveness ping: direct peers whose pings have repeatedly failed are
       // treated as effectively gone (a "zombie" WebRTC connection that's
       // formally open but silent). _pingDead holds those peerIds so the app's
@@ -168,27 +157,19 @@
       this._sendLampAction        = null;
       this._sendPayloadAction     = null;
       this._sendAckAction         = null;
-      this._sendSyncFullAction    = null;
-      this._sendSyncDeltaAction   = null;
-      this._sendSyncRequestAction = null;
       this._sendSourceInfoAction  = null;
       this._sendSourceReqAction   = null;
       this._sendSourceDataAction  = null;
-      this._sendMbrSyncAction     = null;
 
       // Config
       this.persistent   = persistent;
       this.password     = password;
       this.onPeerAccept = onPeerAccept;
 
-      // Sync callbacks — set externally by TrysteroRoomManager / SyncManager
-      this.onSyncFull     = null;  // (sessions, fromPeerId) => void
-      this.onSyncDelta    = null;  // (session,  fromPeerId) => void
-      this.onSyncRequest  = null;  // (fromPeerId) => void
+      // Sync callbacks — set externally by TrysteroRoomManager / SyncEngine
       this.onSourceInfo   = null;  // ({ hash, uploadedAt }, fromPeerId) => void
       this.onSourceRequest = null; // (fromPeerId) => void
       this.onSourceData   = null;  // ({ filename, uploadedAt, hash, rows }, fromPeerId) => void
-      this.onMbrSync      = null;  // (member, fromPeerId) => void
       this.onCollectionDelta = null; // (name, record, fromPeerId) => void
       this.onCollectionFull  = null; // (name, records, fromPeerId) => void
     }
@@ -227,20 +208,6 @@
     // group). Default-closed for all actions, present and future.
     sealInbound()   { this._inboundSealed = true; }
     unsealInbound() { this._inboundSealed = false; }
-
-    // Map of peerId → ms-since-departure for peers that recently left and
-    // haven't returned. The member list uses this to show an "Away" status
-    // for a window after a peer drops, before treating them as offline.
-    // Connected peers are not included.
-    getRecentlyLeft() {
-      const now = Date.now();
-      const out = {};
-      for (const [peerId, leftAt] of this._recentlyLeft) {
-        if (this._connectedPeers.has(peerId)) continue;
-        out[peerId] = now - leftAt;
-      }
-      return out;
-    }
 
     // Watch for the case where ALL signaling brokers/relays drop. Brokers are
     // only needed to find peers and to reconnect; an already-established P2P
@@ -331,22 +298,7 @@
       } catch {}
     }
 
-    // Sync methods — called by SyncManager
-    sendSyncFull(sessions, targetPeerId) {
-      if (!this._sendSyncFullAction) return;
-      try { this._sendSyncFullAction(sessions, targetPeerId || undefined); } catch {}
-    }
-
-    sendSyncDelta(session) {
-      if (!this._sendSyncDeltaAction || this._connectedPeers.size === 0) return;
-      try { this._sendSyncDeltaAction(session); } catch {}
-    }
-
-    sendSyncRequest(targetPeerId) {
-      if (!this._sendSyncRequestAction) return;
-      try { this._sendSyncRequestAction({}, targetPeerId || undefined); } catch {}
-    }
-
+    // Source sync methods — called by SourceSyncManager
     sendSourceInfo(data, targetPeerId) {
       if (!this._sendSourceInfoAction) return;
       try { this._sendSourceInfoAction(data, targetPeerId || undefined); } catch {}
@@ -360,11 +312,6 @@
     sendSourceData(data, targetPeerId) {
       if (!this._sendSourceDataAction) return;
       try { this._sendSourceDataAction(data, targetPeerId || undefined); } catch {}
-    }
-
-    sendMbrSync(member, targetPeerId) {
-      if (!this._sendMbrSyncAction || this._connectedPeers.size === 0) return;
-      try { this._sendMbrSyncAction(member, targetPeerId || undefined); } catch {}
     }
 
     _startHeartbeat() { /* Trystero handles keep-alives internally */ }
@@ -437,11 +384,10 @@
     // -----------------------------------------------------------------------
 
     async _joinRoom(roomCode) {
-      const isMqtt = this._strategy === 'mqtt';
-      this._log('info', isMqtt ? 'Connecting to MQTT brokers…' : 'Connecting to Nostr relays…');
-      const mod = await _prefetchTrystero(this._strategy);
+      this._log('info', 'Connecting to MQTT brokers…');
+      const mod = await _prefetchTrystero();
       if (!mod || typeof mod.joinRoom !== 'function') {
-        throw new Error(`Failed to load Trystero ${this._strategy} module (CDN unreachable?)`);
+        throw new Error('Failed to load Trystero MQTT module (CDN unreachable?)');
       }
       const { joinRoom } = mod;
       // getRelaySockets is a MODULE-level export in Trystero (not a room
@@ -491,13 +437,13 @@
 
       const config = {
         appId      : TRYSTERO_APP_ID,
-        relayConfig: { urls: isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS },
+        relayConfig: { urls: MQTT_BROKER_URLS },
         turnConfig : TURN_CONFIG,
       };
       if (this.password) config.password = this.password;
 
       this._room = joinRoom(config, roomCode);
-      const RELAY_URLS = isMqtt ? MQTT_BROKER_URLS : NOSTR_RELAY_URLS;
+      const RELAY_URLS = MQTT_BROKER_URLS;
 
       // Start the liveness ping loop for this room (no-op on strategies without
       // ping support, or if already running).
@@ -507,12 +453,12 @@
       // strategy per page load. The guard is set NOW (at schedule time), not
       // inside the timer, so a second join within the 3s window doesn't
       // schedule a second diagnostics run (which would double the log).
-      if (this._devMode && !_relayDiagnosticsRun[this._strategy]) {
-        _relayDiagnosticsRun[this._strategy] = true;
+      if (this._devMode && !_relayDiagnosticsRun) {
+        _relayDiagnosticsRun = true;
         setTimeout(() => {
         if (!this._room) return;
 
-        const label = isMqtt ? 'broker' : 'relay';
+        const label = 'broker';
 
         try {
           // Preferred: ask Trystero which signaling sockets are actually open.
@@ -612,7 +558,7 @@
         if (Array.isArray(result)) {
           if (this._devMode && !this._loggedApiShape) {
             this._loggedApiShape = true;
-            console.log(`[FieldSync] ${this._strategy} uses classic array makeAction API`);
+            console.log('[FieldSync] mqtt uses classic array makeAction API');
           }
           const [rawSend, rawOnReceive] = result;
           const onReceive = (cb) => rawOnReceive((data, peerId) => {
@@ -626,7 +572,7 @@
         if (result && typeof result === 'object' && typeof result.send === 'function') {
           if (this._devMode && !this._loggedApiShape) {
             this._loggedApiShape = true;
-            console.log(`[FieldSync] ${this._strategy} uses new object makeAction API (adapted)`);
+            console.log('[FieldSync] mqtt uses new object makeAction API (adapted)');
           }
           const send = (data, targetPeerId) => {
             if (targetPeerId == null) return result.send(data);
@@ -656,13 +602,9 @@
       const [sendLamp,     onLamp]     = _makeAction('lamp');
 
       // Sync actions
-      const [sendSyncFull,    onSyncFull]    = _makeAction('sync-full');
-      const [sendSyncDelta,   onSyncDelta]   = _makeAction('sync-delta');
-      const [sendSyncRequest, onSyncRequest] = _makeAction('sync-request');
       const [sendSourceInfo,  onSourceInfo]  = _makeAction('src-info');
       const [sendSourceReq,   onSourceReq]   = _makeAction('src-req');
       const [sendSourceData,  onSourceData]  = _makeAction('src-data');
-      const [sendMbrSync,     onMbrSync]     = _makeAction('mbr-sync');
 
       // Generic collection sync — one action pair carries every collection;
       // the collection name travels inside the payload. Used by SyncEngine.
@@ -674,13 +616,9 @@
       this._sendPeerInfoAction    = (data, targetId) => sendPeerInfo(data, targetId);
       this._sendNoteAction        = sendNote;
       this._sendLampAction        = sendLamp;
-      this._sendSyncFullAction    = (data, targetId) => sendSyncFull(data, targetId);
-      this._sendSyncDeltaAction   = (data) => sendSyncDelta(data);
-      this._sendSyncRequestAction = (data, targetId) => sendSyncRequest(data, targetId);
       this._sendSourceInfoAction  = (data, targetId) => sendSourceInfo(data, targetId);
       this._sendSourceReqAction   = (data, targetId) => sendSourceReq(data, targetId);
       this._sendSourceDataAction  = (data, targetId) => sendSourceData(data, targetId);
-      this._sendMbrSyncAction     = (data) => sendMbrSync(data);
       this._sendColDeltaAction    = (name, record) => sendColDelta({ name, record });
       this._sendColFullAction     = (name, records, targetId) => sendColFull({ name, records }, targetId);
 
@@ -712,7 +650,7 @@
       // Incoming peer-info — gate on onPeerAccept before accepting.
       onPeerInfo(({ info, token } = {}, peerId) => {
         // A peer may have been rejected earlier (e.g. before our group
-        // existed, or before an mbr-sync taught us they're legitimate).
+        // existed, or before the member sync taught us they're legitimate).
         // Don't treat rejection as permanent: re-run onPeerAccept, which now
         // accepts known members and any peer in an existing group. Only stay
         // rejected if onPeerAccept still says no.
@@ -802,18 +740,6 @@
       });
 
       // Sync handlers
-      onSyncFull((sessions, peerId) => {
-        if (this.onSyncFull) this.onSyncFull(sessions, peerId);
-      });
-
-      onSyncDelta((session, peerId) => {
-        if (this.onSyncDelta) this.onSyncDelta(session, peerId);
-      });
-
-      onSyncRequest((_, peerId) => {
-        if (this.onSyncRequest) this.onSyncRequest(peerId);
-      });
-
       onSourceInfo((data, peerId) => {
         if (this.onSourceInfo) this.onSourceInfo(data, peerId);
       });
@@ -824,10 +750,6 @@
 
       onSourceData((data, peerId) => {
         if (this.onSourceData) this.onSourceData(data, peerId);
-      });
-
-      onMbrSync((data, peerId) => {
-        if (this.onMbrSync) this.onMbrSync(data, peerId);
       });
 
       onColDelta((data, peerId) => {
@@ -852,7 +774,6 @@
       if (this._leaveTimer) { clearTimeout(this._leaveTimer); this._leaveTimer = null; }
 
       this._connectedPeers.add(peerId);
-      this._recentlyLeft.delete(peerId);   // back online — no longer "away"
       // A rejoining peer must be evaluated fresh: clear any stale rejection so
       // the onPeerAccept → seed chain runs again. Without this, a peer that was
       // rejected earlier (or left after an abort) rejoins but has its data
@@ -861,7 +782,7 @@
       this._remotePeerId   = peerId;
       this._isReconnecting = false;
 
-      this._log('info', `${this._strategy === 'mqtt' ? 'MQTT' : 'Nostr'}: peer found in room (${peerId.slice(0, 8)}…) — establishing WebRTC…`);
+      this._log('info', `MQTT: peer found in room (${peerId.slice(0, 8)}…) — establishing WebRTC…`);
 
       // Send peer-info to this new peer. The data channel may not be fully
       // open at onPeerJoin time, so a single immediate send can be dropped —
@@ -907,7 +828,6 @@
     _onPeerLeave(peerId) {
       this._connectedPeers.delete(peerId);
       this._pendingPeerJoins.delete(peerId);
-      this._recentlyLeft.set(peerId, Date.now());   // start the "away" window
       // Clear any stale rejection for this peer. Otherwise a peer that was
       // briefly rejected (e.g. QR not visible at that instant) stays in the
       // rejected set, and when it REJOINS its data is silently dropped at the
@@ -979,13 +899,9 @@
       this._sendLampAction        = null;
       this._sendPayloadAction     = null;
       this._sendAckAction         = null;
-      this._sendSyncFullAction    = null;
-      this._sendSyncDeltaAction   = null;
-      this._sendSyncRequestAction = null;
       this._sendSourceInfoAction  = null;
       this._sendSourceReqAction   = null;
       this._sendSourceDataAction  = null;
-      this._sendMbrSyncAction     = null;
       this._status('idle');
     }
   }

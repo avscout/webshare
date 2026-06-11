@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>FieldSync</title>
 
-<!-- PWA manifest: enables Add to Home Screen on Chromium and the iOS 
+<!-- PWA manifest: enables Add to Home Screen on Chromium and the iOS
      "Add to Home Screen" flow. The manifest itself lives at /manifest.json
      in the deployed app. Required icon files alongside index.html:
        icon-192.png      — manifest any-purpose
@@ -464,20 +464,6 @@
   .bottombar button.ghost:hover:not(:disabled) { color: var(--accent); }
 
   /* ===== Components inside screens ===== */
-  .toggle-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); margin-bottom: 18px; }
-  .toggle-btn {
-    background: var(--bg); border: none; padding: 14px 12px;
-    font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--ink-soft);
-    cursor: pointer; transition: all 0.15s; text-align: center;
-  }
-  .toggle-btn + .toggle-btn { border-left: 1px solid var(--line); }
-  .toggle-btn:hover:not(.active) { background: var(--bg-subtle); color: var(--accent); }
-  .toggle-btn.active, .toggle-btn.active:hover {
-    background: var(--accent-deep); color: #FFFFFF; cursor: default;
-  }
-  .toggle-btn .arrow { display: block; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 3px; opacity: 0.75; font-weight: 700; }
-  .toggle-btn small { display: block; font-size: 10px; opacity: 0.8; margin-top: 4px; font-weight: 400; }
-  .toggle-btn.active small { opacity: 0.85; }
 
   /* Direction buttons on the start screen. Both are the same cyan style —
      no "active" state because tapping IS the action (commits and advances
@@ -1124,146 +1110,6 @@
     animation: flash-in 1.2s ease-out;
   }
 
-  /* ===== Paper plane "sent" animation (sender only) ===== */
-  /* Sent view styles. The visual celebration lives in the connection bar
-     at the bottom of the screen (rainbow scroll); here we just style the
-     headline + subline + action buttons. Entrance animations stagger
-     so the eye lands first on the headline, then the subline, then the
-     action buttons become tappable. */
-  /* Centered group inside the sent view — headline + which-file
-     name. margin: auto 0 inside the flex-column #transfer-sent-view
-     pushes the group toward the vertical center, while the action
-     buttons (margin-top: auto on .transfer-actions) pin to the
-     bottom. Net effect: text floats centered, buttons sit on the
-     floor. */
-  .sent-center {
-    margin: auto 0;
-    display: flex; flex-direction: column; align-items: center;
-    gap: 14px;
-  }
-  .sent-headline {
-    font-size: 32px; font-weight: 700; color: var(--accent-deep);
-    text-align: center; letter-spacing: -0.01em;
-    margin: 0;
-    opacity: 0;
-    animation: sent-text-in 0.4s ease-out 0.2s forwards;
-  }
-  /* Which file was sent — shown below the "Sent!" headline. Animates
-     in slightly later than the headline for a staggered reveal. */
-  .sent-filename {
-    font-size: 15px; font-weight: 600; color: var(--ink);
-    text-align: center;
-    max-width: 90%;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    opacity: 0;
-    animation: sent-text-in 0.4s ease-out 0.45s forwards;
-  }
-  @keyframes sent-text-in {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  /* Honor user preference for reduced motion: skip animations, show end state */
-  @media (prefers-reduced-motion: reduce) {
-    .sent-headline, .sent-filename { animation: none; opacity: 1; transform: none; }
-    .sent-actions-hidden { opacity: 1 !important; pointer-events: auto !important; }
-  }
-
-  /* Skip/error variants of the sent view. Color the headline differently
-     so the user immediately reads "this isn't a success" vs the normal
-     accent-deep blue for success. The connection bar at the bottom also
-     reflects the outcome (its balloon shows the specific action), so
-     the two indicators reinforce each other. */
-  .sent-skipped .sent-headline { color: var(--ink); }
-  .sent-error   .sent-headline { color: var(--warn); }
-
-  /* Received-from banner — receiver's done state. Quietly identifies the
-     sender alongside the session list. */
-  .received-from {
-    display: flex; align-items: center; gap: 14px;
-    padding: 14px 16px;
-    background: rgba(0, 166, 214, 0.06);
-    border-left: 4px solid var(--accent);
-  }
-  .received-from-eyebrow {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: var(--dim);
-  }
-  .received-from-name {
-    font-size: 16px; font-weight: 700; color: var(--ink);
-    margin-top: 2px;
-  }
-  .received-from.unknown .received-from-name {
-    font-style: italic; color: var(--dim);
-  }
-  .received-from.unknown .received-from-device svg { opacity: 0.45; }
-
-  /* In-content action buttons (Disconnect / Send another). Placed inside the
-     content area so they're contextually adjacent to the message they relate
-     to, rather than floating in a global nav bar. The transfer views are
-     flex-columns filling the full content height, and the actions get
-     margin-top: auto so they pin to the bottom regardless of how much
-     content is above them. */
-  #transfer-progress-view,
-  #transfer-sent-view {
-    display: flex; flex-direction: column;
-    flex: 1;
-  }
-  /* Ensure the content area is a flex container so the inner views
-     get a parent to flex against — otherwise flex:1 has no effect. */
-  .screen[data-screen="transfer"] > .screen-content {
-    display: flex; flex-direction: column;
-  }
-  /* Section dividers on the transfer-done screen — visually separates
-     "Just received", "Other reports", and the action buttons. Mirrors
-     the My device modal's section dividers (1px solid var(--line-soft)). */
-  #transfer-just-panel,
-  #transfer-sessions-panel {
-    padding-top: 22px;
-    padding-bottom: 22px;
-    border-bottom: 1px solid var(--line-soft);
-    margin-top: 0;
-  }
-  /* When both panels are visible they each have a border-bottom; when
-     only one is, it's still the last section and the buttons sit below.
-     The action buttons have their own top border so the divider is
-     always present between content and CTAs. */
-  .transfer-actions {
-    margin-top: auto;
-    padding-top: 24px;
-    display: flex; gap: 10px; justify-content: center;
-  }
-  .transfer-actions button {
-    flex: 1; max-width: 200px; height: 44px;
-    font-family: var(--sans); font-size: 13px; font-weight: 700;
-    letter-spacing: 0.04em; text-transform: uppercase;
-    border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft);
-    cursor: pointer; transition: all 0.15s;
-  }
-  .transfer-actions button:hover:not(:disabled):not(.primary) {
-    border-color: var(--accent); color: var(--accent);
-  }
-  .transfer-actions button.primary {
-    background: var(--accent); color: #FFFFFF; border-color: var(--accent);
-  }
-  .transfer-actions button.primary:hover:not(:disabled) {
-    background: var(--tud-cyan-dark); border-color: var(--tud-cyan-dark);
-  }
-
-  /* The action buttons in the sent view fade in just after the subline.
-     Staggered ~0.7s from screen entry: 0.2s headline → 0.4s subline →
-     0.7s buttons. Short enough that the user doesn't sit waiting, long
-     enough to read as an intentional reveal. Uses a dedicated keyframe
-     (rather than reusing sent-text-in) so pointer-events flips from
-     none → auto at animation end, otherwise the buttons stay
-     visually-present but un-clickable. */
-  .sent-actions-hidden {
-    opacity: 0; pointer-events: none;
-    animation: sent-actions-in 0.4s ease-out 0.7s forwards;
-  }
-  @keyframes sent-actions-in {
-    from { opacity: 0; transform: translateY(8px); pointer-events: none; }
-    to   { opacity: 1; transform: translateY(0); pointer-events: auto; }
-  }
 
   /* ===== Preboot ===== */
   /* The main app and bottom nav are hidden until init resolves. Prevents
@@ -1754,15 +1600,6 @@
   .btn-row button:disabled { opacity: 0.35; cursor: not-allowed; }
 
   /* Network banner */
-  .net-banner {
-    border: 1px solid var(--line); border-left: 4px solid var(--warn);
-    padding: 12px 14px; margin-bottom: 14px;
-    background: #FFF6F4; font-size: 12px;
-  }
-  .net-banner strong { color: var(--warn); font-weight: 700; }
-  .net-id-row { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
-  .net-id-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
-  .net-id { font-family: var(--mono); font-size: 14px; color: var(--accent-deep); padding: 2px 8px; background: var(--bg-subtle); border: 1px solid var(--line); user-select: all; font-weight: 600; }
 
   /* Modal */
   .modal-backdrop {
@@ -2059,26 +1896,8 @@
   <section class="screen active" data-screen="start">
     <div class="screen-header">
       <h1 class="screen-title">Home</h1>
-      <p class="screen-subtitle dev-only">Pick a backend (how peers find each other) and whether this device sends or receives.</p>
     </div>
     <div class="screen-content">
-      <div class="dev-only">
-        <label class="field"><span>Backend</span></label>
-        <div class="toggle-group" id="backend-group">
-          <button class="toggle-btn active" data-backend="mqtt">Trystero / MQTT<small>default · IoT relay</small></button>
-          <button class="toggle-btn" data-backend="trystero">Trystero / Nostr<small>reconnect-proof</small></button>
-          <button class="toggle-btn" data-backend="peerjs">PeerJS<small>cross-network</small></button>
-          <button class="toggle-btn" data-backend="raw">Raw WebRTC<small>same Wi-Fi only</small></button>
-        </div>
-
-        <div class="net-banner hidden" id="net-banner">
-          <div>Raw WebRTC requires both devices on the <strong>same network</strong>.</div>
-          <div class="net-id-row hidden" id="net-id-row">
-            <span class="net-id-label">Your network:</span>
-            <code class="net-id" id="net-id">…</code>
-          </div>
-        </div>
-      </div>
 
       <!-- Source data section -->
       <div id="source-section" style="margin-bottom:0"></div>
@@ -2194,7 +2013,7 @@
     </div>
   </section>
 
-  <!-- ============ SCAN QR (SEND PEERJS / RAW BOTH) ============ -->
+  <!-- ============ SCAN QR (join a group by scanning an invite) ============ -->
   <section class="screen hidden" data-screen="scan-qr">
     <div class="screen-header">
       <h1 class="screen-title" id="scan-qr-title">Scan the QR</h1>
@@ -2217,97 +2036,6 @@
     </div>
   </section>
 
-  <!-- ============ TRANSFERRING / DONE ============ -->
-  <section class="screen hidden" data-screen="transfer">
-    <div class="screen-header" id="transfer-header">
-      <h1 class="screen-title" id="transfer-title">Transferring…</h1>
-      <!-- Note: no static subtitle here. All dynamic status text lives below
-           the progress bar in #transfer-status, so it's always co-located with
-           what's actually happening. -->
-    </div>
-    <div class="screen-content">
-
-      <!-- Progress + status view (in-progress + receiver done) -->
-      <div id="transfer-progress-view">
-        <div class="progress"><div class="progress-bar" id="transfer-progress"></div></div>
-        <div class="status-line" id="transfer-status">Waiting for connection…</div>
-
-        <!-- "Just received" / "Just sent" panel — section eyebrow plus
-             one or more rows for every transfer that happened in this
-             connection session, newest first. Rows use the shared
-             renderSessionRow so they carry the same icon actions as
-             elsewhere in the app. -->
-        <div class="hidden" id="transfer-just-panel">
-          <div class="screen-eyebrow" id="transfer-just-header" style="margin-bottom: 10px;">Just received</div>
-          <div class="session-list" id="transfer-just-list"></div>
-        </div>
-
-        <!-- "Other reports" — compact count + Browse →, mirrors the My
-             device pattern. Excludes anything in the just-transferred
-             list above; hidden when zero. -->
-        <div class="hidden" id="transfer-sessions-panel">
-          <div class="screen-eyebrow" style="margin-bottom: 10px;">Other reports</div>
-          <div class="mydev-sessions-row">
-            <div class="mydev-sessions-count">
-              <span id="transfer-sessions-count">0</span>
-              <span class="mydev-sessions-label" id="transfer-sessions-label">tasks on this device</span>
-            </div>
-            <button class="mydev-browse-btn" id="transfer-browse-btn">Browse →</button>
-          </div>
-        </div>
-
-        <!-- Live note panel — visible on the receiver's transfer screen
-             while connected. Mirror of the one on the sender's pick screen,
-             so both sides have a place to exchange a quick live-updating
-             note. Hidden by default; shown when receiver is connected. -->
-        <div class="note-panel hidden" id="transfer-note-panel">
-          <div class="demo-eyebrow">Live collaboration</div>
-          <div class="lamp-row" data-lamp-toggle role="button" tabindex="0" aria-pressed="false">
-            <div class="lamp-bulb" data-lamp-bulb aria-hidden="true"></div>
-            <div class="lamp-label">
-              <div class="lamp-title">Shared light</div>
-              <div class="lamp-state" data-lamp-state>Off — tap to turn on</div>
-            </div>
-          </div>
-          <div class="note-section">
-            <div class="note-eyebrow">Shared note</div>
-            <textarea class="note-input" data-note-input rows="2" placeholder="Type a shared note…" autocomplete="off"></textarea>
-          </div>
-        </div>
-
-        <!-- Inline action area: only rendered when a terminal state is reached
-             (done on receiver, or error on either side). During active transfer
-             this is empty so there's no button to confuse the user. -->
-        <div class="transfer-actions hidden" id="transfer-progress-actions">
-          <button class="primary" id="progress-restart-btn">Disconnect</button>
-        </div>
-      </div>
-
-      <!-- Sent view (sender only, after status='done').
-           Headline + two action buttons. The per-outcome detail
-           (Saved/Replaced/Merged/Skipped) lives in the connection bar's
-           balloon at the bottom of the screen — no subline here would
-           duplicate that. -->
-      <div class="hidden" id="transfer-sent-view">
-        <!-- Headline + which-file group sits vertically centered in the
-             screen. The two action buttons below are pinned to the
-             bottom by .transfer-actions { margin-top: auto }. -->
-        <div class="sent-center">
-          <h2 class="sent-headline" id="sent-headline">Sent!</h2>
-          <div class="sent-filename" id="sent-filename"></div>
-        </div>
-        <!-- Two actions, revealed together via a short delayed reveal:
-               - "Send another" (primary): reuses the connection, returns
-                 the user to the pick screen to choose another session.
-               - "Disconnect": closes the pairing, goes to start screen. -->
-        <div class="transfer-actions sent-actions-hidden" id="transfer-sent-actions">
-          <button class="primary" id="sent-restart-btn">Send another</button>
-          <button id="sent-disconnect-btn">Disconnect</button>
-        </div>
-      </div>
-
-    </div>
-  </section>
 
 
 </main>
@@ -2360,26 +2088,24 @@
 <!-- Library loading -->
 <script>
 (function loadLibs() {
-  // Bump this when local scripts (qrcode.js, jsQR.js, peerjs_min.js,
-  // webshare-transfer.js) change and you need to defeat browser caching.
+  // Bump this when local scripts (qrcode.js, jsQR.js, webshare-transfer-*.js)
+  // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '96';
+  const LOCAL_VERSION = '101';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
+  // qrcode + jsQR are used by the group invite/join QR flow (render + scan).
   const thirdPartyLibs = [
     { cdn: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js', local: 'qrcode.js' },
     { cdn: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',                local: 'jsQR.js' },
-    { cdn: 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',        local: 'peerjs.min.js' },
   ];
   // Our transfer stack — must load in strict order:
-  //   1. core   (defines CoreTransfer, shared protocol)
-  //   2. backends (extend CoreTransfer, can load in parallel once core is ready)
+  //   1. core     (defines CoreTransfer, shared protocol)
+  //   2. trystero (the MQTT transport — the only backend)
   const coreLib = { local: 'webshare-transfer-core.js' };
   const backendLibs = [
-    { local: 'webshare-transfer-peerjs.js' },
-    { local: 'webshare-transfer-raw.js' },
     { local: 'webshare-transfer-trystero.js' },
   ];
   function withVersion(url) { return url + (url.includes('?') ? '&' : '?') + 'v=' + LOCAL_VERSION; }
@@ -2556,7 +2282,7 @@ async function getSession(id) {
   return result;
 }
 
-// Internal raw put — used by SyncManager (no sync broadcast, no syncedAt update)
+// Internal raw put — used by the reports sync adapter (no sync broadcast, no syncedAt update)
 async function _putSessionRaw(session) {
   const db = await openSessionDb();
   const tx = db.transaction('sessions', 'readwrite');
@@ -2596,8 +2322,8 @@ async function putSession(session) {
   const tx = db.transaction('sessions', 'readwrite');
   tx.objectStore('sessions').put(session);
   await txPromise(tx); db.close();
-  if (currentBackend === 'trystero' || GroupStore.exists()) {
-    SyncManager.broadcastDelta(session);
+  if (GroupStore.exists()) {
+    SyncEngine.broadcastDelta('reports', session);
   }
   refreshReportsHash();   // update our sync fingerprint + tell the group
 }
@@ -2637,8 +2363,8 @@ async function setSessionStatus(id, newStatus) {
   }
 
   await _putSessionRaw(updated);
-  if (currentBackend === 'trystero' || GroupStore.exists()) {
-    SyncManager.broadcastDelta(updated);
+  if (GroupStore.exists()) {
+    SyncEngine.broadcastDelta('reports', updated);
   }
   refreshReportsHash();   // status change alters our fingerprint
   return updated;
@@ -2661,8 +2387,8 @@ async function deleteReportTombstone(id) {
     history  : [],
   };
   await _putSessionRaw(tombstone);
-  if (currentBackend === 'trystero' || GroupStore.exists()) {
-    SyncManager.broadcastDelta(tombstone);
+  if (GroupStore.exists()) {
+    SyncEngine.broadcastDelta('reports', tombstone);
   }
   refreshReportsHash();
   log(`Dev: deleted report ${existing?.name || id} (tombstone propagated).`, 'info');
@@ -3841,7 +3567,6 @@ const TrysteroRoomManager = {
       peerInfo    : buildLocalPeerInfo(),
       persistent  : true,
       password,
-      strategy    : currentBackend === 'mqtt' ? 'mqtt' : 'nostr',
       onPeerAccept: (deviceId, info) => {
         if (GroupStore.isKnown(deviceId)) {
           GroupStore.touch(deviceId);
@@ -3914,7 +3639,6 @@ const TrysteroRoomManager = {
         showConnectionBar();
         setConnectionBarStatus('connected');
       }
-      t.sendSyncRequest(peerId);
       SourceSyncManager.broadcastInfo(peerId);
       // Seed the new peer with all shared-collection state — members, demo
       // note/lamp, and any future collection — in one place.
@@ -4017,38 +3741,10 @@ const TrysteroRoomManager = {
     // collection — broadcast, propagated, and last-write-wins like everything
     // else. No separate note/lamp event wiring needed here.
 
-    // Wire sync callbacks to SyncManager
-    t.onSyncFull    = (sessions, peerId) => SyncManager.receiveFull(sessions, peerId);
-    t.onSyncDelta   = (session,  peerId) => SyncManager.receiveDelta(session, peerId);
-    t.onSyncRequest = (peerId)           => SyncManager.sendFullTo(peerId);
-
     // Wire source sync callbacks
     t.onSourceInfo    = (data, peerId)   => SourceSyncManager.receiveInfo(data, peerId);
     t.onSourceRequest = (peerId)         => SourceSyncManager.sendDataTo(peerId);
     t.onSourceData    = (data, peerId)   => SourceSyncManager.receiveData(data, peerId);
-
-    // Wire member sync — receives full member list + tombstones from peer.
-    // Tombstones carry {deviceId, removedAt}; legacy senders may send bare
-    // deviceId strings, which we treat as "removed now" for back-compat.
-    t.onMbrSync = (data) => {
-      if (!data) return;
-      const members = Array.isArray(data.members) ? data.members : (Array.isArray(data) ? data : [data]);
-      const rawRemoved = Array.isArray(data.removed) ? data.removed : [];
-      const tombstones = rawRemoved.map(r =>
-        typeof r === 'string' ? { deviceId: r, removedAt: Date.now() } : r
-      );
-
-      // Merge tombstones (last-write-wins). If WE were removed, run the same
-      // wipe sequence as Leave group.
-      const { changed: tChanged, selfRemovedAt } = GroupStore.mergeTombstones(tombstones);
-      if (selfRemovedAt) { resetAfterRemoval(selfRemovedAt); return; }
-      const mChanged = GroupStore.mergeMemberList(members);
-      if (tChanged || mChanged) {
-        renderHomeGroupMembers();
-        refreshMyDeviceMembers();
-        renderTopbarConnections();
-      }
-    };
 
     t._devMode = DEV_MODE;
 
@@ -4374,12 +4070,19 @@ const GroupReconnectManager = {
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     if (!GroupStore.exists() || TrysteroRoomManager.isConnected()) { this._stopReannounce(); return; }
     // If we're in the room but simply have no peers online yet, that's the
-    // calm "in-group" state — not an error, so no aggressive backoff. But the
-    // public brokers don't reliably retain presence: two devices only match if
-    // they announce at roughly the same time (confirmed in testing — manually
-    // reconnecting BOTH sides at once works, one side alone doesn't). So we
-    // periodically re-announce (a soft re-join) while alone, so two stuck
-    // devices eventually hit the same window and find each other on their own.
+    // calm "in-group" state — not an error, so no aggressive backoff.
+    //
+    // HISTORICAL NOTE: under Trystero 0.23 presence was announced exactly once
+    // per join, so two stuck devices only matched if they happened to announce
+    // in the same window — this loop existed to create those windows. Since
+    // the pinned 0.25.x, the library itself re-announces every ~5.3s per relay
+    // over its LIVE sockets, so window-matching is handled at the lib level.
+    // What the lib cannot fix is a DEAD broker socket: announces over a dead
+    // socket go nowhere, and mqtt.js reconnects can stay stuck/rate-limited.
+    // The periodic reinit below remains as socket hygiene — it closes dead
+    // broker sockets and performs a genuinely fresh join — so its intervals
+    // can be long (see REANNOUNCE_MIN/MAX): it's a repair loop now, not a
+    // matchmaking loop.
     // NOTE: this only runs while we have NO live peer. We deliberately do NOT
     // re-announce while connected to help an absent third device rejoin — a
     // re-announce is a full room re-join (forceClose + rejoin), which tears
@@ -4402,15 +4105,18 @@ const GroupReconnectManager = {
     this._retryTimer = setTimeout(() => this._doRetry(), delay);
   },
 
-  // Periodic soft re-announce while in-group but alone. A fresh room re-join
-  // re-publishes our presence; doing it on an interval means two stuck devices
-  // will eventually announce in the same window and connect without manual
-  // intervention. Uses backoff (like the waiting-path retry): starts short so
-  // two devices match quickly, then lengthens so we don't keep hammering the
-  // public brokers (which rate-limit CONNECTs) if the problem persists. The
+  // Periodic fresh room re-join while in-group but alone. Since Trystero
+  // 0.25 (pinned) the library already re-announces every ~5.3s over its live
+  // sockets, so this loop is no longer about creating announce windows — its
+  // job is SOCKET HYGIENE: a reinit closes dead broker sockets and performs a
+  // genuinely fresh join, covering the case where the lib's announces silently
+  // die on a dead/poisoned socket. That repair doesn't need to be frequent,
+  // and every reinit costs a broker CONNECT (which the public brokers
+  // rate-limit), so the intervals are deliberately long: 30s backing off to
+  // 2min. The wake-burst still gives instant recovery on tab wake, and the
   // shared join-throttle is the hard floor regardless of this interval.
-  REANNOUNCE_MIN_MS : 8000,
-  REANNOUNCE_MAX_MS : 30000,
+  REANNOUNCE_MIN_MS : 30000,
+  REANNOUNCE_MAX_MS : 120000,
   _reannounceCount  : 0,
   _startReannounce() {
     if (this._reannounceTimer) return;   // already running
@@ -4630,10 +4336,10 @@ function renderGroupStatusBar(state) {
 }
 // between all Trystero group members.
 //
-// Protocol:
-//   sync-full    sent on first connect — all local sessions
-//   sync-delta   sent on every local save/delete — one session
-//   sync-request sent on reconnect — asks peer for their full state
+// Protocol (via SyncEngine's 'reports' collection):
+//   collection-full('reports')   seeded to every new peer on connect
+//   collection-delta('reports')  sent on every local save/delete — one session;
+//                                accepted merges are re-broadcast (gossip)
 //
 // Conflict resolution: highest syncedAt wins.
 // Tie-break: lexicographically higher deviceId wins (deterministic).
@@ -4761,7 +4467,7 @@ async function refreshReportsHash() {
 }
 
 // ── Transport abstraction ─────────────────────────────────────────────────────
-// Single point of access for the active transport — makes SyncManager and
+// Single point of access for the active transport — makes SyncEngine and
 // SourceSyncManager backend-agnostic. When Gun or another backend is added,
 // register it here via setActiveTransport().
 
@@ -4945,11 +4651,16 @@ const SyncEngine = {
   async merge(name, incoming, fromPeerId) {
     const def = this._get(name);
     if (!def || !incoming || incoming[def.keyField] == null) return false;
-    const all = await def.readAll();
-    const existing = all.find(r => r[def.keyField] === incoming[def.keyField]);
+    const key = incoming[def.keyField];
+    // Collections may provide readOne for keyed lookup (cheap for IDB-backed
+    // stores like reports); readAll remains the fallback for small in-memory
+    // collections (mbr, demo).
+    const existing = def.readOne
+      ? await def.readOne(key)
+      : (await def.readAll()).find(r => r[def.keyField] === key);
     if (!this._incomingWins(def, incoming, existing)) return false;
     await def.writeOne(incoming);
-    if (def.onChange) def.onChange(incoming, false);
+    if (def.onChange) def.onChange(incoming, false, !existing);
     const seen = this._seen.get(name);
     if (seen.get(incoming[def.keyField]) !== (incoming[def.tsField] || 0)) {
       seen.set(incoming[def.keyField], incoming[def.tsField] || 0);
@@ -4988,8 +4699,10 @@ const SyncEngine = {
     const tombstones = (payload && payload.tombstones) || [];
     for (const t of tombstones) await this.mergeTombstone(name, t);
     for (const r of records)    await this.merge(name, r);
-    // Member list synced in from a peer — lift the members gate.
-    if (name === 'mbr' && (records.length || tombstones.length)) JoinGate.clear('members');
+    // Per-collection hook: a full dump arrived (possibly empty). Collections
+    // use this to lift their JoinGate domain, log, or refresh aggregates.
+    const def = this._get(name);
+    if (def && def.onFull) def.onFull(records, tombstones);
   },
 
   // Local record mutation → broadcast.
@@ -5045,9 +4758,10 @@ const SyncEngine = {
       const tombstones = def.tombstones
         ? (await def.tombstones.readAll()).map(r => ({ key: r.deviceId ?? r.key, removedAt: r.removedAt }))
         : [];
-      if ((records && records.length) || tombstones.length) {
-        t.sendCollectionFull(name, { records: records || [], tombstones }, targetPeerId);
-      }
+      // Always send, even when empty: an empty dump still tells the newcomer
+      // "this is the complete state", which lifts their JoinGate domain
+      // immediately instead of waiting for its timeout.
+      t.sendCollectionFull(name, { records: records || [], tombstones }, targetPeerId);
     }
   },
 };
@@ -5119,99 +4833,61 @@ SyncEngine.register({
     isSelf        : (deviceId) => deviceId === DEVICE_ID,
     onSelfRemoved : (removedAt) => resetAfterRemoval(removedAt),
   },
+  // Member list synced in from a peer — lift the members gate.
+  onFull: (records, tombstones) => {
+    if (records.length || tombstones.length) JoinGate.clear('members');
+  },
 });
 
-const SyncManager = {
-
-  // Merge a single incoming session into local IDB.
-  async _merge(incoming) {
-    if (!incoming || !incoming.id) return;
-
-    // Backwards compat: old deleted:true → status:'archived'
-    if (incoming.deleted && !incoming.status) {
-      incoming = { ...incoming, status: 'archived' };
-    }
-
-    const existing = await getSession(incoming.id);
-
-    if (!existing) {
-      await _putSessionRaw(incoming);
-      if (incoming.status !== 'archived' && incoming.status !== 'deleted') {
-        refreshSessionsCount();
-        log(`Sync: received new task "${incoming.name || incoming.id}".`, 'ok');
+// Reports collection — the inspection reports themselves (the app's core
+// domain object), keyed on id, last-write-wins on syncedAt (stamped by
+// putSession on every local save; the deviceId tiebreak matches the engine
+// default, so the semantics are identical to the old SyncManager). The
+// storage adapter wraps the sessions IndexedDB store. Deletions are NOT
+// engine tombstones: a deletion is a normal record with status:'deleted'
+// that wins via ordinary LWW (see deleteReportTombstone). Riding SyncEngine
+// gives reports GOSSIP: the engine re-broadcasts accepted merges, so an edit
+// reaches members we're not directly connected to (the former §9.1 gap).
+SyncEngine.register({
+  name    : 'reports',
+  keyField: 'id',
+  tsField : 'syncedAt',
+  readOne : (id) => getSession(id),
+  readAll : () => listSessionsRaw(),
+  writeOne: (rec) => {
+    // Backwards compat: old deleted:true records → status:'archived'.
+    if (rec.deleted && !rec.status) rec = { ...rec, status: 'archived' };
+    return _putSessionRaw(rec);
+  },
+  onChange: (rec, _isLocal, isNew) => {
+    if (isNew) {
+      if (rec.status !== 'archived' && rec.status !== 'deleted') {
+        log(`Sync: received new task "${rec.name || rec.id}".`, 'ok');
       }
-      return;
+    } else if (rec.status === 'deleted') {
+      log(`Sync: report ${rec.id} was deleted by the group.`, 'info');
+    } else {
+      log(`Sync: updated task "${rec.name || rec.id}".`, 'info');
     }
-
-    const inTs  = incoming.syncedAt || 0;
-    const exTs  = existing.syncedAt || 0;
-
-    const inWins = inTs > exTs ||
-      (inTs === exTs && (incoming.deviceId || '') > (existing.deviceId || ''));
-
-    if (inWins) {
-      await _putSessionRaw(incoming);
-      refreshSessionsCount();
-      if (incoming.status === 'deleted') {
-        log(`Sync: report ${incoming.id} was deleted by the group.`, 'info');
-      } else {
-        log(`Sync: updated task "${incoming.name || incoming.id}".`, 'info');
-      }
-      refreshReportsHash();
-    }
+    refreshReportsHash();
+    refreshReportsUI();
   },
+  // A reports dump arrived (even an empty one) — the group's state is as
+  // complete as it gets, so the newcomer's reports gate can lift now.
+  onFull  : () => JoinGate.clear('reports'),
+});
 
-  // Receive a full state dump from a peer (on first connect or sync-request)
-  async receiveFull(sessions, fromPeerId) {
-    if (!Array.isArray(sessions)) return;
-    // First peer data has arrived — lift the post-join settling gate.
-    JoinGate.clear("reports");
-    log(`Sync: received ${sessions.length} reports from peer.`, 'info');
-    // Count how many are genuinely new/updated so we only flag a real transfer
-    let changed = 0;
-    for (const s of sessions) {
-      const before = await getSession(s.id);
-      await this._merge(s);
-      const after = await getSession(s.id);
-      if (!before || (after && (after.syncedAt || 0) !== (before.syncedAt || 0))) changed++;
-    }
-    if (changed > 0) {
-      refreshReportsHash();
-    }
-    SyncManager._refreshUI();
-  },
+// Refresh the report-list surfaces if currently visible. (Formerly
+// SyncManager._refreshUI, kept as a standalone helper now that reports
+// sync through SyncEngine.)
+function refreshReportsUI() {
+  refreshSessionsCount();
+  if (currentScreenId() === 'pick')  refreshPickList();
+  if (currentScreenId() === 'start') refreshHomeList();
+  if (_liveSessionsModalRefresh) _liveSessionsModalRefresh();
+  if (_liveItemsModalRefresh)    _liveItemsModalRefresh();
+}
 
-  // Receive a single delta (on remote save/delete)
-  async receiveDelta(session, fromPeerId) {
-    await this._merge(session);
-    SyncManager._refreshUI();
-  },
-
-  // Refresh session count and pick list if currently visible
-  _refreshUI() {
-    refreshSessionsCount();
-    if (currentScreenId() === 'pick')  refreshPickList();
-    if (currentScreenId() === 'start') refreshHomeList();
-    if (_liveSessionsModalRefresh) _liveSessionsModalRefresh();
-    if (_liveItemsModalRefresh)    _liveItemsModalRefresh();
-  },
-
-  // Send all local sessions (including tombstones) to a specific peer
-  async sendFullTo(targetPeerId) {
-    const t = getActiveTransport();
-    if (!t) return;
-    const all = await listSessionsRaw();
-    t.sendSyncFull(all, targetPeerId);
-    log(`Sync: sent ${all.length} tasks to peer.`, 'info');
-  },
-
-  // Broadcast a single session to all connected peers
-  async broadcastDelta(session) {
-    const t = getActiveTransport();
-    if (!t || t._connectedPeers?.size === 0) return;
-    t.sendSyncDelta(session);
-  },
-};
 // Capture deep-link join params on script load. Strips from URL so
 // refresh doesn't re-trigger.
 const PENDING_JOIN_PARAMS = (() => {
@@ -5509,42 +5185,6 @@ function dateBucket(ts) {
   return { key: 'earlier', label: 'Earlier', order: 5 };
 }
 
-// ---------- Network ID (ipify, raw mode only) ----------
-let networkIdCache = null;
-function maskIP(ip) {
-  if (ip.includes(':')) {
-    const parts = ip.split(':').filter(Boolean);
-    const prefix = parts.slice(0, Math.min(4, parts.length)).join(':');
-    return parts.length > 4 ? prefix + ':…' : prefix;
-  }
-  const parts = ip.split('.');
-  if (parts.length !== 4) return ip;
-  return parts.slice(0, 2).join('.') + '.x.x';
-}
-async function detectNetworkId() {
-  if (networkIdCache) return networkIdCache;
-  try {
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 5000);
-    const resp = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
-    clearTimeout(timeout);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    if (!data?.ip) throw new Error('no ip in response');
-    networkIdCache = { raw: data.ip, masked: maskIP(data.ip) };
-    return networkIdCache;
-  } catch { return null; }
-}
-async function updateNetworkIdUI() {
-  const result = await detectNetworkId();
-  if (result) {
-    $('net-id').textContent = result.masked;
-    $('net-id-row').classList.remove('hidden');
-  } else {
-    $('net-id-row').classList.add('hidden');
-  }
-}
-
 // ---------- QR rendering + cycling ----------
 function renderQR(container, text) {
   const qr = qrcode(0, 'M');
@@ -5611,82 +5251,21 @@ class QRScanner {
 // to screen 0 resets the transfer.
 
 const FLOWS = {
-  // [mode][backend] -> array of screen IDs (excluding 'start' which is always 0)
-  'receive-peerjs':    ['start', 'show-qr', 'transfer'],
-  'receive-raw':       ['start', 'show-qr', 'scan-qr', 'transfer'],
-  'receive-trystero':  ['start', 'show-qr', 'transfer'],
-  // Send flows: pair FIRST, then pick what to send. Two reasons:
-  //   1. The connection is the commitment to a recipient; picking is the
-  //      payload choice. Pair → pick reads more naturally — "I'm sending
-  //      to Sanne, now what shall I send her?".
-  //   2. Enables multi-send: after a successful send, "Send another" can
-  //      return to the pick screen without re-pairing. The QR step only
-  //      happens once per pairing.
-  'send-peerjs':       ['start', 'scan-qr', 'pick', 'transfer'],
-  'send-raw':          ['start', 'scan-qr', 'show-qr', 'pick', 'transfer'],
-  'send-trystero':     ['start', 'scan-qr', 'pick', 'transfer'],
-  'receive-mqtt':      ['start', 'show-qr', 'transfer'],
-  'send-mqtt':         ['start', 'scan-qr', 'pick', 'transfer'],
+  // [mode][backend] -> array of screen IDs (excluding 'start' which is always 0).
+  // MQTT is the only backend. Receive = invite (show your QR); send = join
+  // (scan an invite). The 'pick' screen doubles as the group's reports
+  // overview, reached via the resume bar.
+  'receive-mqtt':      ['start', 'show-qr'],
+  'send-mqtt':         ['start', 'scan-qr', 'pick'],
 };
 
 let currentBackend = 'mqtt';
 let currentMode = 'receive';
 let currentStep = 0;       // index into the active flow
-let activeTransfer = null;
 let activeScanner = null;
 let selectedSessionId = null;
-// After a successful transfer, this holds the id of the session that was just
-// sent or received. Used to highlight that row in the post-transfer session
-// list. Cleared whenever we leave the transfer screen.
-let justTransferredId = null;
-let justTransferredDirection = null;  // 'sent' | 'received' | null
-
-// Across one connection-session (peering through to "Disconnect"), record
-// every transfer that completed — so the post-transfer panel can show ALL
-// of them, not just the most recent. Reset on disconnect/screen-leave,
-// NOT on "Send another" since the user might do several sends in a row.
-// Newest entries are appended; rendering reverses for newest-first display.
-//   { id, direction: 'sent'|'received', at: Date }
-let connectionSessionTransfers = [];
-// On the sender side, this captures what the receiver did with the payload —
-// 'created', 'replaced', 'merged', 'skipped', or an error string. Set by
-// onAck, read by showSentAnimation to choose an appropriate subtitle.
-let receiverAction = null;
-let receiverError = null;
-
 function activeFlow() { return FLOWS[`${currentMode}-${currentBackend}`]; }
 function currentScreenId() { return activeFlow()[currentStep]; }
-
-// Record a successful transfer in the connection-session log. The latest
-// entry per-id wins (if a session was sent then re-received, only the
-// last action is what the user sees in the panel; the earlier entry is
-// pruned). Also sets the single-use justTransferredId/Direction for the
-// celebration animations that need to know the most recent thing.
-//
-// On the receiving side, also play a short audible "blip" and — if the
-// user has wandered off the transfer screen (into a modal, say) — show
-// a brief toast announcing the arrival. The transfer screen's own
-// JUST RECEIVED panel covers the visible case.
-//
-// `name` is optional and used only for the toast. When omitted, the
-// toast falls back to a generic "Received a new report".
-function recordTransfer(id, direction, name) {
-  if (!id || !direction) return;
-  // Drop any earlier entry for the same id; the latest action supersedes.
-  connectionSessionTransfers = connectionSessionTransfers.filter(t => t.id !== id);
-  connectionSessionTransfers.push({ id, direction, at: new Date() });
-  justTransferredId = id;
-  justTransferredDirection = direction;
-  if (direction === 'received') {
-    playReceiveBlip();
-    // Notify the user out-of-band only when a modal is currently open
-    // — the transfer screen's own "Just received" panel covers the
-    // visible case, no toast needed if the user is already looking.
-    if (document.querySelector('.modal-backdrop')) {
-      showToast(`Received ${name || 'a new report'}`);
-    }
-  }
-}
 
 function showScreen(screenId, direction = 'forward') {
   const screens = document.querySelectorAll('.screen');
@@ -5732,7 +5311,7 @@ function updateNavBar() {
   const flow = activeFlow();
   const screenId = flow[currentStep];
   const bottombar = $('bottombar');
-  if (screenId === 'transfer' || screenId === 'start') {
+  if (screenId === 'start') {
     bottombar.classList.add('hidden');
     return;
   }
@@ -5788,17 +5367,6 @@ function onLeaveScreen(screenId) {
       TrysteroRoomManager.discardPendingGroup();
     }
   }
-  if (screenId === 'transfer') {
-    // Clear the highlight state so a future transfer doesn't show stale info
-    justTransferredId = null;
-    justTransferredDirection = null;
-    // Wipe the connection-session log too — leaving the transfer screen
-    // means the pairing is done, the next time we land here it's a fresh
-    // session. ("Send another" stays on this screen and doesn't trip this.)
-    connectionSessionTransfers = [];
-    receiverAction = null;
-    receiverError = null;
-  }
 }
 
 async function onEnterScreen(screenId) {
@@ -5806,16 +5374,9 @@ async function onEnterScreen(screenId) {
   if (screenId === 'start') {
     hideConnectingOverlay();
 
-    // If there's an active connection, keep it alive — the user may want
-    // to resume. Only dispose if there's no connection (stale transfer).
-    const hasActiveConnection = activeTransfer && !!activeTransfer._remotePeerId;
-    if (hasActiveConnection) {
-      // Keep the transfer but reset UI state (note panels, lamp).
-      resetNotePanels();
-      resetLampState();
-    } else {
-      disposeActiveTransfer();
-    }
+    // Reset the demo-panel UI state when landing back on start.
+    resetNotePanels();
+    resetLampState();
 
     selectedSessionId = null;
     hideConnectionBar();
@@ -5845,8 +5406,6 @@ async function onEnterScreen(screenId) {
     await setupShowQRScreen();
   } else if (screenId === 'scan-qr') {
     await setupScanQRScreen();
-  } else if (screenId === 'transfer') {
-    setupTransferScreen();
   }
   // Re-evaluate which note panel (if any) should be visible. Done after
   // each screen's own setup so the panel toggles together with the rest
@@ -5857,35 +5416,12 @@ async function onEnterScreen(screenId) {
 // =====================================================================
 // Screen 1: START — backend + mode toggles
 // =====================================================================
-document.querySelectorAll('#backend-group .toggle-btn').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('#backend-group .toggle-btn').forEach(x => x.classList.toggle('active', x === b));
-    const newBackend = b.dataset.backend;
-    if (newBackend !== currentBackend) {
-      // Tear down any active transfer and the persistent group room from
-      // the previous backend, so their relay sockets don't linger and
-      // stack up (which gets the app rate-limited by the relays).
-      if (activeTransfer) disposeActiveTransfer();
-      if (TrysteroRoomManager._room) {
-        try { TrysteroRoomManager._room.forceClose(); } catch {}
-        TrysteroRoomManager._room = null;
-      }
-    }
-    currentBackend = newBackend;
-    onBackendOrModeChanged();
-  });
-});
 // Direction buttons: tapping a button commits the mode and advances to
 // the next screen in one motion. No separate "Continue" needed. The
 // identity check runs here (defensive — onboarding usually has set it
 // already, but if not, the setup modal blocks until saved).
 document.querySelectorAll('#mode-group .direction-btn').forEach(b => {
   b.addEventListener('click', async () => {
-    // User is starting a new pairing — close any lingering connection.
-    if (activeTransfer && activeTransfer._remotePeerId) {
-      disposeActiveTransfer();
-      renderResumeBar();
-    }
     currentMode = b.dataset.mode;
     onBackendOrModeChanged();
     const id = await ensureIdentity();
@@ -5894,8 +5430,6 @@ document.querySelectorAll('#mode-group .direction-btn').forEach(b => {
   });
 });
 function onBackendOrModeChanged() {
-  $('net-banner').classList.toggle('hidden', currentBackend !== 'raw');
-  if (currentBackend === 'raw') updateNetworkIdUI();
   updateNavBar();
 }
 
@@ -6276,14 +5810,11 @@ function renderSourceSection() {
       </div>
     </div>`;
 
-  _sourceState = { buildings: new Set(), eqTypes: new Set(), allBuildings: buildings, allEqTypes: eqTypes };
-
   $('source-browse-btn').addEventListener('click', () => showSourceModal());
   $('source-browse-title').addEventListener('click', () => showSourceModal());
   $('source-file-input').addEventListener('change', (e) => _handleSourceFile(e.target.files[0]));
 }
 
-let _sourceState = null;
 
 function _grailIcon() {
   return `<div style="border-radius:11px;overflow:hidden;line-height:0"><svg width="52" height="52" viewBox="0 0 52 52" fill="none">
@@ -6298,92 +5829,6 @@ function _grailIcon() {
   </svg></div>`;
 }
 
-function _renderSourceChecklist(key, items) {
-  const listEl = $(key === 'b' ? 'b-checklist' : 'e-checklist');
-  if (!listEl || !_sourceState) return;
-  const sel = key === 'b' ? _sourceState.buildings : _sourceState.eqTypes;
-  const q   = ($(key + '-search')?.value || '').toLowerCase();
-  const filtered = items.filter(i => i.toLowerCase().includes(q));
-  listEl.innerHTML = filtered.map(item => `
-    <label>
-      <input type="checkbox" ${sel.has(item) ? 'checked' : ''} data-item="${item}">
-      ${item}
-    </label>`).join('');
-  listEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const set = key === 'b' ? _sourceState.buildings : _sourceState.eqTypes;
-      cb.checked ? set.add(cb.dataset.item) : set.delete(cb.dataset.item);
-      _updateSourceMatch();
-    });
-  });
-}
-
-function _updateSourceMatch() {
-  if (!_sourceState || !_sourceData) return;
-  const { buildings, eqTypes } = _sourceState;
-  const bSel = document.getElementById('b-sel-count');
-  const eSel = document.getElementById('e-sel-count');
-  if (bSel) bSel.textContent = buildings.size ? `· ${buildings.size} selected` : '';
-  if (eSel) eSel.textContent = eqTypes.size ? `· ${eqTypes.size} selected` : '';
-
-  const matchEl = $('source-match');
-  const btn     = $('create-view-btn');
-  const hasBoth = buildings.size > 0 && eqTypes.size > 0;
-  if (!hasBoth) {
-    if (matchEl) matchEl.textContent = 'Select buildings and equipment to see matches';
-    if (btn) btn.disabled = true;
-    return;
-  }
-  const matches = _sourceData.rows.filter(r =>
-    buildings.has(r.building) && eqTypes.has(r.type));
-  if (matchEl) matchEl.textContent = `${matches.length} item${matches.length === 1 ? '' : 's'} match`;
-  if (btn) btn.disabled = matches.length === 0;
-}
-
-function _wireSourcePanel() {
-  const bSearch = $('b-search');
-  const eSearch = $('e-search');
-  if (bSearch) bSearch.addEventListener('input', () => _renderSourceChecklist('b', _sourceState.allBuildings));
-  if (eSearch) eSearch.addEventListener('input', () => _renderSourceChecklist('e', _sourceState.allEqTypes));
-
-  const createBtn = $('create-view-btn');
-  if (createBtn) createBtn.addEventListener('click', async () => {
-    if (!_sourceState || !_sourceData) return;
-    const { buildings, eqTypes } = _sourceState;
-    const matches = _sourceData.rows.filter(r =>
-      buildings.has(r.building) && eqTypes.has(r.type));
-    if (!matches.length) return;
-
-    const bLabel = [...buildings].sort().join(', ');
-    const eLabel = [...eqTypes].sort().join(', ');
-    const name = `${eLabel} — ${bLabel}`;
-
-    // Build data object keyed by asset id
-    const data = {};
-    matches.forEach(r => { data[r.id] = { ...r, status: null }; });
-
-    const session = {
-      id        : 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-      name,
-      status    : 'open',
-      data,
-      createdAt : new Date().toISOString(),
-      modifiedAt: new Date().toISOString(),
-      history   : [],
-      sourceHash: _sourceData.hash,
-      sourceFile: _sourceData.filename,
-    };
-    appendHistoryEvent(session, {
-      kind: 'created-here',
-      peer: identity ? { emoji: identity.emoji, nickname: identity.nickname,
-                         color: identity.color, deviceId: DEVICE_ID } : null,
-    });
-    await putSession(session);
-    await refreshHomeList();
-    await refreshSessionsCount();
-    log(`View created: ${name}`, 'ok');
-  });
-}
 
 function _wireSourceDropzone() {
   const dz = $('source-dropzone');
@@ -6480,29 +5925,12 @@ async function setupShowQRScreen() {
   const flow = activeFlow();
   $('show-qr-peerid').classList.add('hidden');
 
-  // What we're showing depends on (mode, backend, position)
-  if (currentMode === 'receive' && currentBackend === 'peerjs') {
-    $('show-qr-title').textContent = 'Share with the sender';
-    $('show-qr-subtitle').textContent = 'On the sending device, scan this QR.';
-    const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'peerjs';
-    if (needsInit) showConnectingOverlay('Setting up…');
-    await ensureReceiveTransfer();
-  } else if (currentMode === 'receive' && (currentBackend === 'trystero' || currentBackend === 'mqtt')) {
+  // Receive = invite: show our QR for the other device to scan and join.
+  if (currentMode === 'receive') {
     $('show-qr-title').textContent = GroupStore.exists() ? 'Invite to group' : 'Create group';
     $('show-qr-subtitle').textContent = 'Let the other device scan this QR to join.';
     showConnectingOverlay('Setting up…');
     await setupTrysteroInviteQR();
-  } else if (currentMode === 'receive' && currentBackend === 'raw') {
-    $('show-qr-title').textContent = 'Scan this with the sender';
-    $('show-qr-subtitle').textContent = 'On the sending device, point its camera at this animated QR.';
-    const needsInit = !activeTransfer || activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== 'raw';
-    if (needsInit) showConnectingOverlay('Setting up…');
-    await ensureReceiveTransfer();
-  } else if (currentMode === 'send' && currentBackend === 'raw') {
-    // This is the 'answer QR' step
-    $('show-qr-title').textContent = 'Show this to the receiver';
-    $('show-qr-subtitle').textContent = 'The receiver should scan this QR with its webcam.';
-    // QR was already prepared by the transfer when offer was scanned
   }
 }
 
@@ -6510,38 +5938,14 @@ async function setupShowQRScreen() {
 // Screen: SCAN QR
 // =====================================================================
 async function setupScanQRScreen() {
-  const isPeerJSSender  = currentMode === 'send' && currentBackend === 'peerjs';
-  const isTrysteroSender = currentMode === 'send' && (currentBackend === 'trystero' || currentBackend === 'mqtt');
-  const isRawSender     = currentMode === 'send' && currentBackend === 'raw';
-  const isRawReceiver   = currentMode === 'receive' && currentBackend === 'raw';
+  // Only the send side reaches scan-qr (joining a group by scanning an invite).
+  const isSender = currentMode === 'send';
 
-  if (isPeerJSSender) {
-    $('scan-qr-title').textContent = 'Scan the receiver';
-    $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s QR, or type the peer ID below.';
-    $('scan-or').classList.remove('hidden');
-    $('scan-manual-label').classList.remove('hidden');
-    $('scan-manual-label').querySelector('span').textContent = 'Enter peer ID manually';
-    $('scan-manual-input').placeholder = 'e.g. idb-tomato-rabbit-42';
-  } else if (isTrysteroSender) {
+  if (isSender) {
     $('scan-qr-title').textContent = 'Scan the invite QR';
     $('scan-qr-subtitle').textContent = 'Point your camera at the invite QR. The code alone isn\'t enough — the QR carries the password too.';
     $('scan-or').classList.add('hidden');
     $('scan-manual-label').classList.add('hidden');
-  } else if (isRawSender) {
-    $('scan-qr-title').textContent = 'Scan the offer QR';
-    $('scan-qr-subtitle').textContent = 'Point your camera at the receiver\'s animated QR.';
-    $('scan-or').classList.add('hidden');
-    $('scan-manual-label').classList.add('hidden');
-  } else if (isRawReceiver) {
-    $('scan-qr-title').textContent = 'Scan the answer QR';
-    $('scan-qr-subtitle').textContent = 'Point your camera at the sender\'s animated QR.';
-    $('scan-or').classList.add('hidden');
-    $('scan-manual-label').classList.add('hidden');
-  }
-
-  // Set up the transfer if needed (sender side starts here)
-  if (currentMode === 'send' && !activeTransfer) {
-    await ensureSendTransfer();
   }
 
   // Start camera
@@ -6552,7 +5956,7 @@ async function setupScanQRScreen() {
     $('scan-helper').textContent = 'Scanning…';
   } catch (err) {
     log('Camera error: ' + err.message, 'err');
-    $('scan-helper').textContent = 'Camera unavailable. ' + (isPeerJSSender || isTrysteroSender ? 'Use manual entry below.' : '');
+    $('scan-helper').textContent = 'Camera unavailable. ' + (isSender ? 'Use manual entry below.' : '');
   }
 }
 
@@ -6566,9 +5970,9 @@ async function setupScanQRScreen() {
 // already wired to connect to the right peer.
 //
 // Scanning from WITHIN the app also goes through this layer — we just
-// strip the URL wrapping back to a bare peer ID and feed it to
-// activeTransfer.connect(). Legacy QRs that contain a bare ID (older
-// app versions) are still accepted unchanged.
+// strip the URL wrapping back to the room code + params and run the
+// group-join flow. Legacy QRs that contain a bare ID (older app
+// versions) are still accepted unchanged.
 
 // Build the URL form for a peer ID. Uses the current page's origin +
 // pathname so it works whether the app is hosted at the root or in a
@@ -6579,8 +5983,7 @@ async function setupScanQRScreen() {
 function buildJoinURL(peerId, backend, opts = {}) {
   const base = window.location.origin + window.location.pathname;
   let url = `${base}?join=${encodeURIComponent(peerId)}`;
-  if (backend && backend !== 'peerjs') url += `&backend=${encodeURIComponent(backend)}`;
-  if (opts.strategy)  url += `&strategy=${encodeURIComponent(opts.strategy)}`;
+  if (backend) url += `&backend=${encodeURIComponent(backend)}`;
   if (opts.pw)        url += `&pw=${encodeURIComponent(opts.pw)}`;
   if (opts.invitedBy) url += `&invitedBy=${encodeURIComponent(opts.invitedBy)}`;
   return url;
@@ -6603,11 +6006,6 @@ function extractJoinParams(text) {
     }
   } catch { /* not a URL — use raw text as peerId */ }
   return result;
-}
-
-// Legacy single-value extractor (used by PeerJS flow)
-function extractPeerIdFromScan(text) {
-  return extractJoinParams(text).peerId;
 }
 
 // =====================================================================
@@ -6640,11 +6038,9 @@ async function setupTrysteroInviteQR(qrContainer, infoContainer) {
     TrysteroRoomManager._pendingGroup = { roomCode, password };
   }
 
-  // The transport is always "trystero"; the signaling strategy (mqtt is the
-  // production default, nostr is a dev fallback) travels as a separate param.
-  const inviteStrategy = currentBackend === 'mqtt' ? 'mqtt' : 'nostr';
-  const inviteUrl = buildJoinURL(roomCode, 'trystero', {
-    strategy : inviteStrategy,
+  // MQTT is the only transport. The backend param is kept for backward-compat
+  // with the join URL parser (and older clients map it correctly).
+  const inviteUrl = buildJoinURL(roomCode, 'mqtt', {
     pw       : password,
     invitedBy: DEVICE_ID,
   });
@@ -6671,44 +6067,15 @@ async function setupTrysteroInviteQR(qrContainer, infoContainer) {
 
 async function onScanResult(data) {
   log(`Scanned: ${data.slice(0, 40)}${data.length > 40 ? '…' : ''}`, 'info');
-  const isPeerJSSender   = currentMode === 'send' && currentBackend === 'peerjs';
-  const isTrysteroSender = currentMode === 'send' && (currentBackend === 'trystero' || currentBackend === 'mqtt');
-  const isRawSender      = currentMode === 'send' && currentBackend === 'raw';
-  const isRawReceiver    = currentMode === 'receive' && currentBackend === 'raw';
-
-  if (isPeerJSSender) {
-    const peerId = extractPeerIdFromScan(data);
-    if (activeScanner) { activeScanner.stop(); activeScanner = null; }
-    showConnectingOverlay('Connecting…');
-    try {
-      await activeTransfer.connect(peerId);
-      hideConnectingOverlay();
-      const pickIdx = activeFlow().indexOf('pick');
-      if (pickIdx !== -1) goToStep(pickIdx, 'forward');
-    } catch (err) {
-      hideConnectingOverlay();
-      log('Connect failed: ' + err.message, 'err');
-      const transferIdx = activeFlow().indexOf('transfer');
-      if (transferIdx !== -1) goToStep(transferIdx, 'forward');
-      $('transfer-title').textContent = 'Something went wrong';
-      setTransferStatus('Connection failed: ' + err.message, 'err');
-      showProgressRestartButton('Disconnect');
-    }
-  } else if (isTrysteroSender) {
+  // Only the send side scans (joining a group by scanning an invite QR).
+  if (currentMode === 'send') {
     const params = extractJoinParams(data);
     const roomCode = params.peerId;
     const password = params.pw;
     const invitedBy = params.invitedBy;
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
 
-    // Adopt the inviter's signaling strategy so both sides use the same
-    // relay network. backend=trystero with strategy=mqtt → our 'mqtt' id;
-    // strategy=nostr (or legacy backend=mqtt) handled too.
-    if (params.strategy === 'mqtt' || params.backend === 'mqtt') {
-      currentBackend = 'mqtt';
-    } else if (params.strategy === 'nostr') {
-      currentBackend = 'trystero';
-    }
+    currentBackend = 'mqtt';
     onBackendOrModeChanged();
 
     // Already in this group — nothing to do
@@ -6742,20 +6109,13 @@ async function onScanResult(data) {
     restartToStart();
     renderGroupStatusBar('connecting');
 
-    // Connect in background (both trystero and mqtt use TrysteroRoomManager)
+    // Connect in background via TrysteroRoomManager.
     TrysteroRoomManager.init()
       .then(() => renderGroupStatusBar())
       .catch(e => {
         log('Group connect failed: ' + e.message, 'err');
         GroupReconnectManager._scheduleRetry();
       });
-  } else if (isRawSender || isRawReceiver) {
-    // 'data' is a QR chunk — feed back to library; library will advance via events
-    try {
-      activeTransfer.feedScannedChunk(data);
-    } catch (err) {
-      log('Scan chunk failed: ' + err.message, 'err');
-    }
   }
 }
 
@@ -6772,209 +6132,6 @@ $('scan-manual-input').addEventListener('keydown', async (e) => {
 });
 $('scan-manual-btn').addEventListener('click', _submitManualRoomCode);
 
-// =====================================================================
-// Screen: TRANSFER (progress + status)
-// =====================================================================
-function setupTransferScreen() {
-  $('transfer-progress').style.width = '0';
-  // Reset to the in-progress view by default
-  $('transfer-progress-view').classList.remove('hidden');
-  $('transfer-sent-view').classList.add('hidden');
-  // Restore the screen header (may have been hidden by a previous sender flow)
-  $('transfer-header').classList.remove('hidden');
-  // Hide post-transfer panels and inline action buttons until a
-  // terminal state fires (done or error). The just-panel shows the
-  // single touched report; the sessions-panel shows the total + Browse.
-  $('transfer-just-panel').classList.add('hidden');
-  $('transfer-just-list').innerHTML = '';
-  $('transfer-sessions-panel').classList.add('hidden');
-  $('transfer-progress-actions').classList.add('hidden');
-  // Reset per-send state that's left over from any previous send on
-  // the same connection. (justTransferredId / Direction stay set across
-  // sends so the LAST highlight survives the next session-list refresh,
-  // but receiverAction / receiverError are about the CURRENT send and
-  // need to clear.)
-  receiverAction = null;
-  receiverError = null;
-  // Title reflects what the device is doing. Status line under the progress
-  // bar carries the granular detail. No static subtitle exists in the markup
-  // anymore — the previous "Please wait while the data is moved" was stale
-  // and never reflected actual state.
-  if (currentMode === 'send') {
-    $('transfer-title').textContent = 'Sending report';
-    setTransferStatus('Sending…');
-    (async () => {
-      try {
-        if (!selectedSessionId) throw new Error('No report selected to send');
-        const session = await getSession(selectedSessionId);
-        if (!session) throw new Error('Selected report not found');
-        await activeTransfer.send(session);
-      } catch (err) {
-        log('Send failed: ' + err.message, 'err');
-        $('transfer-title').textContent = 'Something went wrong';
-        setTransferStatus('Send failed: ' + err.message, 'err');
-        showProgressRestartButton('Disconnect');
-      }
-    })();
-  } else {
-    $('transfer-title').textContent = 'Receiving';
-    setTransferStatus('Waiting for sender…');
-  }
-}
-
-// Show the inline "Disconnect" button at terminal states (done or error).
-// Used by both progress-view (receiver done, any error) and sent-view (CSS
-// handles the sent-view button's delayed reveal, so this is only called for
-// the progress view).
-function showProgressRestartButton(label = 'Disconnect') {
-  const area = $('transfer-progress-actions');
-  area.classList.remove('hidden');
-  $('progress-restart-btn').textContent = label;
-}
-
-// Sender's success state: swap the progress view for the paper-plane
-// animation. The bottom nav bar is already hidden by updateNavBar() since
-// we're on the transfer screen, so no nav button management needed here.
-// The "Send another" button lives inside the sent view and reveals itself
-// via CSS animation 2.6s after the screen swap (after the plane lands).
-// The headline and subline are chosen based on what the receiver did, so
-// the sender gets explicit feedback on the outcome.
-function showSentAnimation() {
-  $('transfer-progress-view').classList.add('hidden');
-  $('transfer-sent-view').classList.remove('hidden');
-  // Reset the sent-actions animation by removing/re-adding the class so the
-  // delayed reveal fires fresh each time (in case user does multiple sends
-  // in the same page session without a hard reload).
-  const actions = $('transfer-sent-actions');
-  actions.classList.remove('sent-actions-hidden');
-  void actions.offsetWidth;  // force reflow so the animation restarts
-  actions.classList.add('sent-actions-hidden');
-
-  // The sent view stays focused on the moment: a single headline + the
-  // two action buttons (Send another, Disconnect). No subline; the
-  // headline alone carries the outcome.
-  //
-  // Three outcome categories drive the headline:
-  //   - success (created/replaced/merged): cheerful "Sent! 🎉"
-  //   - skipped: honest "Not kept"
-  //   - error: "Not delivered"
-  // The .sent-skipped / .sent-error classes are kept on the wrapper so
-  // CSS can color the headline differently per outcome.
-  const sentView = $('transfer-sent-view');
-  sentView.classList.remove('sent-skipped', 'sent-error');
-  let headline = 'Sent! 🎉';
-  if (receiverError) {
-    sentView.classList.add('sent-error');
-    headline = 'Not delivered';
-  } else if (receiverAction === 'skipped') {
-    sentView.classList.add('sent-skipped');
-    headline = 'Not kept';
-  }
-  // else: created/replaced/merged all get the same headline. The bar
-  // disambiguates which action happened.
-  $('sent-headline').textContent = headline;
-  // Show which file was sent. Look up the session by selectedSessionId
-  // (the one the user picked for this send) and surface its name. If
-  // we can't find it for any reason, leave the slot empty rather than
-  // showing a fallback like "unknown" — silent absence reads cleaner.
-  const filenameEl = $('sent-filename');
-  filenameEl.textContent = '';
-  if (selectedSessionId) {
-    getSession(selectedSessionId).then(s => {
-      if (s) filenameEl.textContent = s.name;
-    }).catch(() => { /* swallow — empty filename is fine */ });
-  }
-  // Hide the screen header — the moment is just headline + filename + buttons.
-  $('transfer-header').classList.add('hidden');
-}
-
-function setTransferStatus(text, kind = '') {
-  const el = $('transfer-status');
-  el.textContent = text;
-  el.className = 'status-line' + (kind ? ' ' + kind : '');
-}
-
-// Render the post-transfer panels with the appropriate headers and rows.
-// Called after status === 'done'.
-//
-// Layout (top to bottom):
-//   "JUST RECEIVED"/"JUST SENT" eyebrow header (label per direction)
-//   one or more session rows — every transfer in this connection-session,
-//                              newest first. Each row uses the shared
-//                              renderSessionRow so icons (Edit/Export/
-//                              History/Delete) come along automatically.
-//   "OTHER REPORTS" eyebrow header
-//   N other tasks on this device · Browse →
-//
-// "Other" excludes anything in the just-transferred list. If there are
-// no just-transferred entries (skip path), the JUST RECEIVED section is
-// hidden and "Other reports" reverts to showing the full count.
-async function revealPostTransferSessions() {
-  const justPanel = $('transfer-just-panel');
-  const justList  = $('transfer-just-list');
-  const sumPanel  = $('transfer-sessions-panel');
-  justList.innerHTML = '';
-  // Reveal the inline action button — the receiver's terminal state should
-  // give them a way to start over without the bottom nav.
-  showProgressRestartButton('Disconnect');
-
-  const sessions = await listSessions();
-  const transfersById = new Map();
-  for (const t of connectionSessionTransfers) transfersById.set(t.id, t);
-
-  // Build the just-transferred list in newest-first order. Drop entries
-  // whose session no longer exists (deleted after transfer? edge case).
-  const justEntries = connectionSessionTransfers
-    .slice().reverse()
-    .map(t => ({ t, session: sessions.find(s => s.id === t.id) }))
-    .filter(e => e.session);
-
-  // Direction label for the header — picks the latest entry's direction.
-  // Mixed sessions are rare in practice; whichever happened last is the
-  // most relevant framing.
-  const headerEl = $('transfer-just-header');
-  if (justEntries.length > 0) {
-    const latestDir = justEntries[0].t.direction;
-    headerEl.textContent = latestDir === 'sent' ? 'Just sent' : 'Just received';
-    justPanel.classList.remove('hidden');
-  } else {
-    justPanel.classList.add('hidden');
-  }
-
-  // Render each just-transferred row using the shared renderer so the
-  // action icons (Edit, Export, History, Delete) come along automatically.
-  // No onRowClick — these rows already feel "primary" via the header;
-  // tapping their body would conflict with the action icons.
-  // The .just-transferred class adds the light-blue highlight + left
-  // accent border so a newly arrived row stands out from the rest.
-  for (const { session } of justEntries) {
-    const frag = renderSessionRow(session, {
-      container: justList,
-      onAfterChange: async () => {
-        // After an edit/delete from the row icons, re-render the panel
-        // so counts and "other reports" stay accurate.
-        await refreshSessionsCount();
-        revealPostTransferSessions();
-      },
-    });
-    // The fragment carries [row, panel]; tag the row before append.
-    const rowEl = frag.querySelector('.session-row');
-    if (rowEl) rowEl.classList.add('just-transferred');
-    justList.appendChild(frag);
-  }
-
-  // "Other reports" = everything not just-transferred in this session.
-  const otherCount = sessions.filter(s => !transfersById.has(s.id)).length;
-  $('transfer-sessions-count').textContent = otherCount;
-  $('transfer-sessions-label').textContent = (otherCount === 1 ? 'report' : 'jobs') + ' on this device';
-  // Hide the whole "Other reports" panel when there's nothing else —
-  // showing "0 other reports" is just noise.
-  if (otherCount > 0) {
-    sumPanel.classList.remove('hidden');
-  } else {
-    sumPanel.classList.add('hidden');
-  }
-}
 
 // Holds invitedBy from a just-scanned invitation QR.
 // Included in peer-info during the join so the host can track the invite tree.
@@ -7008,79 +6165,6 @@ function buildLocalPeerInfo() {
     _pendingInvitedBy = null; // consume once
   }
   return info;
-}
-
-// Holds the remote peer's identity once peer-info arrives. Used by the
-// sender's success animation to render the receiver's device icon.
-let remotePeerInfo = null;
-
-// =====================================================================
-// Transfer library wiring
-// =====================================================================
-// If an activeTransfer is left over from a PREVIOUS pairing in this
-// page-session (e.g. user received something, then went back and chose
-// Send), it still has the listeners for the OLD direction wired up.
-// Reusing it means the wrong handler fires on 'connected' — for the
-// send-after-receive case that means jumping straight to the transfer
-// screen and skipping pick, which then calls getSession(null) and
-// triggers an IDB "No key or key range specified" error.
-//
-// Each ensure* below stamps the direction on the transfer, and replaces
-// the transfer if it was created for the other direction. Backend changes
-// also force a fresh transfer since the underlying object is backend-bound.
-function disposeActiveTransfer() {
-  if (!activeTransfer) return;
-  if (!activeTransfer.persistent) {
-    try { activeTransfer.close(); } catch {}
-  }
-  activeTransfer = null;
-  remotePeerInfo = null;
-  resetNotePanels();
-  resetLampState();
-}
-
-async function ensureReceiveTransfer() {
-  if (activeTransfer && (activeTransfer._uiDirection !== 'receive' || activeTransfer._uiBackend !== currentBackend)) {
-    disposeActiveTransfer();
-  }
-  if (activeTransfer) return;
-  remotePeerInfo = null;
-  const opts = { peerInfo: buildLocalPeerInfo() };
-  if (currentBackend === 'peerjs')        activeTransfer = new PeerJSTransfer(opts);
-  else if (currentBackend === 'raw')      activeTransfer = new RawTransfer(opts);
-  else if (currentBackend === 'trystero' || currentBackend === 'mqtt') activeTransfer = new TrysteroTransfer({
-    ...opts,
-    password: GroupStore.getPassword() || null,
-    strategy: currentBackend === 'mqtt' ? 'mqtt' : 'nostr',
-  });
-  else throw new Error('Unknown backend: ' + currentBackend);
-  activeTransfer._uiDirection = 'receive';
-  activeTransfer._uiBackend = currentBackend;
-  wireTransferToReceiveUI(activeTransfer);
-  wirePeerInfoListener(activeTransfer);
-  try { await activeTransfer.startReceiving(); }
-  catch (err) { log('Failed to start receiving: ' + err.message, 'err'); }
-}
-
-async function ensureSendTransfer() {
-  if (activeTransfer && (activeTransfer._uiDirection !== 'send' || activeTransfer._uiBackend !== currentBackend)) {
-    disposeActiveTransfer();
-  }
-  if (activeTransfer) return;
-  remotePeerInfo = null;
-  const opts = { peerInfo: buildLocalPeerInfo() };
-  if (currentBackend === 'peerjs')        activeTransfer = new PeerJSTransfer(opts);
-  else if (currentBackend === 'raw')      activeTransfer = new RawTransfer(opts);
-  else if (currentBackend === 'trystero' || currentBackend === 'mqtt') activeTransfer = new TrysteroTransfer({
-    ...opts,
-    password: GroupStore.getPassword() || null,
-    strategy: currentBackend === 'mqtt' ? 'mqtt' : 'nostr',
-  });
-  else throw new Error('Unknown backend: ' + currentBackend);
-  activeTransfer._uiDirection = 'send';
-  activeTransfer._uiBackend = currentBackend;
-  wireTransferToSendUI(activeTransfer);
-  wirePeerInfoListener(activeTransfer);
 }
 
 // =====================================================================
@@ -7164,15 +6248,12 @@ function setConnectionBarStatus(stateKey) {
   }
 }
 
-// Render the avatar + nickname for the current peer. Reads remotePeerInfo;
-// falls back to placeholders if peer-info hasn't arrived yet.
+// Render the avatar + nickname for the current peer (first connected group
+// member). Falls back to placeholders if peer-info hasn't arrived yet.
 function renderConnectionBarPeer() {
-  // Use remotePeerInfo first, then fall back to first connected group member
-  let info = remotePeerInfo;
-  if (!info) {
-    const members = TrysteroRoomManager.getConnectedMembers();
-    if (members.length > 0 && members[0].info) info = members[0].info;
-  }
+  let info = null;
+  const members = TrysteroRoomManager.getConnectedMembers();
+  if (members.length > 0 && members[0].info) info = members[0].info;
   const avatar = $('conn-bar-avatar');
   const nick   = $('conn-bar-nick');
   if (info && info.nickname) {
@@ -7214,21 +6295,6 @@ function renderTopbarConnections() {
   const peers = getOnlineMembersForDisplay();
   const seenDeviceIds = new Set(peers.map(p => p.deviceId));
 
-  // Fallback: include remotePeerInfo from active transfer (covers first-pairing
-  // window before peer-info/membership is populated). Never include our own
-  // device (another tab) or a duplicate deviceId.
-  if (remotePeerInfo && remotePeerInfo.deviceId && remotePeerInfo.deviceId !== DEVICE_ID
-      && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
-    peers.push(remotePeerInfo);
-    seenDeviceIds.add(remotePeerInfo.deviceId);
-  }
-  // Non-Trystero active transfer (PeerJS/Raw)
-  if (activeTransfer && !activeTransfer.persistent && activeTransfer._remotePeerId && remotePeerInfo
-      && currentBackend !== 'trystero' && remotePeerInfo.deviceId !== DEVICE_ID
-      && !seenDeviceIds.has(remotePeerInfo.deviceId)) {
-    peers.push(remotePeerInfo);
-  }
-
   const SIZE = 32;
 
   // Layout: connection avatars (no names) on the LEFT, then "&", then the
@@ -7258,102 +6324,6 @@ function renderTopbarConnections() {
   nameEl.textContent = identity.nickname || '';
 }
 
-// Shared listener — both roles want to know who the other peer is.
-function wirePeerInfoListener(t) {
-  t.on('peer-info', (info) => {
-    remotePeerInfo = info;
-    if (info) {
-      const clockOffset = info.sentAt ? (Date.now() - info.sentAt) : null;
-      log(`Peer: ${info.emoji || ''} ${info.nickname || '?'} (${info.device || '?'}, ${info.browser || '?'}/${info.os || '?'})${clockOffset != null ? `, clock offset ${clockOffset}ms` : ''}`, 'info');
-
-      // First-pairing flow: non-persistent Trystero room — save peer to group.
-      if (info.deviceId && t._uiBackend === 'trystero' && !t.persistent && t.peerId) {
-        if (!GroupStore.exists()) {
-          // We are the one who showed the QR; create the group now
-          const pw = typeof generateTrysteroPassword === 'function'
-            ? generateTrysteroPassword()
-            : 'default-' + Date.now();
-          GroupStore.create(t.peerId, pw);
-        }
-        if (!GroupStore.isKnown(info.deviceId)) {
-          const TRANSPORT_FIELDS = new Set([
-            '_peerId', 'sentAt', 'device', 'browser', 'os', 'token',
-          ]);
-          const newMember = { deviceId: info.deviceId };
-          for (const [k, v] of Object.entries(info)) {
-            if (TRANSPORT_FIELDS.has(k)) continue;
-            if (v !== undefined) newMember[k] = v;
-          }
-          GroupStore.addMember(newMember);
-        }
-      }
-    }
-    renderConnectionBarPeer();
-  });
-  // 'connected' fires when the data channel opens. Show the bar in the
-  // connected state. Peer-info usually arrives ms later and updates the
-  // nickname in place via the listener above.
-  t.on('connected', () => {
-    hideConnectingOverlay();
-    if (!GroupStore.exists()) {
-      showConnectionBar();
-      setConnectionBarStatus('connected');
-    }
-    if (currentScreenId() === 'start') renderResumeBar();
-  });
-  // 'disconnected' fires when the channel closes — peer-bye, channel
-  // close, network blip, all the same. Show the disconnect status
-  // (briefly visible before we route to start) then route.
-  // Persistent Trystero rooms do NOT navigate — they stay open waiting
-  // for the peer to come back.
-  t.on('disconnected', () => {
-    hideConnectingOverlay();
-    renderTopbarConnections();
-    if (currentScreenId() === 'start') renderResumeBar();
-    setConnectionBarStatus('disconnected');
-    if (!t.persistent) handleRemoteDisconnect();
-  });
-  // 'reconnecting' fires when the library detects death but is going to
-  // try to bring the channel back. We DO NOT route to start here — the
-  // UI stays on whatever screen it was on (pick / transfer), so the
-  // user's note draft and lamp state remain on screen.
-  t.on('reconnecting', () => {
-    setConnectionBarStatus('reconnecting');
-  });
-  // 'reconnected' fires only after a successful reconnect (separate
-  // from the regular 'connected' so the UI knows this is a recovery).
-  // Push our current local state to the peer so both sides re-sync.
-  t.on('reconnected', () => {
-    log('Reconnected — pushing local state to peer.', 'ok');
-    setConnectionBarStatus('connected');
-    const input = document.querySelector('[data-note-input]');
-    const noteText = input ? input.value : '';
-    const tDemo = getTransferForDemoFeatures();
-    try { if (tDemo) tDemo.sendNote(noteText); } catch {}
-    try { if (tDemo) tDemo.sendLamp(_lampState); } catch {}
-  });
-  // Identity mismatch — someone tried to reconnect but their session
-  // token doesn't match. Surfaced as a separate event so we can log it
-  // distinctly. The library has already emitted (or will emit) the
-  // 'disconnected' event with reason 'identity-mismatch' which drives
-  // the rest of the cleanup.
-  t.on('identity-mismatch', () => {
-    log('Reconnect attempt rejected: peer identity did not match.', 'err');
-  });
-  // Live note from the peer: just render the latest text. Not a chat —
-  // each message replaces what was there. Listener is shared so it works
-  // for whichever role we're in (sender sees receiver's note on pick
-  // screen; receiver sees sender's note on transfer screen).
-  t.on('note', ({ text }) => {
-    setPeerNoteText(text);
-  });
-  // Shared lamp: just adopt the peer's state. Don't echo back (would
-  // ping-pong forever). { send: false } skips the outbound send.
-  t.on('lamp', ({ on }) => {
-    setLampState(on, { send: false });
-  });
-}
-
 // =====================================================================
 // Live note panels — sender's pick screen and receiver's transfer screen
 // Each side has its own input (what they're typing) and a read-only view
@@ -7368,9 +6338,9 @@ let _lastSentNoteText = null;
 
 function _allNoteInputs() { return document.querySelectorAll('[data-note-input]'); }
 
-// Reflect an incoming peer note into the shared note input. (Used by the
-// legacy PeerJS/Raw per-transfer path; the Trystero/MQTT group path uses the
-// SyncEngine 'demo' collection instead.)
+// Reflect a peer note value into the shared note inputs without echoing
+// it back as our own edit. Used by resetNotePanels; incoming group notes
+// arrive via the SyncEngine 'demo' collection.
 function setPeerNoteText(text) {
   const s = text == null ? '' : String(text);
   _lastSentNoteText = s;  // don't echo it back as our own
@@ -7386,30 +6356,19 @@ function resetNotePanels() {
   setPeerNoteText('');
 }
 
-// Show the note panel on the right screen for the right role. Pick screen
-// belongs to the sender; transfer screen belongs to the receiver. Hidden
-// in all other cases.
+// Show the note panel on the right screen: the pick screen (the group's
+// reports overview). Hidden in all other cases.
 function updateNotePanelVisibility() {
   const screen = currentScreenId();
   const pickPanel = $('pick-note-panel');
-  const transferPanel = $('transfer-note-panel');
-  // Pick screen is sender-only, always post-pairing.
   if (pickPanel) pickPanel.classList.toggle('hidden', screen !== 'pick');
-  // Transfer screen: only show on the receiver's side. Sender's transfer
-  // screen is the "sending / sent" flow with its own actions — adding a
-  // note panel there would crowd a short-lived screen.
-  if (transferPanel) {
-    const onReceiverTransfer = (screen === 'transfer' && currentMode === 'receive');
-    transferPanel.classList.toggle('hidden', !onReceiverTransfer);
-  }
 }
 
-// Returns the right transfer for demo features (note/lamp).
+// Returns the group room transport for demo features (note/lamp).
 function getTransferForDemoFeatures() {
   if (TrysteroRoomManager._room && TrysteroRoomManager.isConnected()) {
     return TrysteroRoomManager._room;
   }
-  if (activeTransfer && activeTransfer._remotePeerId) return activeTransfer;
   return null;
 }
 
@@ -7542,10 +6501,6 @@ function setupLampToggles() {
   }
 }
 
-// The peer disconnected on us. Route to start the same way the user's
-// own Disconnect button does — closes activeTransfer (defensive; usually
-// already closed), navigates to start. onEnterScreen('start') hides
-// the bar and resets state.
 // =====================================================================
 // Resume session bar — shown on start screen when there's an active
 // connection so the user can jump back into the session.
@@ -7563,16 +6518,6 @@ function renderResumeBar() {
   // Online members — direct peers AND mesh-reachable (fresh lastSeenAt), via
   // the shared helper so the resume bar agrees with the topbar and My Group.
   const peers = getOnlineMembersForDisplay();
-  // Fallback to the last transfer peer ONLY when there's no group — that's the
-  // first-pairing case where membership/presence doesn't exist yet. In a
-  // persistent group, presence is authoritative: if nobody is online we must
-  // NOT resurrect a departed peer from the stale remotePeerInfo global (that's
-  // what left a peer's avatar + "Connected" stuck on the Demo bar forever).
-  if (peers.length === 0 && !GroupStore.exists()
-      && remotePeerInfo && remotePeerInfo.deviceId !== DEVICE_ID) {
-    peers.push(remotePeerInfo);
-  }
-
   if (peers.length > 0) {
     // Own avatar first, then every connected peer's avatar stacked — matches
     // the topbar. No "N connected" text fallback; show the actual faces.
@@ -7607,23 +6552,8 @@ $('resume-session-bar').addEventListener('click', async () => {
     if (pickIdx !== -1) goToStep(pickIdx, 'forward');
     return;
   }
-  // PeerJS / Raw
-  if (!activeTransfer || !activeTransfer._remotePeerId) return;
-  const targetScreen = (currentMode === 'receive') ? 'transfer' : 'pick';
-  const idx = activeFlow().indexOf(targetScreen);
-  if (idx !== -1) goToStep(idx, 'forward');
 });
 
-function handleRemoteDisconnect() {
-  if (currentScreenId() === 'start') {
-    // Connection dropped while on start screen — clean up now.
-    disposeActiveTransfer();
-    renderResumeBar();
-    return;
-  }
-  restartToStart();
-}
-
 // =====================================================================
 // =====================================================================
 // Known devices UI
@@ -7633,16 +6563,7 @@ function handleRemoteDisconnect() {
 // Known devices UI
 // =====================================================================
 
-async function activateKnownPairing() {
-  // In the group model, there's only one room. Just activate it.
-  const t = TrysteroRoomManager._room;
-  if (!t || !TrysteroRoomManager.isConnected()) {
-    log('Group not connected yet — waiting for reconnect.', 'info');
-    return;
-  }
-  // For Trystero, no pick/send flow — sync is automatic
-  log('Group is connected.', 'ok');
-}
+
 
 function showSourceModal() {
   if (!_sourceData) return;
@@ -7986,289 +6907,6 @@ function _suggestJobTitle(backdrop, selB, selE) {
   if (parts.length) titleInput.value = parts.join(' — ');
 }
 
-function wireTransferToReceiveUI(t) {
-  t.on('log', ({ level, message }) => log(message, level));
-  t.on('show-qr', ({ kind, text, chunks }) => {
-    if (currentScreenId() !== 'show-qr') return;  // not yet on this screen, ignore
-    hideConnectingOverlay();
-    if (kind === 'peerid') {
-      $('show-qr-peerid').textContent = text;
-      $('show-qr-peerid').classList.remove('hidden');
-      // QR encodes the URL form (?join={id}&backend=…). This lets a user
-      // scan with their native camera app — they get a tappable link that
-      // opens the app already knowing both the room/peer ID and the backend.
-      // onScanResult / autoJoinIfPending strip the URL wrapping back.
-      const joinUrl = buildJoinURL(text, currentBackend !== 'peerjs' ? currentBackend : null);
-      renderQR($('show-qr-frame'), joinUrl);
-      // The "or type the ID" hint is a dev-mode affordance — in user mode
-      // we don't show the ID so this hint would be misleading.
-      $('show-qr-info').textContent = DEV_MODE ? 'Or type the ID into the other device' : '';
-    } else if (kind === 'offer-chunks') {
-      startQRCycle('show-qr-frame', 'show-qr-info', chunks);
-    }
-  });
-  t.on('connected', (peerId) => {
-    // Receiver connected
-    log('Peer connected.', 'ok');
-    if (t._uiBackend === 'trystero' || t._uiBackend === 'mqtt') {
-      // Trystero/Gun: no transfer screen — request sync from new peer
-      hideConnectingOverlay();
-      if (typeof peerId === 'string') {
-        t.sendSyncRequest(peerId);
-        SourceSyncManager.broadcastInfo(peerId);
-      }
-      return;
-    }
-    if (currentScreenId() !== 'transfer') goToStep(activeFlow().indexOf('transfer'), 'forward');
-    setTransferStatus('Connected. Waiting for data…');
-  });
-  t.on('progress', ({ received, total }) => {
-    const pct = total ? (received / total) * 100 : 0;
-    $('transfer-progress').style.width = pct + '%';
-    if (total) setTransferStatus(`Receiving ${(received/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
-  });
-  t.on('status', (s) => {
-    if (s === 'transferring') {
-      setConnectionBarStatus('incoming');
-    }
-    if (s === 'done') {
-      // The receiver's choice (created / replaced / merged / skipped) was
-      // set inside handleIncomingSession. Map that to the right bar state
-      // so the balloon reports what happened.
-      const skipped = receiverAction === 'skipped';
-      if (!skipped) {
-        $('transfer-title').textContent = 'Received';
-        setTransferStatus('Done.', 'ok');
-      } else {
-        $('transfer-title').textContent = 'Skipped';
-        setTransferStatus('Nothing was changed.', '');
-      }
-      // The transfer screen already surfaces the receiver's outcome
-      // (title + status line + session-list highlight), so this is a
-      // no-op in the bar — kept for symmetry / future re-enable.
-      setConnectionBarStatus(receiverAction);
-      revealPostTransferSessions();
-    }
-    if (s === 'error') {
-      $('transfer-title').textContent = 'Something went wrong';
-      setTransferStatus('Error during receive.', 'err');
-      setConnectionBarStatus('error');
-      showProgressRestartButton('Disconnect');
-    }
-  });
-  t.onPayload = handleIncomingSession;
-}
-
-function wireTransferToSendUI(t) {
-  t.on('log', ({ level, message }) => log(message, level));
-  t.on('show-qr', ({ kind, chunks }) => {
-    if (kind === 'answer-chunks') {
-      // We need to advance to show-qr screen now
-      const showQRIdx = activeFlow().indexOf('show-qr');
-      if (showQRIdx !== -1 && currentStep !== showQRIdx) {
-        goToStep(showQRIdx, 'forward');
-      }
-      startQRCycle('show-qr-frame', 'show-qr-info', chunks);
-    }
-  });
-  t.on('connected', () => {
-    log('Peer connected.', 'ok');
-    if (currentBackend === 'trystero') return; // Trystero: sync happens automatically
-    // Raw sender: advance to pick now that the channel is open.
-    if (currentBackend === 'raw' && currentMode === 'send') {
-      const pickIdx = activeFlow().indexOf('pick');
-      if (pickIdx !== -1 && currentStep !== pickIdx) goToStep(pickIdx, 'forward');
-    }
-    // PeerJS sender: onScanResult already advanced to pick.
-  });
-  t.on('progress', ({ sent, total }) => {
-    const pct = total ? (sent / total) * 100 : 0;
-    $('transfer-progress').style.width = pct + '%';
-    if (total) {
-      // Once the bytes are fully out the door but the receiver hasn't yet
-      // acknowledged, surface that explicitly — otherwise the last visible
-      // status ("Sent 4.2 / 4.2 KB") gives no hint that we're waiting on the
-      // receiver to choose Merge/Replace/Skip. This is especially important
-      // when the receiver lingers on the conflict modal.
-      if (sent >= total) {
-        setTransferStatus('Awaiting action from receiver…');
-      } else {
-        setTransferStatus(`Sent ${(sent/1024).toFixed(1)} / ${(total/1024).toFixed(1)} KB`);
-      }
-    }
-  });
-  t.on('status', (s) => {
-    if (s === 'transferring') {
-      setConnectionBarStatus('outgoing');
-    }
-    if (s === 'done') {
-      // For the sender, the just-touched session is the one we picked.
-      // The receiver might have skipped — that path doesn't reach here,
-      // so anything we record was actually transferred and acknowledged.
-      recordTransfer(selectedSessionId, 'sent');
-      // Append a 'sent' event to the session's history. We re-fetch the
-      // session here rather than mutating from cache so we don't race with
-      // any concurrent updates (the user could have edited it in the UI
-      // in another tab — unlikely but cheap to be safe).
-      if (selectedSessionId && receiverAction !== 'skipped' && !receiverError) {
-        (async () => {
-          const s = await getSession(selectedSessionId);
-          if (!s) return;
-          const peer = remotePeerInfo ? {
-            emoji: remotePeerInfo.emoji,
-            nickname: remotePeerInfo.nickname,
-            device: remotePeerInfo.device,
-            color: remotePeerInfo.color,
-          } : null;
-          appendHistoryEvent(s, { kind: 'sent', peer });
-          await putSession(s);
-        })();
-      }
-      // On receiver error, surface "error" in the bar. The receiver's
-      // success outcomes (created/replaced/merged/skipped) are already
-      // shown on the sent view itself, so no bar update is needed.
-      if (receiverError) setConnectionBarStatus('error');
-      // Swap to the sent view (headline + buttons).
-      showSentAnimation();
-    }
-    if (s === 'error') {
-      $('transfer-title').textContent = 'Something went wrong';
-      setTransferStatus('Error during send.', 'err');
-      setConnectionBarStatus('error');
-      showProgressRestartButton('Disconnect');
-    }
-  });
-  t.onAck = (response, error) => {
-    // Store the receiver's verdict for showSentAnimation to read. We don't
-    // touch the status line here — by the time status='done' fires (very
-    // soon after), showSentAnimation will swap the whole view anyway.
-    receiverError = error || null;
-    receiverAction = response?.action || null;
-    // Also write a one-line log entry so the activity log captures it.
-    if (error) log(`Receiver reported error: ${error}`, 'err');
-    else if (receiverAction) log(`Receiver: ${receiverAction}.`, 'ok');
-  };
-}
-
-// =====================================================================
-// Conflict resolution (receiver decides what to do with incoming session)
-// =====================================================================
-async function handleIncomingSession(payload) {
-  if (!payload || !payload.id) {
-    log('Received payload has no session ID, ignoring.', 'err');
-    return { ok: false, reason: 'no-id' };
-  }
-  const incoming = payload;
-  // Capture the sender's identity from the library's peer-info exchange.
-  // remotePeerInfo is a module-scope variable set by wirePeerInfoListener.
-  // It might be null if the sender didn't pass peerInfo (older client).
-  const senderPeer = remotePeerInfo ? {
-    emoji: remotePeerInfo.emoji,
-    nickname: remotePeerInfo.nickname,
-    device: remotePeerInfo.device,
-    color: remotePeerInfo.color,
-  } : null;
-
-  const existing = await getSession(incoming.id);
-  if (!existing) {
-    appendHistoryEvent(incoming, { kind: 'received', action: 'created', peer: senderPeer });
-    await putSession(incoming);
-    log(`Stored new report "${incoming.name}".`, 'ok');
-    refreshSessionsCount();
-    recordTransfer(incoming.id, 'received', incoming.name);
-    receiverAction = 'created';
-    return { ok: true, action: 'created' };
-  }
-  const choice = await showConflictModal(existing, incoming);
-  if (choice === 'skip') {
-    log('Skipped.', 'err');
-    receiverAction = 'skipped';
-    return { ok: true, action: 'skipped' };
-  }
-  if (choice === 'replace') {
-    // Replace preserves nothing of the existing session except the history,
-    // which carries the audit trail forward. Without this the user would
-    // "lose" the audit log every time they replace.
-    const replaced = Object.assign({}, incoming, { history: (existing.history || []).slice() });
-    appendHistoryEvent(replaced, { kind: 'received', action: 'replaced', peer: senderPeer });
-    await putSession(replaced);
-    log(`Replaced "${existing.name}".`, 'ok');
-    refreshSessionsCount();
-    recordTransfer(incoming.id, 'received', incoming.name);
-    receiverAction = 'replaced';
-    return { ok: true, action: 'replaced' };
-  }
-  // Merge using shape-aware helper. Returns null if shapes mismatch (object vs array).
-  const result = mergeData(existing.data, incoming.data);
-  if (!result) {
-    log('Cannot merge: existing and incoming have different shapes (object vs array). Use Replace or Skip instead.', 'err');
-    return { ok: false, reason: 'shape-mismatch' };
-  }
-  const merged = {
-    id: existing.id, name: incoming.name,
-    createdAt: new Date(existing.createdAt) < new Date(incoming.createdAt) ? existing.createdAt : incoming.createdAt,
-    modifiedAt: new Date(),
-    data: result.merged,
-    // Merge rooms naively: union photo arrays per room. Per-room dedup
-    // would need a stable photo identity (hash/url) we don't enforce
-    // yet; the simple union is fine for now.
-    rooms: mergeRooms(existing.rooms, incoming.rooms),
-    history: (existing.history || []).slice()
-  };
-  appendHistoryEvent(merged, { kind: 'received', action: 'merged', peer: senderPeer });
-  await putSession(merged);
-  log(`Merged: +${result.added} new, ${result.overwritten} overwritten.`, 'ok');
-  refreshSessionsCount();
-  recordTransfer(existing.id, 'received', merged.name);
-  receiverAction = 'merged';
-  return { ok: true, action: 'merged' };
-}
-
-function showConflictModal(existing, incoming) {
-  return new Promise((resolve) => {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop conflict-backdrop';
-    const incomingCount = dataRecordCount(incoming.data);
-    const existingCount = dataRecordCount(existing.data);
-    const existingShape = dataIsArray(existing.data) ? 'array' : 'object';
-    const incomingShape = dataIsArray(incoming.data) ? 'array' : 'object';
-    const shapeMismatch = existingShape !== incomingShape;
-    backdrop.innerHTML = `
-      <div class="modal conflict">
-        <div class="modal-head"><h3>Report already exists</h3></div>
-        <div class="modal-body">
-          <p style="margin-bottom:14px; color:var(--dim); font-size:13px;">Both copies share ID <code class="inline-code">${existing.id}</code>. How do you want to handle this?</p>
-          <div class="conflict-side">
-            <div class="label">Existing (local)</div>
-            <div class="name"></div>
-            <div class="meta"></div>
-          </div>
-          <div class="conflict-side">
-            <div class="label">Incoming</div>
-            <div class="name"></div>
-            <div class="meta"></div>
-          </div>
-          ${shapeMismatch ? '<p style="margin-top:12px; padding:8px 10px; background:#FFF6F4; border-left:3px solid var(--warn); font-size:12px;"><strong style="color:var(--warn);">Shape mismatch:</strong> one copy is an object, the other is an array. Merge is unavailable — use Skip or Replace.</p>' : ''}
-        </div>
-        <div class="modal-footer">
-          <button id="c-skip">Skip</button>
-          <button id="c-merge" ${shapeMismatch ? 'disabled title="Shapes differ — cannot merge"' : ''}>Merge</button>
-          <button class="primary" id="c-replace" style="background:var(--accent);color:#fff;border-color:var(--accent);">Replace</button>
-        </div>
-      </div>`;
-    document.body.appendChild(backdrop);
-    const sides = backdrop.querySelectorAll('.conflict-side');
-    sides[0].querySelector('.name').textContent = existing.name;
-    sides[0].querySelector('.meta').textContent = `${existingCount} item${existingCount === 1 ? '' : 's'} (${existingShape}) · modified ${formatRelative(existing.modifiedAt)}`;
-    sides[1].querySelector('.name').textContent = incoming.name;
-    sides[1].querySelector('.meta').textContent = `${incomingCount} item${incomingCount === 1 ? '' : 's'} (${incomingShape}) · modified ${formatRelative(incoming.modifiedAt)}`;
-    const finish = (choice) => { backdrop.remove(); resolve(choice); };
-    backdrop.querySelector('#c-skip').addEventListener('click', () => finish('skip'));
-    backdrop.querySelector('#c-merge').addEventListener('click', (e) => { if (!e.currentTarget.disabled) finish('merge'); });
-    backdrop.querySelector('#c-replace').addEventListener('click', () => finish('replace'));
-  });
-}
-
 // =====================================================================
 // Export / Import (manual backup escape hatch)
 // =====================================================================
@@ -8523,7 +7161,7 @@ function showItemsModal(session) {
     backdrop.remove();
   });
 
-  // Live refresh — when a sync-delta updates this session, re-open with fresh data
+  // Live refresh — when a sync update touches this session, re-open with fresh data
   _liveItemsModalRefresh = async () => {
     const updated = await getSession(session.id);
     if (!updated) return;
@@ -8806,47 +7444,6 @@ function escapeHTML(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-// Cached Web Audio context; created lazily on first blip so the page
-// doesn't request audio resources until actually needed. The browser
-// will accept this because all transfers begin with explicit user
-// interaction (the connection setup), so the autoplay policy is met
-// by the time recordTransfer fires.
-let __audioCtx = null;
-function getAudioCtx() {
-  if (__audioCtx) return __audioCtx;
-  const Ctor = window.AudioContext || window.webkitAudioContext;
-  if (!Ctor) return null;
-  try { __audioCtx = new Ctor(); } catch (e) { return null; }
-  return __audioCtx;
-}
-
-// Short two-note "blip" played on a successful receive. Generated via
-// Web Audio (no asset file) — a quick A5 → E6 chirp ~120ms total.
-// Volume kept low so a roomful of devices receiving in series doesn't
-// get cacophonous. Silently no-ops if Web Audio isn't available or
-// the audio context fails to start (defensive on mobile Safari).
-function playReceiveBlip() {
-  const ctx = getAudioCtx();
-  if (!ctx) return;
-  // Resume on demand — iOS suspends audio contexts when the tab
-  // backgrounds or after long inactivity. Resume is a no-op if already
-  // running. Don't await it; if it fails, the gain envelope just
-  // produces silence.
-  try { ctx.resume && ctx.resume(); } catch (e) {}
-  const now = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(880, now);              // A5
-  osc.frequency.exponentialRampToValueAtTime(1320, now + 0.08);  // ~E6
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.18, now + 0.01);  // fast attack
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18); // soft tail
-  osc.connect(gain).connect(ctx.destination);
-  osc.start(now);
-  osc.stop(now + 0.2);
 }
 
 // Bottom-of-screen toast for out-of-band notifications. Slides up,
@@ -10247,12 +8844,9 @@ async function maybeShowOnboarding() {
   return true;
 }
 
-// Helper: close the pairing and return to start screen. Used by:
-// - Bottom-nav back button when in disconnected mode (paired session)
-// - Inline progress-restart-btn at terminal states
-// - Inline sent-disconnect-btn next to "Send another"
-// The onEnterScreen('start') hook takes care of closing activeTransfer
-// and hiding the connection bar; we just navigate there.
+// Helper: return to the start screen. Used by the bottom-nav back button
+// when the connection bar is showing. The onEnterScreen('start') hook
+// hides the connection bar; we just navigate there.
 const restartToStart = () => goToStep(0, 'back');
 
 $('nav-back').addEventListener('click', () => {
@@ -10260,7 +8854,7 @@ $('nav-back').addEventListener('click', () => {
   // The Back button has been relabeled to "Disconnect" in that case (see
   // updateNavBar), and its click should end the pairing rather than step
   // back through the flow. Going to step 0 (start) triggers onEnterScreen
-  // cleanup which closes activeTransfer and hides the bar.
+  // cleanup which hides the bar.
   const barShown = !$('connection-bar').classList.contains('hidden');
   if (barShown) {
     restartToStart();
@@ -10296,81 +8890,18 @@ $('nav-next').addEventListener('click', async () => {
     if (selectedSessionId) nextStep();
   }
 });
-$('progress-restart-btn').addEventListener('click', restartToStart);
-$('sent-disconnect-btn').addEventListener('click', restartToStart);
-// Browse from the post-transfer summary row opens the standard sessions
-// modal so the user can manage all reports. Same affordance as the
-// "Browse →" button on the My device panel — consistent destination.
-// Browse from the post-transfer summary row opens the standard sessions
-// modal so the user can manage all reports. The receiver just landed
-// here to look at reports they got — they didn't come to create one,
-// so the "New task" button is omitted from this entry point. The
-// My device → Browse entry still shows it (default behavior).
-$('transfer-browse-btn').addEventListener('click', () => showSessionsModal({ hideNewReport: true }));
-
-// "Send another" — reuse the open connection. Returns to the pick screen
-// so the user can choose another session to send to the same peer.
-//
-// DOES NOT close activeTransfer (the data channel is reused for the next
-// send) and DOES NOT hide the connection bar (the pairing is still alive).
-// Bar stays in its rainbow "transferring" state — it'll transition to
-// idle on this screen change because setupTransferScreen's done handler
-// already set it to that. Actually wait — the rainbow KEEPS playing
-// through done (per the celebration design). Going back to pick now,
-// the bar should return to idle pastel cyan since we're not currently
-// transferring. Set it explicitly.
-$('sent-restart-btn').addEventListener('click', () => {
-  // Reset state about the just-completed send so the next send starts
-  // clean. KEEP: activeTransfer (the channel), remotePeerInfo (still
-  // the same peer), currentMode/currentBackend.
-  selectedSessionId = null;
-  receiverAction = null;
-  receiverError = null;
-  justTransferredId = null;
-  justTransferredDirection = null;
-  // Bar returns to idle — still paired, between sends.
-  setConnectionBarStatus('connected');
-  // Navigate to the pick screen. Don't use prevStep — the pick screen
-  // could be at different indices depending on backend (2 for peerjs,
-  // 3 for raw because raw has show-qr between scan-qr and pick).
-  const pickIdx = activeFlow().indexOf('pick');
-  if (pickIdx !== -1) goToStep(pickIdx, 'back');
-});
-
 // =====================================================================
 // Init
 // =====================================================================
 // =====================================================================
 // Visibility-based liveness check
 // =====================================================================
-// When a mobile browser tab is backgrounded for a while, the OS freezes
-// its JS — ICE keepalives stop, the channel dies on the OTHER side, but
-// the frozen side never sees a close event. On resume, _conn.open may
-// still falsely report true and the heartbeat is just starting to tick.
-// We do an immediate check on every return-to-foreground: if the
-// transfer's own isAlive() says no, route to start the same way we would
-// for any remote disconnect. Belt-and-braces with the heartbeat: this
-// gives immediate feedback when the user reopens the tab, instead of
-// waiting up to ~9s for the heartbeat to time out.
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
-  if (!activeTransfer || typeof activeTransfer.checkAndRecover !== 'function') return;
-  // checkAndRecover returns true if it's already alive (no-op) or if
-  // a recovery attempt was kicked off; we don't have to do anything in
-  // either case — the 'reconnecting' / 'connected' / 'disconnected'
-  // events drive the UI.
-  if (!activeTransfer.isAlive()) {
-    log('Returned to foreground with stale connection — attempting recovery.', 'info');
-    activeTransfer.checkAndRecover();
-  }
-});
-
 window.addEventListener('load', async () => {
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS.', 'err');
   }
   const ok = await (window.__libsReady || Promise.resolve(false));
-  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof Peer === 'undefined' || typeof PeerJSTransfer === 'undefined') {
+  if (!ok || typeof qrcode === 'undefined' || typeof jsQR === 'undefined' || typeof TrysteroTransfer === 'undefined') {
     log('Some libraries failed to load.', 'err');
   } else {
     log('Ready.', 'ok');
@@ -10450,81 +8981,57 @@ async function autoJoinIfPending() {
   if (onboardingShown) return;
   autoJoinConsumed = true;
   revealApp();
-  if (typeof PeerJSTransfer === 'undefined') {
+  if (typeof TrysteroTransfer === 'undefined') {
     log('Cannot auto-join: library not loaded.', 'err');
     return;
   }
-  const { peerId, backend, strategy, pw, invitedBy } = PENDING_JOIN_PARAMS;
+  const { peerId, pw, invitedBy } = PENDING_JOIN_PARAMS;
   log(`Auto-joining peer "${peerId}"…`, 'info');
 
   currentMode    = 'send';
-  // The QR encodes backend=trystero with a strategy param. Map the strategy
-  // to our internal backend id (mqtt is its own id; nostr maps to 'trystero').
-  // Legacy QRs that put the strategy in the backend field still work.
-  if (backend === 'trystero') {
-    currentBackend = (strategy === 'mqtt') ? 'mqtt' : 'trystero';
-  } else if (backend === 'mqtt' || backend === 'raw') {
-    currentBackend = backend;
-  } else {
-    currentBackend = 'peerjs';
-  }
+  currentBackend = 'mqtt';
   onBackendOrModeChanged();
 
   if (!hasIdentity()) { log('Cannot auto-join: no identity.', 'err'); return; }
 
-  if (currentBackend === 'trystero' || currentBackend === 'mqtt') {
-    // Already in a group? A QR for a DIFFERENT group (different room code) is
-    // refused — one group per installation, and silently switching would be
-    // confusing (and discarding the current group's data without consent is
-    // not OK). A QR for the SAME group (e.g. re-scanning, or a second device
-    // that was already paired) is harmless and proceeds normally.
-    if (GroupStore.exists() && peerId && GroupStore.getRoomCode() !== peerId) {
-      log('Ignored an invite for a different group — you are already in one.', 'info');
-      alert(
-        'You are already in a group.\n\n' +
-        'This invite is for a different group. To join it, first leave your ' +
-        'current group (My device → Leave), which clears this device\'s shared ' +
-        'data, and then scan the invite again.'
-      );
-      restartToStart();
-      return;
-    }
-    // Valid invite — run the shared admission steps (lift eviction, create
-    // group from the QR params, remember inviter), then join the room.
-    admitToGroup(peerId, pw, invitedBy);
-    // Joining a group is not a wait-for-peer handshake: you're a member as
-    // soon as the room is joined, even if nobody else is online yet. Data
-    // syncs in the background once any peer appears (last-write-wins merge
-    // from whoever is online). So we join the room directly — no blocking
-    // overlay — and report progress in the status log instead.
-    log('Joining group…', 'info');
-    try {
-      await TrysteroRoomManager.reinit();
-      log('Joined the group. Syncing with online members…', 'ok');
-      // Gate reports/members/source until each syncs in (or per-domain
-      // timeout), so the newcomer doesn't act on incomplete data. If we
-      // already have a source, lift that domain immediately.
-      JoinGate.begin();
-      if (_sourceData) JoinGate.clear('source');
-      restartToStart();
-    } catch (err) {
-      _pendingInvitedBy = null;
-      log('Could not join the group: ' + err.message, 'err');
-      restartToStart();
-    }
+  // Already in a group? A QR for a DIFFERENT group (different room code) is
+  // refused — one group per installation, and silently switching would be
+  // confusing (and discarding the current group's data without consent is
+  // not OK). A QR for the SAME group (e.g. re-scanning, or a second device
+  // that was already paired) is harmless and proceeds normally.
+  if (GroupStore.exists() && peerId && GroupStore.getRoomCode() !== peerId) {
+    log('Ignored an invite for a different group — you are already in one.', 'info');
+    alert(
+      'You are already in a group.\n\n' +
+      'This invite is for a different group. To join it, first leave your ' +
+      'current group (My device → Leave), which clears this device\'s shared ' +
+      'data, and then scan the invite again.'
+    );
+    restartToStart();
     return;
   }
-
-  await ensureSendTransfer();
-  showConnectionBar();
-  setConnectionBarStatus('connecting');
+  // Valid invite — run the shared admission steps (lift eviction, create
+  // group from the QR params, remember inviter), then join the room.
+  admitToGroup(peerId, pw, invitedBy);
+  // Joining a group is not a wait-for-peer handshake: you're a member as
+  // soon as the room is joined, even if nobody else is online yet. Data
+  // syncs in the background once any peer appears (last-write-wins merge
+  // from whoever is online). So we join the room directly — no blocking
+  // overlay — and report progress in the status log instead.
+  log('Joining group…', 'info');
   try {
-    await activeTransfer.connect(peerId);
-    const pickIdx = activeFlow().indexOf('pick');
-    if (pickIdx !== -1) goToStep(pickIdx, 'forward');
+    await TrysteroRoomManager.reinit();
+    log('Joined the group. Syncing with online members…', 'ok');
+    // Gate reports/members/source until each syncs in (or per-domain
+    // timeout), so the newcomer doesn't act on incomplete data. If we
+    // already have a source, lift that domain immediately.
+    JoinGate.begin();
+    if (_sourceData) JoinGate.clear('source');
+    restartToStart();
   } catch (err) {
-    log('Auto-join failed: ' + err.message, 'err');
-    hideConnectionBar();
+    _pendingInvitedBy = null;
+    log('Could not join the group: ' + err.message, 'err');
+    restartToStart();
   }
 }
 </script>
