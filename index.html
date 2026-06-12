@@ -1056,6 +1056,12 @@
     color: var(--ink);
   }
   .items-search-clear.hidden { display: none; }
+  .items-filter-toggle {
+    background: none; border: none; cursor: pointer;
+    padding: 8px 12px; min-height: 0; min-width: 0;
+    color: var(--dim); display: inline-flex; align-items: center;
+  }
+  .items-filter-toggle.active { color: var(--accent); }
 
   /* Group header: label on the left, count on the right. Updated from
      the original "label · count" inline form to a small layout. */
@@ -2134,7 +2140,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '122';
+  const LOCAL_VERSION = '123';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2652,8 +2658,9 @@ function rowTint(assetId) {
 // The state-filter pill row. Multi-select union; "All" resets. The pills
 // carry their state's icon, so the row IS the legend.
 function stateChipRowHTML(idPrefix) {
+  // Rendered hidden: the funnel next to the search bar reveals the pills.
   return `
-      <div class="state-chip-row" id="${idPrefix}-chips">
+      <div class="state-chip-row hidden" id="${idPrefix}-chips">
         <button class="state-chip" data-f="all" type="button">All</button>
         <button class="state-chip" data-f="sighted" type="button">${eyeGlyph(true, '#006B91', 12)}Seen</button>
         <button class="state-chip" data-f="todo" type="button">${eyeGlyph(false, 'currentColor', 12)}To do</button>
@@ -2892,6 +2899,9 @@ function updateNotifsBadge() {
 }
 function bellGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></svg>`;
+}
+function filterGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v2.172a2 2 0 0 1-.586 1.414L15 12v7l-6-2v-5L4.586 7.586A2 2 0 0 1 4 5.172z"/></svg>`;
 }
 // Best available human title for an asset: overlay first, source second.
 function assetTitle(assetId) {
@@ -7581,10 +7591,13 @@ function showSourceModal() {
           </div>
         </div>
       </div>
-      <div class="items-search">
-        <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="source-modal-search" placeholder="Filter by type, building, room, model…" autocomplete="off">
-        <button class="items-search-clear hidden" id="source-modal-clear" type="button" aria-label="Clear">×</button>
+      <div style="display:flex;align-items:center;margin:8px 18px 4px">
+        <div class="items-search" style="flex:1;min-width:0;margin:0">
+          <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="source-modal-search" placeholder="Filter by type, building, room, model…" autocomplete="off">
+          <button class="items-search-clear hidden" id="source-modal-clear" type="button" aria-label="Clear">×</button>
+        </div>
+        <button class="items-filter-toggle" id="source-filter-toggle" type="button" aria-label="Show filters" title="Filters">${filterGlyph('currentColor', 16)}</button>
       </div>
       <div class="items-sort-toolbar">
         <button class="items-sort-btn active" data-sort="building">Building</button>
@@ -7629,6 +7642,14 @@ function showSourceModal() {
     render();
   });
   wireStateChips(backdrop.querySelector('#source-chips'), stateFilters, () => render());
+  {
+    const ftBtn = backdrop.querySelector('#source-filter-toggle');
+    const chips = backdrop.querySelector('#source-chips');
+    const syncFt = () => ftBtn.classList.toggle('active', stateFilters.size > 0 || !chips.classList.contains('hidden'));
+    if (stateFilters.size) chips.classList.remove('hidden');
+    ftBtn.addEventListener('click', () => { chips.classList.toggle('hidden'); syncFt(); });
+    syncFt();
+  }
 
   const bodyEl    = backdrop.querySelector('#source-modal-body');
   const searchEl  = backdrop.querySelector('#source-modal-search');
@@ -8169,12 +8190,16 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
 // ── Notifications center ─────────────────────────────────────────────────────
-// Tagged notes (= notifications) across all assets, split over To do and
-// Done tabs (newest on top). Untagged FYI notes stay on their item. Anyone
-// can check a notification off; the done-state syncs like any record.
+// Tagged notes (= notifications) across all assets: search bar with a tag-
+// filter funnel, To do / Done segment tabs, newest on top. Untagged FYI
+// notes stay on their item. Anyone can check a notification off; the done-
+// state syncs like any record. The shell renders once — only the tab
+// counts and the list re-render, so typing in the search never loses focus.
 async function showNotificationsModal() {
   await NotesStore.load();
   let tab = 'todo';
+  let q = '';
+  const tagFilters = new Set();
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   document.body.appendChild(backdrop);
@@ -8183,40 +8208,90 @@ async function showNotificationsModal() {
   document.addEventListener('keydown', onKey);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 
-  const render = () => {
-    const notifs = NotesStore.all().filter(n => n.tag)
-      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    const open  = notifs.filter(n => !n.done);
-    const done  = notifs.filter(n => n.done);
-    const shown = tab === 'todo' ? open : done;
-    backdrop.innerHTML = `
+  backdrop.innerHTML = `
       <div class="modal items-modal">
         <div class="modal-head items-modal-head">
           <button class="modal-back" id="notifs-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
           <div class="items-modal-title">
             <h3 style="display:flex;align-items:center;gap:8px">${bellGlyph('currentColor', 18)}Notifications</h3>
-            <div class="items-modal-subtitle"><span class="origin-label">${open.length} to do · ${done.length} done</span></div>
+            <div class="items-modal-subtitle"><span class="origin-label" id="notifs-subtitle"></span></div>
           </div>
         </div>
-        <div class="modal-body" style="padding:12px 18px">
-          <div class="state-chip-row" style="margin-bottom:8px">
-            <button class="state-chip${tab === 'todo' ? ' active' : ''}" data-tab="todo" type="button">To do${open.length ? ` (${open.length})` : ''}</button>
-            <button class="state-chip${tab === 'done' ? ' active' : ''}" data-tab="done" type="button">Done${done.length ? ` (${done.length})` : ''}</button>
+        <div style="display:flex;align-items:center;margin:8px 18px 4px">
+          <div class="items-search" style="flex:1;min-width:0;margin:0">
+            <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="notifs-search" placeholder="Search notifications…" autocomplete="off">
+            <button class="items-search-clear hidden" id="notifs-search-clear" type="button" aria-label="Clear">×</button>
           </div>
-          ${shown.length === 0 ? `<div class="items-empty">${tab === 'todo'
-            ? `Nothing to do.<br><span style="font-size:12px;color:var(--dim)">Add a tagged note to an item and it shows up here for the whole group.</span>`
-            : `Nothing checked off yet.`}</div>` : ''}
-          ${shown.map(n => noteRowHTML(n, true)).join('')}
+          <button class="items-filter-toggle" id="notifs-filter-toggle" type="button" aria-label="Show filters" title="Filter by tag">${filterGlyph('currentColor', 16)}</button>
         </div>
+        <div class="items-sort-toolbar">
+          <button class="items-sort-btn active" data-tab="todo" type="button">To do</button>
+          <button class="items-sort-btn" data-tab="done" type="button">Done</button>
+        </div>
+        <div class="state-chip-row hidden" id="notif-tag-chips">
+          <button class="state-chip" data-f="all" type="button">All</button>
+          ${NOTE_TAGS.map(t => `<button class="state-chip" data-f="${t}" type="button">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+        </div>
+        <div class="modal-body" id="notifs-list" style="padding:12px 18px"></div>
       </div>`;
-    backdrop.querySelector('#notifs-close').addEventListener('click', close);
-    backdrop.querySelectorAll('[data-tab]').forEach(b => {
-      b.addEventListener('click', () => { tab = b.dataset.tab; render(); });
+
+  const renderList = () => {
+    const needle = q.trim().toLowerCase();
+    const matches = (n) => {
+      if (tagFilters.size && !tagFilters.has(n.tag)) return false;
+      if (!needle) return true;
+      const hay = [n.tag, n.text, assetTitle(n.assetId), String(n.assetId),
+                   ...NotesStore.commentsFor(n.noteId).map(c => c.text)].join(' ').toLowerCase();
+      return hay.includes(needle);
+    };
+    const notifs = NotesStore.all().filter(n => n.tag && !n.parentId)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const open  = notifs.filter(n => !n.done);
+    const done  = notifs.filter(n => n.done);
+    const shown = (tab === 'todo' ? open : done).filter(matches);
+    backdrop.querySelector('#notifs-subtitle').textContent = `${open.length} to do · ${done.length} done`;
+    backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
+      b.textContent = b.dataset.tab === 'todo'
+        ? `To do${open.length ? ' ' + open.length : ''}`
+        : `Done${done.length ? ' ' + done.length : ''}`;
     });
-    wireNoteRows(backdrop, render);
+    const list = backdrop.querySelector('#notifs-list');
+    list.innerHTML = `
+          ${shown.length === 0 ? `<div class="items-empty">${(needle || tagFilters.size)
+            ? 'No matches.'
+            : tab === 'todo'
+              ? `Nothing to do.<br><span style="font-size:12px;color:var(--dim)">Add a tagged note to an item and it shows up here for the whole group.</span>`
+              : 'Nothing checked off yet.'}</div>` : ''}
+          ${shown.map(n => noteRowHTML(n, true)).join('')}`;
+    wireNoteRows(list, renderList);
   };
-  _liveNotifsRefresh = render;
-  render();
+
+  backdrop.querySelector('#notifs-close').addEventListener('click', close);
+  backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
+    b.addEventListener('click', () => { tab = b.dataset.tab; renderList(); });
+  });
+  const searchInp = backdrop.querySelector('#notifs-search');
+  const clearBtn  = backdrop.querySelector('#notifs-search-clear');
+  searchInp.addEventListener('input', () => {
+    q = searchInp.value;
+    clearBtn.classList.toggle('hidden', !q);
+    renderList();
+  });
+  clearBtn.addEventListener('click', () => {
+    searchInp.value = ''; q = '';
+    clearBtn.classList.add('hidden');
+    renderList();
+    searchInp.focus();
+  });
+  const ftBtn = backdrop.querySelector('#notifs-filter-toggle');
+  const chips = backdrop.querySelector('#notif-tag-chips');
+  const syncFt = () => ftBtn.classList.toggle('active', tagFilters.size > 0 || !chips.classList.contains('hidden'));
+  ftBtn.addEventListener('click', () => { chips.classList.toggle('hidden'); syncFt(); });
+  wireStateChips(chips, tagFilters, () => { syncFt(); renderList(); });
+  _liveNotifsRefresh = renderList;
+  renderList();
 }
 
 // Item panel — a single, DIRECTLY EDITABLE view (the separate edit mode is
@@ -8574,13 +8649,16 @@ function showItemsModal(session, restore) {
           </div>
         </div>
       </div>
-      <div class="items-search">
-        <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="items-search-input"
-               placeholder=""
-               autocomplete="off"
-               aria-label="Filter items">
-        <button class="items-search-clear hidden" id="items-search-clear" type="button" aria-label="Clear search">×</button>
+      <div style="display:flex;align-items:center;margin:8px 18px 4px">
+        <div class="items-search" style="flex:1;min-width:0;margin:0">
+          <svg class="items-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="items-search-input"
+                 placeholder=""
+                 autocomplete="off"
+                 aria-label="Filter items">
+          <button class="items-search-clear hidden" id="items-search-clear" type="button" aria-label="Clear search">×</button>
+        </div>
+        <button class="items-filter-toggle" id="items-filter-toggle" type="button" aria-label="Show filters" title="Filters">${filterGlyph('currentColor', 16)}</button>
       </div>
       <div class="items-sort-toolbar">
         <button class="items-sort-btn" data-sort="room">Room</button>
@@ -8642,6 +8720,16 @@ function showItemsModal(session, restore) {
   let searchTerm = (restore && restore.searchRaw) ? restore.searchRaw.trim().toLowerCase() : '';   // normalized; '' = no filter
   const stateFilters = new Set((restore && restore.stateFilters) || []);   // multi-select eye-state filters (union)
   wireStateChips(backdrop.querySelector('#items-chips'), stateFilters, () => rerender());
+  // Funnel toggle: the pill row starts hidden; active filters keep the
+  // funnel highlighted and reveal the row again after a live rebuild.
+  {
+    const ftBtn = backdrop.querySelector('#items-filter-toggle');
+    const chips = backdrop.querySelector('#items-chips');
+    const syncFt = () => ftBtn.classList.toggle('active', stateFilters.size > 0 || !chips.classList.contains('hidden'));
+    if (stateFilters.size) chips.classList.remove('hidden');
+    ftBtn.addEventListener('click', () => { chips.classList.toggle('hidden'); syncFt(); });
+    syncFt();
+  }
   if (restore) {
     // Re-apply the visible state of the previous incarnation. The sort tab
     // and the clear button follow from rerender(); the search text and the
