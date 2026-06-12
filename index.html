@@ -994,8 +994,11 @@
   .state-chip.active[data-f="never"]   { background: #f59e0b14; border-color: #f59e0b99; color: #b45309; }
   .state-chip.active[data-f="storage-av"],
   .state-chip.active[data-f="storage-fm"] { background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.5); color: #6D28D9; }
-  .state-chip.active[data-f="recycle-av"] { background: rgba(0,155,119,0.08); border-color: rgba(0,155,119,0.5); color: #047857; }
-  .state-chip.active[data-f="removed"] { background: rgba(224,60,49,0.08); border-color: rgba(224,60,49,0.5); color: var(--warn); }
+  .state-chip.active[data-f="gone"] { background: rgba(224,60,49,0.08); border-color: rgba(224,60,49,0.5); color: var(--warn); }
+  /* Location chips in the item panel share the pill language. */
+  .state-chip.active[data-loc="storage-av"],
+  .state-chip.active[data-loc="storage-fm"] { background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.5); color: #6D28D9; }
+  .state-chip.active[data-loc="gone"] { background: rgba(224,60,49,0.08); border-color: rgba(224,60,49,0.5); color: var(--warn); }
   /* WhatsApp-style back arrow in modal heads (replaces the corner ×). Keeps
      the old close-button id, so all existing wiring works unchanged. */
   .modal-back {
@@ -1938,6 +1941,13 @@
       <!-- Source data section -->
       <div id="source-section" style="margin-bottom:0"></div>
 
+      <!-- Notifications entry -->
+      <button id="home-notifs-btn" style="display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:10px 14px;margin-bottom:1rem;background:#fff;border:1px solid var(--line);cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink)">
+        <span style="color:#C2410C;display:inline-flex"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></svg></span>
+        <span style="flex:1;text-align:left">Notifications</span>
+        <span id="home-notifs-count" style="display:none;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:999px;background:#C2410C;color:#fff;font-size:11px;font-weight:700;padding:0 6px"></span>
+      </button>
+
       <!-- Recent tasks -->
       <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:.5rem">Recent tasks</div>
       <div class="session-list" id="home-session-list" style="margin-bottom:1rem"></div>
@@ -2128,7 +2138,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '119';
+  const LOCAL_VERSION = '120';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2192,7 +2202,7 @@ $('log-dock-head').addEventListener('click', () => $('log-dock').classList.toggl
 const SESSION_DB = 'webshare-demo-sessions';
 function openSessionDb() {
   return new Promise((res, rej) => {
-    const req = indexedDB.open(SESSION_DB, 4);
+    const req = indexedDB.open(SESSION_DB, 5);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
@@ -2204,6 +2214,7 @@ function openSessionDb() {
       // Changelog) and per-asset sightings (last seen in the field).
       if (!db.objectStoreNames.contains('changes'))   db.createObjectStore('changes',   { keyPath: 'changeId' });
       if (!db.objectStoreNames.contains('sightings')) db.createObjectStore('sightings', { keyPath: 'assetId' });
+      if (!db.objectStoreNames.contains('notes'))     db.createObjectStore('notes',     { keyPath: 'noteId' });
     };
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
@@ -2281,7 +2292,7 @@ function applyAssetOverlay(key, baseItem) {
     ...baseItem,
     model: ov.model, category: ov.category, type: ov.type,
     serial: ov.serial, room: ov.room, notes: ov.notes,
-    disposition: ov.disposition,
+    location: ov.location, disposition: ov.disposition,
   };
 }
 
@@ -2577,61 +2588,63 @@ function assetEyeState(assetId) {
 // Pending changes ledger, and travel toward the next export). Two families:
 // 'storage' (stored away — purple), 'recycle' (green, struck title) and
 // 'removed' (red, struck title). The strikethrough stays red in all cases.
-const DISPOSITIONS = {
+// Where is the device when it is NOT in a room? null = in its room.
+// Location is the counterpart of the Room field: a physical fact that is
+// export-relevant and therefore lives in the pending-changes ledger.
+const LOCATIONS = {
   'storage-av': { label: 'Storage (AV)', family: 'storage', strike: false },
   'storage-fm': { label: 'Storage (FM)', family: 'storage', strike: false },
-  'recycle-av': { label: 'Recycle (AV)', family: 'recycle', strike: true },
-  'removed'   : { label: 'Removed',      family: 'removed', strike: true },
+  'gone'      : { label: 'Gone',         family: 'gone',    strike: true  },
 };
-function assetDisposition(assetId) {
+const LEGACY_DISPOSITION_TO_LOCATION = { 'storage-av': 'storage-av', 'storage-fm': 'storage-fm', 'removed': 'gone' };
+function assetLocation(assetId) {
+  // Reads the location with legacy fallback: records from v111–v119 carried
+  // a combined `disposition`; its location-like values map onto the new
+  // field. ('recycle-av' was a nomination at heart — that concept now lives
+  // in notes/notifications and the legacy value simply no longer renders.)
   if (!assetId) return null;
   const ov = AssetOverlay.get(assetId);
-  const d = ov && ov.disposition;
-  return d && DISPOSITIONS[d] ? d : null;
+  if (!ov) return null;
+  if (ov.location !== undefined) {
+    return (ov.location && LOCATIONS[ov.location]) ? ov.location : null;
+  }
+  return LEGACY_DISPOSITION_TO_LOCATION[ov.disposition] || null;
 }
 // Small glyphs for disposition UI (lucide/tabler-style strokes).
 function archiveGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>`;
 }
-function recycleGlyph(c, z) {
-  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17l-2 2l2 2"/><path d="M10 19h9a2 2 0 0 0 1.75-2.75l-.55-1"/><path d="M8.536 11l-.732-2.732l-2.732 .732"/><path d="M7.804 8.268l-4.5 7.794a2 2 0 0 0 1.506 2.89l1.141 .024"/><path d="M15.464 11l2.732 .732l.732-2.732"/><path d="M18.196 11.732l-4.5-7.794a2 2 0 0 0-3.256-.14l-.591 .976"/></svg>`;
-}
-function trashGlyph(c, z) {
-  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>`;
+function mapPinOffGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.442 9.428a3 3 0 0 0 4.13 4.13"/><path d="M17.657 16.657l-4.243 4.243a2 2 0 0 1-2.827 0l-4.244-4.243a8 8 0 0 1-1.114-9.987"/><path d="M7.328 3.324a8 8 0 0 1 11.443 11.16"/><path d="M3 3l18 18"/></svg>`;
 }
 // 26px disposition circle — takes the eye's place in the row when set.
-function dispositionIconHTML(d) {
-  const def = DISPOSITIONS[d];
+function locationIconHTML(d) {
+  const def = LOCATIONS[d];
   if (def.family === 'storage') {
     return `<div title="${def.label} — stored away" style="width:26px;height:26px;border-radius:50%;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.35);display:flex;align-items:center;justify-content:center;color:#6D28D9;box-sizing:border-box;flex-shrink:0">${archiveGlyph('currentColor', 14)}</div>`;
   }
-  if (def.family === 'recycle') {
-    return `<div title="${def.label} — travels in the next export" style="width:26px;height:26px;border-radius:50%;background:rgba(0,155,119,0.08);border:1px solid rgba(0,155,119,0.35);display:flex;align-items:center;justify-content:center;color:#047857;box-sizing:border-box;flex-shrink:0">${recycleGlyph('currentColor', 14)}</div>`;
-  }
-  return `<div title="${def.label} — travels in the next export" style="width:26px;height:26px;border-radius:50%;background:rgba(224,60,49,0.08);border:1px solid rgba(224,60,49,0.35);display:flex;align-items:center;justify-content:center;color:var(--warn);box-sizing:border-box;flex-shrink:0">${trashGlyph('currentColor', 14)}</div>`;
+  return `<div title="${def.label} — location unknown; travels in the next export" style="width:26px;height:26px;border-radius:50%;background:rgba(224,60,49,0.08);border:1px solid rgba(224,60,49,0.35);display:flex;align-items:center;justify-content:center;color:var(--warn);box-sizing:border-box;flex-shrink:0">${mapPinOffGlyph('currentColor', 14)}</div>`;
 }
-// Tiny status pill next to the title (purple storage, green recycle, red removed).
-function dispositionPillHTML(d) {
-  const def = DISPOSITIONS[d];
+// Tiny location pill next to the title (purple storage, red gone).
+function locationPillHTML(d) {
+  const def = LOCATIONS[d];
   const col = def.family === 'storage' ? 'border:1px solid rgba(124,58,237,0.45);color:#6D28D9'
-            : def.family === 'recycle' ? 'border:1px solid rgba(0,155,119,0.45);color:#047857'
             : 'border:1px solid rgba(224,60,49,0.45);color:var(--warn)';
   return `<span style="display:inline-flex;align-items:center;${col};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${escapeHTML(def.label)}</span>`;
 }
 // Row state for the filter pills: the disposition KEY wins (each disposition
 // is its own pill), else the eye state.
 function rowFilterState(assetId) {
-  const d = assetDisposition(assetId);
+  const d = assetLocation(assetId);
   return d || assetEyeState(assetId);
 }
 // Pastel row background per state — the list itself becomes the legend.
 // 'todo' (the neutral majority) deliberately stays white so color = signal.
 function rowTint(assetId) {
-  const d = assetDisposition(assetId);
+  const d = assetLocation(assetId);
   if (d) {
-    const fam = DISPOSITIONS[d].family;
+    const fam = LOCATIONS[d].family;
     return fam === 'storage' ? 'rgba(124,58,237,0.05)'
-         : fam === 'recycle' ? 'rgba(0,155,119,0.06)'
          : 'rgba(224,60,49,0.05)';
   }
   const st = assetEyeState(assetId);
@@ -2651,8 +2664,7 @@ function stateChipRowHTML(idPrefix) {
         <button class="state-chip" data-f="never" type="button"><span style="width:14px;height:14px;border-radius:50%;border:1.5px dashed #f59e0b99;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box"><span style="opacity:0.8;display:inline-flex">${eyeGlyph(false, '#b45309', 9)}</span></span>Never seen</button>
         <button class="state-chip" data-f="storage-av" type="button">${archiveGlyph('#6D28D9', 12)}Storage (AV)</button>
         <button class="state-chip" data-f="storage-fm" type="button">${archiveGlyph('#6D28D9', 12)}Storage (FM)</button>
-        <button class="state-chip" data-f="recycle-av" type="button">${recycleGlyph('#047857', 12)}Recycle</button>
-        <button class="state-chip" data-f="removed" type="button">${trashGlyph('var(--warn)', 12)}Removed</button>
+        <button class="state-chip" data-f="gone" type="button">${mapPinOffGlyph('var(--warn)', 12)}Gone</button>
       </div>`;
 }
 function wireStateChips(container, stateFilters, onChange) {
@@ -2760,13 +2772,152 @@ function pendingChangesFor(assetId, sourceRow) {
   const baseNotes = Array.isArray(base.notes) ? base.notes.join(' · ') : (base.notes || '');
   const ovNotes   = Array.isArray(ov.notes)   ? ov.notes.join(' · ')   : (ov.notes || '');
   if (baseNotes !== ovNotes) diffs.notes = { from: baseNotes, to: ovNotes };
-  if (ov.disposition && DISPOSITIONS[ov.disposition]) {
-    diffs.disposition = { from: '', to: DISPOSITIONS[ov.disposition].label };
-  }
+  const loc = (ov.location !== undefined)
+            ? ((ov.location && LOCATIONS[ov.location]) ? ov.location : null)
+            : (LEGACY_DISPOSITION_TO_LOCATION[ov.disposition] || null);
+  if (loc) diffs.location = { from: '', to: LOCATIONS[loc].label };
   if (!Object.keys(diffs).length) return null;
   const events = effectiveEvents(assetId).filter(ev => !gen || !ev.sourceHash || ev.sourceHash === gen);
   const reportNames = [...new Set(events.map(ev => ev.reportName).filter(Boolean))];
   return { diffs, reportNames, events };
+}
+
+// ── Field notes / Notifications ──────────────────────────────────────────────
+// One synced record per note. Notes are the fieldworker-to-fieldworker
+// layer: free text on an asset, optionally tagged with a nomination, and
+// checkable as done by anyone. They are NOT exported to TUDesc and stay
+// out of the pending-changes ledger and the Changelog — the Notifications
+// center (Home) and the item panel are their home. Per-note LWW on
+// updatedAt: concurrent adds never collide (unique ids) and a done-toggle
+// converges like any other record.
+// Nine umbrella nominations — deliberately broad. Specific actions live in
+// the note text ("repair — rewire HDMI patch"); the tag names the category:
+// physical fix (repair), overhaul (refurbish), swap (replace), end-of-life
+// (recycle / remove), investigate (research), verify (retest), admin
+// (relabel), placement (relocate), software & settings (reconfigure).
+const NOTE_TAGS = ['reconfigure', 'recycle', 'refurbish', 'relabel', 'relocate',
+                   'remove', 'repair', 'replace', 'research', 'retest'];
+const NotesStore = {
+  _byId: new Map(),
+  _loaded: null,
+  load() {
+    if (!this._loaded) {
+      this._loaded = (async () => {
+        const db = await openSessionDb();
+        const tx = db.transaction('notes', 'readonly');
+        const all = await new Promise((res, rej) => {
+          const r = tx.objectStore('notes').getAll();
+          r.onsuccess = () => res(r.result || []);
+          r.onerror   = () => rej(r.error);
+        });
+        db.close();
+        for (const n of all) this._byId.set(n.noteId, n);
+      })().catch(() => { this._loaded = null; });
+    }
+    return this._loaded;
+  },
+  get(id) { return this._byId.get(id) || null; },
+  all() { return [...this._byId.values()]; },
+  forAsset(assetId) {
+    return this.all().filter(n => n.assetId === assetId)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  },
+  openCount() { return this.all().filter(n => !n.done).length; },
+  async put(rec) {
+    await this.load();
+    const old = this._byId.get(rec.noteId);
+    if (old && (old.updatedAt || 0) > (rec.updatedAt || 0)) return old;   // LWW
+    this._byId.set(rec.noteId, rec);
+    const db = await openSessionDb();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('notes', 'readwrite');
+      tx.objectStore('notes').put(rec);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+    return rec;
+  },
+};
+async function addNote(assetId, text, tag) {
+  const rec = {
+    noteId   : 'note-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+    assetId,
+    text     : (text || '').trim(),
+    tag      : (tag && NOTE_TAGS.includes(tag)) ? tag : null,
+    createdAt: Date.now(), createdBy: DEVICE_ID,
+    done: false, doneAt: null, doneBy: null,
+    updatedAt: Date.now(), deviceId: DEVICE_ID,
+  };
+  await NotesStore.put(rec);
+  if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
+  updateNotifsBadge();
+  return rec;
+}
+async function toggleNoteDone(noteId) {
+  const cur = NotesStore.get(noteId);
+  if (!cur) return;
+  const done = !cur.done;
+  const rec = { ...cur, done, doneAt: done ? Date.now() : null, doneBy: done ? DEVICE_ID : null,
+                updatedAt: Date.now(), deviceId: DEVICE_ID };
+  await NotesStore.put(rec);
+  if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
+  updateNotifsBadge();
+}
+let _liveNotifsRefresh = null;       // open Notifications center re-renderer
+let _itemPanelNotesRefresh = null;   // open item panel notes-section re-renderer
+function updateNotifsBadge() {
+  const el = document.getElementById('home-notifs-count');
+  if (!el) return;
+  const n = NotesStore.openCount();
+  el.textContent = n ? String(n) : '';
+  el.style.display = n ? 'inline-flex' : 'none';
+}
+function bellGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></svg>`;
+}
+// Best available human title for an asset: overlay first, source second.
+function assetTitle(assetId) {
+  const ov = AssetOverlay.get(assetId);
+  if (ov && (ov.model || ov.category || ov.type)) return ov.model || ov.category || ov.type;
+  try {
+    const d = _sourceData && _sourceData.data;
+    const row = d ? (Array.isArray(d) ? d[Number(assetId)] : d[assetId]) : null;
+    if (row) return row.model || row.category || row.type || String(assetId);
+  } catch (e) { /* source not loaded yet */ }
+  return String(assetId);
+}
+// Warm-orange tag pill (a flag, not a state — no icon takeover, no tint).
+function noteTagPillHTML(tag) {
+  if (!tag) return '';
+  return `<span style="display:inline-flex;align-items:center;border:1px solid rgba(224,122,43,0.5);color:#C2410C;border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${escapeHTML(tag)}</span>`;
+}
+// Small open-notification counter for list rows.
+function noteBellHTML(assetId) {
+  if (!assetId) return '';
+  const open = NotesStore.forAsset(assetId).filter(n => !n.done).length;
+  if (!open) return '';
+  return `<span title="${open} open notification${open > 1 ? 's' : ''}" style="display:inline-flex;align-items:center;gap:3px;border:1px solid rgba(224,122,43,0.5);color:#C2410C;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700">${bellGlyph('currentColor', 10)}${open}</span>`;
+}
+// One note row (checkbox + tag + text + meta); used by the item panel and
+// the Notifications center (withAsset adds the "on <asset>" line).
+function noteRowHTML(n, withAsset) {
+  const m = GroupStore.getMember(n.createdBy);
+  const who = m ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${m.color || 'var(--line)'};font-size:10px;flex-shrink:0" title="${escapeHTML(m.nickname || '')}">${m.emoji || ''}</span>` : '';
+  const assetLine = withAsset
+    ? `<div style="font-size:11px;color:var(--dim);margin-top:2px">on ${escapeHTML(assetTitle(n.assetId))} · #${escapeHTML(String(n.assetId))}</div>` : '';
+  return `
+      <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--line-soft)">
+        <input type="checkbox" data-note="${escapeHTML(n.noteId)}" ${n.done ? 'checked' : ''} style="margin-top:2px;width:16px;height:16px;accent-color:#C2410C;flex-shrink:0">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${noteTagPillHTML(n.tag)}
+            <span style="font-size:13px;color:var(--ink);${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</span>
+          </div>
+          ${assetLine}
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);margin-top:3px">${who}<span>${relShort(n.createdAt)}</span>${n.done && n.doneAt ? `<span>· done ${relShort(n.doneAt)}</span>` : ''}</div>
+        </div>
+      </div>`;
 }
 
 // ── Source data (imported Excel) ─────────────────────────────────────────────
@@ -5524,6 +5675,22 @@ SyncEngine.register({
   onChange: () => { if (_liveSourceModalRefresh) _liveSourceModalRefresh(); scheduleListsRefresh(); },
 });
 
+// Field notes / notifications: per-note records, mergeable under LWW.
+SyncEngine.register({
+  name    : 'notes',
+  keyField: 'noteId',
+  tsField : 'updatedAt',
+  readOne : async (id) => { await NotesStore.load(); return NotesStore.get(id); },
+  readAll : async ()   => { await NotesStore.load(); return NotesStore.all(); },
+  writeOne: (rec) => NotesStore.put(rec),
+  onChange: () => {
+    updateNotifsBadge();
+    if (_liveNotifsRefresh) _liveNotifsRefresh();
+    if (_itemPanelNotesRefresh) _itemPanelNotesRefresh();
+    scheduleListsRefresh();
+  },
+});
+
 // Refresh the report-list surfaces if currently visible. (Formerly
 // SyncManager._refreshUI, kept as a standalone helper now that reports
 // sync through SyncEngine.)
@@ -6537,6 +6704,7 @@ $('home-new-btn').addEventListener('click', () => {
   else showSessionModal(null, 'start');
 });
 $('home-view-all-btn').addEventListener('click', () => showSessionsModal());
+$('home-notifs-btn').addEventListener('click', () => showNotificationsModal());
 
 async function refreshHomeList() {
   const list = $('home-session-list');
@@ -7229,7 +7397,7 @@ function showWhatChangedPanel(assetId, sourceRow) {
   backdrop.style.zIndex = 1000;
   document.body.appendChild(backdrop);
 
-  const fieldLabel = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes', disposition: 'Status' };
+  const fieldLabel = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes', location: 'Location', disposition: 'Status' };
   const memberTag = (deviceId) => {
     const m = GroupStore.getMember(deviceId);
     return m ? `${m.emoji || ''} ${escapeHTML(m.nickname || '')}`.trim() : 'unknown device';
@@ -7437,19 +7605,19 @@ function showSourceModal() {
     const pending = pendingMap.get(aid);
     const sg0 = Sightings.get(aid);
     const sg  = (sg0 && !sg0.retracted && !sg0.none) ? sg0 : null;
-    const disp    = assetDisposition(aid);
-    const dStrike = !!(disp && DISPOSITIONS[disp].strike);
+    const disp    = assetLocation(aid);
+    const dStrike = !!(disp && LOCATIONS[disp].strike);
     const tint    = rowTint(aid);
     return `
       <div class="src-row" data-asset-id="${escapeHTML(aid)}" style="display:flex;gap:12px;padding:14px 16px;${isLast ? '' : 'border-bottom:0.5px solid var(--line-soft);'}align-items:stretch${pending ? ';cursor:pointer' : ''}${tint ? ';background:' + tint : ''}">
         <div style="display:flex;align-items:center;flex-shrink:0">
-          ${disp ? dispositionIconHTML(disp) : eyeIconHTML(assetEyeState(aid))}
+          ${disp ? locationIconHTML(disp) : eyeIconHTML(assetEyeState(aid))}
         </div>
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
           <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
             <div style="font-size:15px;font-weight:600;color:var(--ink)${dStrike ? ';text-decoration:line-through;text-decoration-color:rgba(224,60,49,0.6);text-decoration-thickness:1.5px' : ''}">${escapeHTML(r.model || r.type || '—')}</div>
             <div style="font-size:12px;color:var(--dim);font-weight:400">#${escapeHTML(r.id)}</div>
-            ${disp ? dispositionPillHTML(disp) : ''}
+            ${disp ? locationPillHTML(disp) : ''}${noteBellHTML(entry.assetKey)}${noteBellHTML(aid)}
           </div>
           <div style="font-size:12px;color:var(--dim);margin-top:3px">
             <span>${escapeHTML(r.type || '—')}</span>
@@ -7941,6 +8109,49 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // The modal handles its own dismissal; no flow-state changes, so it
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
+// ── Notifications center ─────────────────────────────────────────────────────
+// All field notes across all assets: open first (newest on top), done below.
+// Anyone can check a notification off; the done-state syncs like any record.
+async function showNotificationsModal() {
+  await NotesStore.load();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  document.body.appendChild(backdrop);
+  const close = () => { document.removeEventListener('keydown', onKey); _liveNotifsRefresh = null; backdrop.remove(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+
+  const render = () => {
+    const notes = NotesStore.all().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const open = notes.filter(n => !n.done);
+    const done = notes.filter(n => n.done);
+    backdrop.innerHTML = `
+      <div class="modal items-modal">
+        <div class="modal-head items-modal-head">
+          <button class="modal-back" id="notifs-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+          <div class="items-modal-title">
+            <h3 style="display:flex;align-items:center;gap:8px">${bellGlyph('currentColor', 18)}Notifications</h3>
+            <div class="items-modal-subtitle"><span class="origin-label">${open.length} open · ${done.length} done</span></div>
+          </div>
+        </div>
+        <div class="modal-body" style="padding:12px 18px">
+          ${notes.length === 0 ? `<div class="items-empty">No notifications yet.<br><span style="font-size:12px;color:var(--dim)">Add a note to an item — tagged or not — and it shows up here for the whole group.</span></div>` : ''}
+          ${open.map(n => noteRowHTML(n, true)).join('')}
+          ${done.length ? `
+          <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:16px 0 4px">Done</div>
+          ${done.map(n => noteRowHTML(n, true)).join('')}` : ''}
+        </div>
+      </div>`;
+    backdrop.querySelector('#notifs-close').addEventListener('click', close);
+    backdrop.querySelectorAll('input[data-note]').forEach(cb => {
+      cb.addEventListener('change', async () => { await toggleNoteDone(cb.dataset.note); render(); });
+    });
+  };
+  _liveNotifsRefresh = render;
+  render();
+}
+
 // Item panel — a single, DIRECTLY EDITABLE view (the separate edit mode is
 // gone). Every field saves on blur: a no-op-aware per-field save writes the
 // overlay and emits a single-field diff; emitChange's coalescing folds the
@@ -7959,6 +8170,7 @@ async function openItemEditor(sessionId, itemId) {
   await AssetOverlay.load();
   await ChangeFeed.load();
   await Sightings.load();
+  await NotesStore.load();
   const assetKey = assetKeyOf(itemId, baseItem, isArr);
 
   const backdrop = document.createElement('div');
@@ -7975,6 +8187,7 @@ async function openItemEditor(sessionId, itemId) {
     flushQueuedDeltas();   // send the bundled session deltas now
     backdrop.remove();
     _itemPanelOpen = false;
+    _itemPanelNotesRefresh = null;
     if (listsDirty || _listsRefreshPending) {
       _listsRefreshPending = false;
       refreshReportsUI();
@@ -8011,7 +8224,7 @@ async function openItemEditor(sessionId, itemId) {
     { key: 'type',   label: 'Category / type' },
     { key: 'serial', label: 'Serial' },
     { key: 'room',   label: 'Room' },
-    { key: 'notes',  label: 'Notes', textarea: true },
+    { key: 'notes',  label: 'Notes (TUDesc)', textarea: true },
   ];
 
   // Per-field blur-save. Returns true when something was actually written.
@@ -8043,6 +8256,7 @@ async function openItemEditor(sessionId, itemId) {
         notes   : field === 'notes'  ? newNotes
                   : (Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : [])),
         origin  : (prev && prev.origin) || 'edit',
+        location: (prev && prev.location !== undefined) ? prev.location : undefined,
         disposition: (prev && prev.disposition) || undefined,
         syncedAt: Date.now(),
         deviceId: DEVICE_ID,
@@ -8084,14 +8298,15 @@ async function openItemEditor(sessionId, itemId) {
     return true;
   }
 
-  // Write the disposition onto the canonical overlay (current resolved
-  // values + the new status), emit a Changelog event, re-render.
-  async function applyDisposition(newDisp) {
+  // Write the location onto the canonical overlay (current resolved values
+  // + the new location), emit a Changelog event, re-render. Location is the
+  // physical counterpart of Room: export-relevant, so it enters the ledger.
+  async function applyLocation(newLoc) {
     const cur = resolved();
     const prev = AssetOverlay.get(assetKey);
-    const oldDisp = (prev && prev.disposition) || null;
-    if ((newDisp || null) === oldDisp) { renderView(); return; }
-    const lbl = (k) => (k && DISPOSITIONS[k]) ? DISPOSITIONS[k].label : '';
+    const oldLoc = assetLocation(assetKey);
+    if ((newLoc || null) === oldLoc) return;
+    const lbl = (k) => (k && LOCATIONS[k]) ? LOCATIONS[k].label : 'In room';
     const rec = {
       assetId : assetKey,
       model   : cur.model || '',
@@ -8101,15 +8316,15 @@ async function openItemEditor(sessionId, itemId) {
       room    : cur.room || '',
       notes   : Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : []),
       origin  : (prev && prev.origin) || 'edit',
-      disposition: newDisp || undefined,
+      location: newLoc || null,   // explicit null = back in its room (overrides any legacy disposition)
       syncedAt: Date.now(),
       deviceId: DEVICE_ID,
       sourceHash: currentSourceHash() || undefined,
     };
     await AssetOverlay.put(rec);
     if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
-    await emitChange(assetKey, sessionId, session.name || '', { disposition: { from: lbl(oldDisp), to: lbl(newDisp) } });
-    log(newDisp ? `Status set: ${lbl(newDisp)}.` : 'Status cleared — back in the field.', 'ok');
+    await emitChange(assetKey, sessionId, session.name || '', { location: { from: oldLoc ? lbl(oldLoc) : '', to: newLoc ? lbl(newLoc) : '' } });
+    log(newLoc ? `Location set: ${lbl(newLoc)}.` : 'Location cleared — back in its room.', 'ok');
     listsDirty = true;   // refresh deferred to close
     renderView();
   }
@@ -8119,17 +8334,7 @@ async function openItemEditor(sessionId, itemId) {
     const roomKey = it.room || '';
     const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
     const eyeState = assetKey ? assetEyeState(assetKey) : 'todo';
-    const disp     = assetKey ? assetDisposition(assetKey) : null;
-    const statusOpt = (key) => {
-      const def = DISPOSITIONS[key];
-      const active = disp === key;
-      return `
-              <button class="status-opt" data-d="${key}" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;margin-bottom:8px;background:${active ? 'var(--bg-subtle)' : '#fff'};border:1px solid ${active ? 'var(--dim)' : 'var(--line)'};border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink)">
-                ${dispositionIconHTML(key)}
-                <span style="flex:1;text-align:left">${escapeHTML(def.label)}</span>
-                ${active ? '<span style="color:var(--dim);font-size:12px">current</span>' : ''}
-              </button>`;
-    };
+    const loc      = assetKey ? assetLocation(assetKey) : null;
     const fieldVal = (k) => k === 'notes' ? notesText(it.notes)
                           : (k === 'type' ? (it.type || it.category || '') : (it[k] || ''));
     const fieldRow = (f) => `
@@ -8143,21 +8348,27 @@ async function openItemEditor(sessionId, itemId) {
       <div class="modal items-modal item-editor">
         ${headHTML(it.model || it.category || it.type || 'Item')}
         <div class="modal-body" style="padding:18px">
-          ${FIELDS.map(fieldRow).join('')}
+          ${FIELDS.slice(0, 4).map(fieldRow).join('')}
           ${assetKey ? `
-          <div style="padding:9px 0;border-bottom:0.5px solid var(--line-soft)">
-            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:4px">Status</div>
-            ${disp ? dispositionPillHTML(disp) : '<span style="font-size:13px;color:var(--dim)">Active — in the field</span>'}
-            <div id="status-accordion" class="hidden" style="margin-top:10px">
-              ${statusOpt('storage-av')}
-              ${statusOpt('storage-fm')}
-              ${statusOpt('recycle-av')}
-              ${statusOpt('removed')}
-              ${disp ? `
-              <button id="status-clear" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;background:#fff;border:1px dashed var(--line);border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--dim)">
-                ${eyeGlyph(true, 'var(--dim)', 14)}
-                <span style="flex:1;text-align:left">Clear status — back in the field</span>
-              </button>` : ''}
+          <label class="field" style="margin-bottom:12px">
+            <span>Location</span>
+            <div class="state-chip-row" id="loc-chips" style="margin-top:4px">
+              <button class="state-chip${!loc ? ' active' : ''}" data-loc="" type="button">In room</button>
+              ${Object.keys(LOCATIONS).map(k => `<button class="state-chip${loc === k ? ' active' : ''}" data-loc="${k}" type="button">${LOCATIONS[k].family === 'storage' ? archiveGlyph('#6D28D9', 12) : mapPinOffGlyph('var(--warn)', 12)}${LOCATIONS[k].label}</button>`).join('')}
+            </div>
+          </label>` : ''}
+          ${fieldRow(FIELDS[4])}
+          ${assetKey ? `
+          <div style="padding:12px 0 4px 0">
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Notifications</div>
+            <div id="note-list"></div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <select id="note-tag" style="font-family:var(--sans);font-size:12px;padding:6px;border:1px solid var(--line);background:#fff;max-width:38%">
+                <option value="">No tag</option>
+                ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
+              </select>
+              <input type="text" id="note-text" placeholder="Add a note for the group…" style="flex:1;min-width:0;font-family:var(--sans);font-size:13px;padding:6px 8px;border:1px solid var(--line)">
+              <button id="note-add" type="button" style="min-height:0;padding:6px 12px">Add</button>
             </div>
           </div>` : ''}
           ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length ? `
@@ -8168,7 +8379,7 @@ async function openItemEditor(sessionId, itemId) {
         </div>
         <div class="modal-footer">
           ${assetKey
-            ? `<button id="item-view-status" style="display:inline-flex;align-items:center;gap:6px">Status <svg id="status-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s"><path d="M6 9l6 6l6-6"/></svg></button>
+            ? `<button id="item-nominate" style="display:inline-flex;align-items:center;gap:6px">${bellGlyph('currentColor', 13)}Notify</button>
                <button id="item-eye-toggle" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="display:inline-flex;align-items:center;gap:6px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 14)}Seen</button>`
             : `<button id="item-view-close">Close</button>`}
         </div>
@@ -8176,15 +8387,13 @@ async function openItemEditor(sessionId, itemId) {
     wireHead();
     const closeBtn = backdrop.querySelector('#item-view-close');
     if (closeBtn) closeBtn.addEventListener('click', close);
-    const statusBtn = backdrop.querySelector('#item-view-status');
-    if (statusBtn) statusBtn.addEventListener('click', () => {
-      const acc = backdrop.querySelector('#status-accordion');
-      if (!acc) return;
-      acc.classList.toggle('hidden');
-      const open = !acc.classList.contains('hidden');
-      const ch = backdrop.querySelector('#status-chevron');
-      if (ch) ch.style.transform = open ? 'rotate(180deg)' : '';
-      if (open) acc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // Notify = add a (optionally tagged) note: jump to the note row and focus it.
+    const nomBtn = backdrop.querySelector('#item-nominate');
+    if (nomBtn) nomBtn.addEventListener('click', () => {
+      const inp = backdrop.querySelector('#note-text');
+      if (!inp) return;
+      inp.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      inp.focus();
     });
     // The Seen toggle: marking is immediate; toggling back is either a
     // clean 10-minute undo (own fresh sighting, no trace) or a withdrawal.
@@ -8207,9 +8416,38 @@ async function openItemEditor(sessionId, itemId) {
       listsDirty = true;   // refresh deferred to close — the panel stays put
       renderView();
     });
-    backdrop.querySelectorAll('.status-opt').forEach(b => b.addEventListener('click', () => applyDisposition(b.dataset.d)));
-    const clr = backdrop.querySelector('#status-clear');
-    if (clr) clr.addEventListener('click', () => applyDisposition(null));
+    backdrop.querySelectorAll('#loc-chips .state-chip').forEach(b => {
+      b.addEventListener('click', () => applyLocation(b.dataset.loc || null));
+    });
+    // Field notes: render + wire; re-rendered live when notes sync in.
+    const renderNotes = () => {
+      const list = backdrop.querySelector('#note-list');
+      if (!list) return;
+      const notes = NotesStore.forAsset(assetKey);
+      list.innerHTML = notes.length
+        ? notes.map(n => noteRowHTML(n, false)).join('')
+        : `<div style="font-size:12px;color:var(--dim)">No notes yet.</div>`;
+      list.querySelectorAll('input[data-note]').forEach(cb => {
+        cb.addEventListener('change', async () => {
+          await toggleNoteDone(cb.dataset.note);
+          listsDirty = true;
+          renderNotes();
+        });
+      });
+    };
+    renderNotes();
+    _itemPanelNotesRefresh = renderNotes;
+    const addBtn = backdrop.querySelector('#note-add');
+    if (addBtn) addBtn.addEventListener('click', async () => {
+      const txt = backdrop.querySelector('#note-text');
+      const tag = backdrop.querySelector('#note-tag');
+      if (!txt || !txt.value.trim()) return;
+      await addNote(assetKey, txt.value, tag ? tag.value : null);
+      txt.value = '';
+      if (tag) tag.value = '';
+      listsDirty = true;   // row bell counters
+      renderNotes();
+    });
     // Direct editing: every field saves itself when its value changes and
     // focus leaves it ('change' = blur with a different value).
     backdrop.querySelectorAll('[data-field]').forEach(el => {
@@ -8577,18 +8815,18 @@ function itemRowHTML(entry, sortMode) {
   const lastEv = evs.length ? evs[evs.length - 1] : null;
   const sg0    = entry.assetKey ? Sightings.get(entry.assetKey) : null;
   const sg     = (sg0 && !sg0.retracted && !sg0.none) ? sg0 : null;
-  const disp    = assetDisposition(entry.assetKey);
-  const dStrike = !!(disp && DISPOSITIONS[disp].strike);
+  const disp    = assetLocation(entry.assetKey);
+  const dStrike = !!(disp && LOCATIONS[disp].strike);
   const tint    = rowTint(entry.assetKey);
 
   return `
     <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:center;cursor:pointer${tint ? ';background:' + tint : ''}">
-      ${disp ? dispositionIconHTML(disp) : eyeIconHTML(assetEyeState(entry.assetKey))}
+      ${disp ? locationIconHTML(disp) : eyeIconHTML(assetEyeState(entry.assetKey))}
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
           <div style="font-size:15px;font-weight:600;color:var(--ink)${dStrike ? ';text-decoration:line-through;text-decoration-color:rgba(224,60,49,0.6);text-decoration-thickness:1.5px' : ''}">${escapeHTML(title)}</div>
           <div style="font-size:12px;color:var(--dim);font-weight:400">#${entry.displayNum}</div>
-          ${disp ? dispositionPillHTML(disp) : ''}
+          ${disp ? locationPillHTML(disp) : ''}
           ${noteCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;margin-left:4px;color:var(--dim);font-size:12px">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 20l7-7"/><path d="M13 20v-6a1 1 0 0 1 1-1h6v-7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/></svg>
             ${noteCount}</span>` : ''}
@@ -10078,6 +10316,7 @@ window.addEventListener('load', async () => {
   AssetOverlay.load();
   ChangeFeed.load();
   Sightings.load();
+  NotesStore.load().then(() => updateNotifsBadge());
   if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     log('Warning: WebRTC and camera require HTTPS.', 'err');
   }
