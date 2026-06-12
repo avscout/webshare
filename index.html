@@ -995,10 +995,6 @@
   .state-chip.active[data-f="storage-av"],
   .state-chip.active[data-f="storage-fm"] { background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.5); color: #6D28D9; }
   .state-chip.active[data-f="gone"] { background: rgba(224,60,49,0.08); border-color: rgba(224,60,49,0.5); color: var(--warn); }
-  /* Location chips in the item panel share the pill language. */
-  .state-chip.active[data-loc="storage-av"],
-  .state-chip.active[data-loc="storage-fm"] { background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.5); color: #6D28D9; }
-  .state-chip.active[data-loc="gone"] { background: rgba(224,60,49,0.08); border-color: rgba(224,60,49,0.5); color: var(--warn); }
   /* WhatsApp-style back arrow in modal heads (replaces the corner ×). Keeps
      the old close-button id, so all existing wiring works unchanged. */
   .modal-back {
@@ -2138,7 +2134,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '120';
+  const LOCAL_VERSION = '122';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2776,6 +2772,18 @@ function pendingChangesFor(assetId, sourceRow) {
             ? ((ov.location && LOCATIONS[ov.location]) ? ov.location : null)
             : (LEGACY_DISPOSITION_TO_LOCATION[ov.disposition] || null);
   if (loc) diffs.location = { from: '', to: LOCATIONS[loc].label };
+  // Field notes travel with the export: one line per top-level note with
+  // its dates (noted / done) and comments folded in. Placeholder format —
+  // the definitive append shape is decided when the TUDesc export is built.
+  const noteLines = NotesStore.forAsset(assetId).slice().reverse().map(n => {
+    const comments = NotesStore.commentsFor(n.noteId).map(c => c.text);
+    const head = (n.tag ? n.tag + ': ' : '') + n.text
+               + (comments.length ? ' — ' + comments.join(' / ') : '');
+    const dates = 'noted ' + shortDate(n.createdAt)
+                + (n.done && n.doneAt ? ', done ' + shortDate(n.doneAt) : '');
+    return head + ' (' + dates + ')';
+  });
+  if (noteLines.length) diffs.fieldNotes = { from: '', to: noteLines.join(' · ') };
   if (!Object.keys(diffs).length) return null;
   const events = effectiveEvents(assetId).filter(ev => !gen || !ev.sourceHash || ev.sourceHash === gen);
   const reportNames = [...new Set(events.map(ev => ev.reportName).filter(Boolean))];
@@ -2783,13 +2791,14 @@ function pendingChangesFor(assetId, sourceRow) {
 }
 
 // ── Field notes / Notifications ──────────────────────────────────────────────
-// One synced record per note. Notes are the fieldworker-to-fieldworker
-// layer: free text on an asset, optionally tagged with a nomination, and
-// checkable as done by anyone. They are NOT exported to TUDesc and stay
-// out of the pending-changes ledger and the Changelog — the Notifications
-// center (Home) and the item panel are their home. Per-note LWW on
-// updatedAt: concurrent adds never collide (unique ids) and a done-toggle
-// converges like any other record.
+// One synced record per note. Notes are free text on an asset, optionally
+// tagged with a nomination, and checkable as done by anyone. A TAGGED note
+// is a notification: it shows up in the Notifications center on Home. An
+// untagged note is an FYI that lives only on its item. Notes travel with
+// the TUDesc export (append format decided when the export gets built) but
+// stay out of the Changelog — the item panel and the center are their home.
+// Per-note LWW on updatedAt: concurrent adds never collide (unique ids)
+// and a done-toggle converges like any other record.
 // Nine umbrella nominations — deliberately broad. Specific actions live in
 // the note text ("repair — rewire HDMI patch"); the tag names the category:
 // physical fix (repair), overhaul (refurbish), swap (replace), end-of-life
@@ -2818,11 +2827,18 @@ const NotesStore = {
   },
   get(id) { return this._byId.get(id) || null; },
   all() { return [...this._byId.values()]; },
+  // Top-level notes for an asset (comments live under their parent).
   forAsset(assetId) {
-    return this.all().filter(n => n.assetId === assetId)
+    return this.all().filter(n => n.assetId === assetId && !n.parentId)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   },
-  openCount() { return this.all().filter(n => !n.done).length; },
+  // Comments on a note, oldest first (reading order).
+  commentsFor(noteId) {
+    return this.all().filter(n => n.parentId === noteId)
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  },
+  // Open NOTIFICATIONS: tagged notes only — an untagged note is an FYI.
+  openCount() { return this.all().filter(n => n.tag && !n.done && !n.parentId).length; },
   async put(rec) {
     await this.load();
     const old = this._byId.get(rec.noteId);
@@ -2839,10 +2855,11 @@ const NotesStore = {
     return rec;
   },
 };
-async function addNote(assetId, text, tag) {
+async function addNote(assetId, text, tag, parentId) {
   const rec = {
     noteId   : 'note-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     assetId,
+    parentId : parentId || null,   // set = this record is a COMMENT on that note
     text     : (text || '').trim(),
     tag      : (tag && NOTE_TAGS.includes(tag)) ? tag : null,
     createdAt: Date.now(), createdBy: DEVICE_ID,
@@ -2887,6 +2904,11 @@ function assetTitle(assetId) {
   } catch (e) { /* source not loaded yet */ }
   return String(assetId);
 }
+// Absolute short date for export-facing text ("12 Jun 2026").
+function shortDate(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 // Warm-orange tag pill (a flag, not a state — no icon takeover, no tint).
 function noteTagPillHTML(tag) {
   if (!tag) return '';
@@ -2895,17 +2917,24 @@ function noteTagPillHTML(tag) {
 // Small open-notification counter for list rows.
 function noteBellHTML(assetId) {
   if (!assetId) return '';
-  const open = NotesStore.forAsset(assetId).filter(n => !n.done).length;
+  const open = NotesStore.forAsset(assetId).filter(n => n.tag && !n.done).length;
   if (!open) return '';
   return `<span title="${open} open notification${open > 1 ? 's' : ''}" style="display:inline-flex;align-items:center;gap:3px;border:1px solid rgba(224,122,43,0.5);color:#C2410C;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700">${bellGlyph('currentColor', 10)}${open}</span>`;
 }
 // One note row (checkbox + tag + text + meta); used by the item panel and
 // the Notifications center (withAsset adds the "on <asset>" line).
 function noteRowHTML(n, withAsset) {
-  const m = GroupStore.getMember(n.createdBy);
-  const who = m ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${m.color || 'var(--line)'};font-size:10px;flex-shrink:0" title="${escapeHTML(m.nickname || '')}">${m.emoji || ''}</span>` : '';
+  const avatar = (deviceId) => {
+    const m = GroupStore.getMember(deviceId);
+    return m ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${m.color || 'var(--line)'};font-size:10px;flex-shrink:0" title="${escapeHTML(m.nickname || '')}">${m.emoji || ''}</span>` : '';
+  };
   const assetLine = withAsset
     ? `<div style="font-size:11px;color:var(--dim);margin-top:2px">on ${escapeHTML(assetTitle(n.assetId))} · #${escapeHTML(String(n.assetId))}</div>` : '';
+  const commentRows = NotesStore.commentsFor(n.noteId).map(c => `
+          <div style="display:flex;align-items:flex-start;gap:6px;margin:6px 0 0 2px;padding-left:8px;border-left:2px solid var(--line)">
+            ${avatar(c.createdBy)}
+            <div style="flex:1;min-width:0;font-size:12.5px;color:var(--ink)">${escapeHTML(c.text)} <span style="font-size:11px;color:var(--dim)">· ${relShort(c.createdAt)}</span></div>
+          </div>`).join('');
   return `
       <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--line-soft)">
         <input type="checkbox" data-note="${escapeHTML(n.noteId)}" ${n.done ? 'checked' : ''} style="margin-top:2px;width:16px;height:16px;accent-color:#C2410C;flex-shrink:0">
@@ -2915,9 +2944,39 @@ function noteRowHTML(n, withAsset) {
             <span style="font-size:13px;color:var(--ink);${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</span>
           </div>
           ${assetLine}
-          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);margin-top:3px">${who}<span>${relShort(n.createdAt)}</span>${n.done && n.doneAt ? `<span>· done ${relShort(n.doneAt)}</span>` : ''}</div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);margin-top:3px">${avatar(n.createdBy)}<span>${relShort(n.createdAt)}</span>${n.done && n.doneAt ? `<span>· done ${relShort(n.doneAt)}</span>` : ''}</div>
+          ${commentRows}
+          <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:5px;min-height:0;font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);cursor:pointer">Comment</button>
         </div>
       </div>`;
+}
+
+// Shared wiring for rendered note rows (item panel + Notifications
+// center): done-checkboxes and the per-note comment affordance. The
+// Comment button swaps itself for an inline input; Enter or Send posts.
+function wireNoteRows(container, rerender) {
+  container.querySelectorAll('input[data-note]').forEach(cb => {
+    cb.addEventListener('change', async () => { await toggleNoteDone(cb.dataset.note); rerender(); });
+  });
+  container.querySelectorAll('.note-comment-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.comment;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;gap:6px;margin-top:5px';
+      wrap.innerHTML = `<input type="text" placeholder="Add a comment…" style="flex:1;min-width:0;font-family:var(--sans);font-size:12.5px;padding:5px 8px;border:1px solid var(--line)"><button type="button" style="min-height:0;padding:5px 10px">Send</button>`;
+      btn.replaceWith(wrap);
+      const inp = wrap.querySelector('input');
+      const send = async () => {
+        const parent = NotesStore.get(id);
+        if (!parent || !inp.value.trim()) return;
+        await addNote(parent.assetId, inp.value, null, parent.noteId);
+        rerender();
+      };
+      wrap.querySelector('button').addEventListener('click', send);
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+      inp.focus();
+    });
+  });
 }
 
 // ── Source data (imported Excel) ─────────────────────────────────────────────
@@ -7397,7 +7456,7 @@ function showWhatChangedPanel(assetId, sourceRow) {
   backdrop.style.zIndex = 1000;
   document.body.appendChild(backdrop);
 
-  const fieldLabel = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes', location: 'Location', disposition: 'Status' };
+  const fieldLabel = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes', fieldNotes: 'Notes', location: 'Location', disposition: 'Status' };
   const memberTag = (deviceId) => {
     const m = GroupStore.getMember(deviceId);
     return m ? `${m.emoji || ''} ${escapeHTML(m.nickname || '')}`.trim() : 'unknown device';
@@ -8110,10 +8169,12 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
 // ── Notifications center ─────────────────────────────────────────────────────
-// All field notes across all assets: open first (newest on top), done below.
-// Anyone can check a notification off; the done-state syncs like any record.
+// Tagged notes (= notifications) across all assets, split over To do and
+// Done tabs (newest on top). Untagged FYI notes stay on their item. Anyone
+// can check a notification off; the done-state syncs like any record.
 async function showNotificationsModal() {
   await NotesStore.load();
+  let tab = 'todo';
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   document.body.appendChild(backdrop);
@@ -8123,30 +8184,36 @@ async function showNotificationsModal() {
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 
   const render = () => {
-    const notes = NotesStore.all().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    const open = notes.filter(n => !n.done);
-    const done = notes.filter(n => n.done);
+    const notifs = NotesStore.all().filter(n => n.tag)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const open  = notifs.filter(n => !n.done);
+    const done  = notifs.filter(n => n.done);
+    const shown = tab === 'todo' ? open : done;
     backdrop.innerHTML = `
       <div class="modal items-modal">
         <div class="modal-head items-modal-head">
           <button class="modal-back" id="notifs-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
           <div class="items-modal-title">
             <h3 style="display:flex;align-items:center;gap:8px">${bellGlyph('currentColor', 18)}Notifications</h3>
-            <div class="items-modal-subtitle"><span class="origin-label">${open.length} open · ${done.length} done</span></div>
+            <div class="items-modal-subtitle"><span class="origin-label">${open.length} to do · ${done.length} done</span></div>
           </div>
         </div>
         <div class="modal-body" style="padding:12px 18px">
-          ${notes.length === 0 ? `<div class="items-empty">No notifications yet.<br><span style="font-size:12px;color:var(--dim)">Add a note to an item — tagged or not — and it shows up here for the whole group.</span></div>` : ''}
-          ${open.map(n => noteRowHTML(n, true)).join('')}
-          ${done.length ? `
-          <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:16px 0 4px">Done</div>
-          ${done.map(n => noteRowHTML(n, true)).join('')}` : ''}
+          <div class="state-chip-row" style="margin-bottom:8px">
+            <button class="state-chip${tab === 'todo' ? ' active' : ''}" data-tab="todo" type="button">To do${open.length ? ` (${open.length})` : ''}</button>
+            <button class="state-chip${tab === 'done' ? ' active' : ''}" data-tab="done" type="button">Done${done.length ? ` (${done.length})` : ''}</button>
+          </div>
+          ${shown.length === 0 ? `<div class="items-empty">${tab === 'todo'
+            ? `Nothing to do.<br><span style="font-size:12px;color:var(--dim)">Add a tagged note to an item and it shows up here for the whole group.</span>`
+            : `Nothing checked off yet.`}</div>` : ''}
+          ${shown.map(n => noteRowHTML(n, true)).join('')}
         </div>
       </div>`;
     backdrop.querySelector('#notifs-close').addEventListener('click', close);
-    backdrop.querySelectorAll('input[data-note]').forEach(cb => {
-      cb.addEventListener('change', async () => { await toggleNoteDone(cb.dataset.note); render(); });
+    backdrop.querySelectorAll('[data-tab]').forEach(b => {
+      b.addEventListener('click', () => { tab = b.dataset.tab; render(); });
     });
+    wireNoteRows(backdrop, render);
   };
   _liveNotifsRefresh = render;
   render();
@@ -8224,7 +8291,6 @@ async function openItemEditor(sessionId, itemId) {
     { key: 'type',   label: 'Category / type' },
     { key: 'serial', label: 'Serial' },
     { key: 'room',   label: 'Room' },
-    { key: 'notes',  label: 'Notes (TUDesc)', textarea: true },
   ];
 
   // Per-field blur-save. Returns true when something was actually written.
@@ -8348,19 +8414,24 @@ async function openItemEditor(sessionId, itemId) {
       <div class="modal items-modal item-editor">
         ${headHTML(it.model || it.category || it.type || 'Item')}
         <div class="modal-body" style="padding:18px">
-          ${FIELDS.slice(0, 4).map(fieldRow).join('')}
+          ${FIELDS.slice(0, 3).map(fieldRow).join('')}
           ${assetKey ? `
-          <label class="field" style="margin-bottom:12px">
-            <span>Location</span>
-            <div class="state-chip-row" id="loc-chips" style="margin-top:4px">
-              <button class="state-chip${!loc ? ' active' : ''}" data-loc="" type="button">In room</button>
-              ${Object.keys(LOCATIONS).map(k => `<button class="state-chip${loc === k ? ' active' : ''}" data-loc="${k}" type="button">${LOCATIONS[k].family === 'storage' ? archiveGlyph('#6D28D9', 12) : mapPinOffGlyph('var(--warn)', 12)}${LOCATIONS[k].label}</button>`).join('')}
-            </div>
-          </label>` : ''}
-          ${fieldRow(FIELDS[4])}
+          <div style="display:flex;gap:10px">
+            <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
+              <span>Room</span>
+              <input type="text" data-field="room" value="${escapeHTML(fieldVal('room'))}" autocomplete="off"${loc ? ' disabled style="opacity:.45"' : ''}>
+            </label>
+            <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
+              <span>Location</span>
+              <select id="loc-select" style="width:100%;font-family:var(--sans);font-size:13px;padding:8px;border:1px solid var(--line);background:#fff">
+                <option value=""${!loc ? ' selected' : ''}>In room</option>
+                ${Object.keys(LOCATIONS).map(k => `<option value="${k}"${loc === k ? ' selected' : ''}>${LOCATIONS[k].label}</option>`).join('')}
+              </select>
+            </label>
+          </div>` : fieldRow(FIELDS[3])}
           ${assetKey ? `
           <div style="padding:12px 0 4px 0">
-            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Notifications</div>
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Notes</div>
             <div id="note-list"></div>
             <div style="display:flex;gap:6px;margin-top:8px">
               <select id="note-tag" style="font-family:var(--sans);font-size:12px;padding:6px;border:1px solid var(--line);background:#fff;max-width:38%">
@@ -8416,9 +8487,10 @@ async function openItemEditor(sessionId, itemId) {
       listsDirty = true;   // refresh deferred to close — the panel stays put
       renderView();
     });
-    backdrop.querySelectorAll('#loc-chips .state-chip').forEach(b => {
-      b.addEventListener('click', () => applyLocation(b.dataset.loc || null));
-    });
+    // Location dropdown: picking anything but "In room" disables the Room
+    // field (the device is, by definition, not in a room right now).
+    const locSel = backdrop.querySelector('#loc-select');
+    if (locSel) locSel.addEventListener('change', () => applyLocation(locSel.value || null));
     // Field notes: render + wire; re-rendered live when notes sync in.
     const renderNotes = () => {
       const list = backdrop.querySelector('#note-list');
@@ -8427,13 +8499,7 @@ async function openItemEditor(sessionId, itemId) {
       list.innerHTML = notes.length
         ? notes.map(n => noteRowHTML(n, false)).join('')
         : `<div style="font-size:12px;color:var(--dim)">No notes yet.</div>`;
-      list.querySelectorAll('input[data-note]').forEach(cb => {
-        cb.addEventListener('change', async () => {
-          await toggleNoteDone(cb.dataset.note);
-          listsDirty = true;
-          renderNotes();
-        });
-      });
+      wireNoteRows(list, () => { listsDirty = true; renderNotes(); });
     };
     renderNotes();
     _itemPanelNotesRefresh = renderNotes;
