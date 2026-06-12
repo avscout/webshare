@@ -2128,7 +2128,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '114';
+  const LOCAL_VERSION = '119';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2448,8 +2448,36 @@ async function unsightOrUndo(assetId) {
 // this survives reloads. NOTE: looks at the RAW event list (incl. empty
 // husks), so a session that was emptied and resumed within the window
 // refills its own event rather than starting a new one.
+// Bundled transfer for rapid-fire edits. Local writes stay immediate (IDB:
+// crash- and offline-safe); only the OUTGOING delta is debounced per record.
+// Under LWW only the latest version of a record matters, so batching loses
+// nothing: one delta replaces the whole burst. Flushed on panel close and
+// on page unload (best effort); a peer that misses a delta converges via
+// the normal seed/gossip path anyway, exactly like any offline edit.
+const DELTA_BUNDLE_MS = 2000;
+const _queuedDeltas = new Map();   // `${collection}:${key}` → { collection, rec, timer }
+function queueDelta(collection, keyValue, rec) {
+  if (!GroupStore.exists()) return;
+  const k = collection + ':' + keyValue;
+  const cur = _queuedDeltas.get(k);
+  if (cur) clearTimeout(cur.timer);
+  const timer = setTimeout(() => {
+    _queuedDeltas.delete(k);
+    SyncEngine.broadcastDelta(collection, rec);
+  }, DELTA_BUNDLE_MS);
+  _queuedDeltas.set(k, { collection, rec, timer });
+}
+function flushQueuedDeltas() {
+  for (const e of _queuedDeltas.values()) {
+    clearTimeout(e.timer);
+    SyncEngine.broadcastDelta(e.collection, e.rec);
+  }
+  _queuedDeltas.clear();
+}
+window.addEventListener('beforeunload', flushQueuedDeltas);
+
 const CHANGE_COALESCE_MS = 10 * 60 * 1000;
-async function emitChange(assetId, reportId, reportName, diffs) {
+async function emitChange(assetId, reportId, reportName, diffs, opts = {}) {
   await ChangeFeed.load();
   const evs = ChangeFeed.forAsset(assetId);
   const last = evs.length ? evs[evs.length - 1] : null;
@@ -2482,7 +2510,8 @@ async function emitChange(assetId, reportId, reportName, diffs) {
     };
   }
   await ChangeFeed.put(ev);
-  if (GroupStore.exists()) SyncEngine.broadcastDelta('changes', ev);
+  if (opts.defer) queueDelta('changes', ev.changeId, ev);
+  else if (GroupStore.exists()) SyncEngine.broadcastDelta('changes', ev);
 }
 
 // Render the "Last sighting" line for an asset. Reuses the member
@@ -5442,7 +5471,7 @@ SyncEngine.register({
       log(`Sync: updated task "${rec.name || rec.id}".`, 'info');
     }
     refreshReportsHash();
-    refreshReportsUI();
+    scheduleListsRefresh();
   },
   // A reports dump arrived (even an empty one) — the group's state is as
   // complete as it gets, so the newcomer's reports gate can lift now.
@@ -5463,7 +5492,7 @@ SyncEngine.register({
   writeOne: (rec) => AssetOverlay.put(rec),
   onChange: (rec, _isLocal, isNew) => {
     log(`Sync: item "${rec.model || rec.category || rec.assetId}" ${isNew ? 'updated by the group' : 'updated'}.`, 'info');
-    refreshReportsUI();
+    scheduleListsRefresh();
   },
 });
 
@@ -5478,7 +5507,7 @@ SyncEngine.register({
   readOne : async (id) => { await ChangeFeed.load(); return ChangeFeed.byId(id); },
   readAll : async ()   => { await ChangeFeed.load(); return ChangeFeed.all(); },
   writeOne: (ev) => ChangeFeed.put(ev),
-  onChange: () => { if (_liveSourceModalRefresh) _liveSourceModalRefresh(); },
+  onChange: () => { if (_liveSourceModalRefresh) _liveSourceModalRefresh(); scheduleListsRefresh(); },
 });
 
 // Sightings — one tiny record per asset; with seenAt as the LWW timestamp the
@@ -5492,12 +5521,29 @@ SyncEngine.register({
   readOne : async (id) => { await Sightings.load(); return Sightings.get(id); },
   readAll : async ()   => { await Sightings.load(); return Sightings.all(); },
   writeOne: (rec) => Sightings.put(rec),
-  onChange: () => { if (_liveSourceModalRefresh) _liveSourceModalRefresh(); },
+  onChange: () => { if (_liveSourceModalRefresh) _liveSourceModalRefresh(); scheduleListsRefresh(); },
 });
 
 // Refresh the report-list surfaces if currently visible. (Formerly
 // SyncManager._refreshUI, kept as a standalone helper now that reports
 // sync through SyncEngine.)
+// Debounced, panel-aware UI refresh for INCOMING records. Bursts of remote
+// sightings/changes/edits repaint the lists once (400 ms), and never while
+// the item panel is open — refreshReportsUI() reopens the items modal,
+// whose fresh backdrop would stack on top of the panel and bury it. The
+// refresh then waits and runs the moment the panel closes.
+let _itemPanelOpen = false;
+let _listsRefreshPending = false;
+let _listsRefreshTimer = null;
+function scheduleListsRefresh() {
+  if (_itemPanelOpen) { _listsRefreshPending = true; return; }
+  if (_listsRefreshTimer) return;
+  _listsRefreshTimer = setTimeout(() => {
+    _listsRefreshTimer = null;
+    refreshReportsUI();
+  }, 400);
+}
+
 function refreshReportsUI() {
   refreshSessionsCount();
   if (currentScreenId() === 'pick')  refreshPickList();
@@ -7895,14 +7941,14 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // The modal handles its own dismissal; no flow-state changes, so it
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
-// Item panel — ProtonPass-style: tapping a row opens a read-only VIEW of
-// the asset's current truth (resolved through the canonical overlay). The
-// sighting action lives in the view — you confirm "I'm looking at this
-// device" without needing a save. Editing is an explicit step behind the
-// Edit button; Save writes the overlay + Changelog event and returns to the
-// view. An effective save still counts as a sighting (you were standing in
-// front of it); the view's eye button covers the common inspection case
-// where the device is fine and there is nothing to edit.
+// Item panel — a single, DIRECTLY EDITABLE view (the separate edit mode is
+// gone). Every field saves on blur: a no-op-aware per-field save writes the
+// overlay and emits a single-field diff; emitChange's coalescing folds the
+// whole panel session into one Changelog event, and the undo layer covers
+// the risk that direct editing introduces. One sighting per panel session
+// (recorded on the first effective save). The panel is NOT re-rendered
+// after a field save — that would close the mobile keyboard and break
+// focus mid-tab — only the title updates in place.
 async function openItemEditor(sessionId, itemId) {
   const session = await getSession(sessionId);
   if (!session) { log('Cannot open item: report not found in local storage.', 'err'); return; }
@@ -7918,7 +7964,22 @@ async function openItemEditor(sessionId, itemId) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   document.body.appendChild(backdrop);
-  const close = () => { document.removeEventListener('keydown', onKey); backdrop.remove(); };
+  _itemPanelOpen = true;
+  // Deferred list refresh: refreshReportsUI() REOPENS the items modal,
+  // whose fresh backdrop would stack ON TOP of this panel — burying it
+  // mid-action. Actions only mark the lists dirty; the refresh runs once,
+  // when the panel actually closes.
+  let listsDirty = false;
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    flushQueuedDeltas();   // send the bundled session deltas now
+    backdrop.remove();
+    _itemPanelOpen = false;
+    if (listsDirty || _listsRefreshPending) {
+      _listsRefreshPending = false;
+      refreshReportsUI();
+    }
+  };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
@@ -7927,6 +7988,9 @@ async function openItemEditor(sessionId, itemId) {
   // truth — including edits that synced in while the panel was open.
   const resolved  = () => applyAssetOverlay(assetKey, baseItem);
   const notesText = (n) => Array.isArray(n) ? n.join('\n\n') : (n || '');
+
+  // One sighting per panel session.
+  let sessionSighted = false;
 
   const headHTML = (title) => `
         <div class="modal-head items-modal-head">
@@ -7942,122 +8006,86 @@ async function openItemEditor(sessionId, itemId) {
         </div>`;
   const wireHead = () => backdrop.querySelector('#item-panel-close').addEventListener('click', close);
 
-  function renderView() {
-    const it = resolved();
-    const roomKey = it.room || '';
-    const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
-    const sighting = assetKey ? Sightings.get(assetKey) : null;
-    const eyeState = assetKey ? assetEyeState(assetKey) : 'todo';
-    const disp     = assetKey ? assetDisposition(assetKey) : null;
-    // Option rows for the status accordion (under the Status row).
-    const statusOpt = (key) => {
-      const def = DISPOSITIONS[key];
-      const active = disp === key;
-      return `
-              <button class="status-opt" data-d="${key}" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;margin-bottom:8px;background:${active ? 'var(--bg-subtle)' : '#fff'};border:1px solid ${active ? 'var(--dim)' : 'var(--line)'};border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink)">
-                ${dispositionIconHTML(key)}
-                <span style="flex:1;text-align:left">${escapeHTML(def.label)}</span>
-                ${active ? '<span style="color:var(--dim);font-size:12px">current</span>' : ''}
-              </button>`;
-    };
-    const viewRow = (label, value, mono) => `
-          <div style="padding:9px 0;border-bottom:0.5px solid var(--line-soft)">
-            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:3px">${escapeHTML(label)}</div>
-            <div style="font-size:14px;color:var(--ink);${mono ? 'font-family:var(--mono);' : ''}white-space:pre-line">${escapeHTML(value || '—')}</div>
-          </div>`;
-    backdrop.innerHTML = `
-      <div class="modal items-modal item-editor">
-        ${headHTML(it.model || it.category || it.type || 'Item')}
-        <div class="modal-body" style="padding:4px 18px 14px 18px">
-          ${viewRow('Model', it.model)}
-          ${viewRow('Category / type', it.type || it.category)}
-          ${viewRow('Serial', it.serial, true)}
-          ${viewRow('Room', it.room, true)}
-          ${viewRow('Notes', notesText(it.notes))}
-          ${assetKey ? `
-          <div style="padding:9px 0;border-bottom:0.5px solid var(--line-soft)">
-            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:4px">Status</div>
-            ${disp ? dispositionPillHTML(disp) : '<span style="font-size:13px;color:var(--dim)">Active — in the field</span>'}
-            <div id="status-accordion" class="hidden" style="margin-top:10px">
-              ${statusOpt('storage-av')}
-              ${statusOpt('storage-fm')}
-              ${statusOpt('recycle-av')}
-              ${statusOpt('removed')}
-              ${disp ? `
-              <button id="status-clear" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;background:#fff;border:1px dashed var(--line);border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--dim)">
-                ${eyeGlyph(true, 'var(--dim)', 14)}
-                <span style="flex:1;text-align:left">Clear status — back in the field</span>
-              </button>` : ''}
-            </div>
-          </div>` : ''}
-          ${assetKey ? `
-          <div style="padding:12px 0;border-bottom:0.5px solid var(--line-soft)">
-            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Sightings</div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <span id="item-eye">${eyeIconHTML(eyeState)}</span>
-              <span id="item-sighting-line" style="font-size:13px;color:var(--ink-soft);flex:1;min-width:160px">${sightingLineHTML(sighting)}</span>
-            </div>
-          </div>` : ''}
-          <div style="padding:12px 0 4px 0">
-            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</div>
-            ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length
-              ? roomPhotosHTML(roomPhotos)
-              : `<div class="items-empty" style="padding:12px">No photos for this room.</div>`}
-            <div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.4">Photos are managed per room and shown read-only here.</div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          ${assetKey
-            ? `<button id="item-view-status">Status</button>
-               <button id="item-eye-toggle" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="display:inline-flex;align-items:center;gap:6px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 14)}Seen</button>`
-            : `<button id="item-view-close">Close</button>`}
-          <button class="primary" id="item-view-edit" style="background:var(--accent);color:#fff;border-color:var(--accent)">Edit</button>
-        </div>
-      </div>`;
-    wireHead();
-    const closeBtn = backdrop.querySelector('#item-view-close');
-    if (closeBtn) closeBtn.addEventListener('click', close);
-    const statusBtn = backdrop.querySelector('#item-view-status');
-    if (statusBtn) statusBtn.addEventListener('click', () => {
-      const acc = backdrop.querySelector('#status-accordion');
-      if (!acc) return;
-      acc.classList.toggle('hidden');
-      if (!acc.classList.contains('hidden')) acc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    });
-    backdrop.querySelector('#item-view-edit').addEventListener('click', renderEdit);
-    // The Seen toggle: marking is immediate; toggling back is either a
-    // clean 10-minute undo (own fresh sighting, no trace) or a withdrawal.
-    const eyeBtn = backdrop.querySelector('#item-eye-toggle');
-    if (eyeBtn) eyeBtn.addEventListener('click', async () => {
-      if (sightedThisRound(assetKey)) {
-        // Race guard: the user tapped to undo their OWN fresh sighting, but
-        // a collaborator's newer sighting arrived in the meantime (so the
-        // undo is blocked by the ownership check and the tap would fall
-        // through to withdrawing THEIR observation). Confirm first — only
-        // in this exact case; deliberate withdrawals stay one tap.
-        const cur = Sightings.get(assetKey);
-        const u = _sightingUndo.get(assetKey);
-        if (cur && !cur.retracted && cur.seenBy !== DEVICE_ID && u && (Date.now() - u.at) < SIGHTING_UNDO_MS) {
-          const m = GroupStore.getMember(cur.seenBy);
-          const who = m ? `${m.emoji || ''} ${m.nickname || ''}`.trim() : 'a collaborator';
-          if (!confirm(`${who} also sighted this item in the meantime. Withdraw their sighting?`)) return;
-        }
-        const how = await unsightOrUndo(assetKey);
-        if (how === 'retracted') log('Sighting withdrawn.', 'info');
-      } else {
-        await recordSighting(assetKey, 'mark');
-        log('Sighting recorded.', 'ok');
+  const FIELDS = [
+    { key: 'model',  label: 'Model' },
+    { key: 'type',   label: 'Category / type' },
+    { key: 'serial', label: 'Serial' },
+    { key: 'room',   label: 'Room' },
+    { key: 'notes',  label: 'Notes', textarea: true },
+  ];
+
+  // Per-field blur-save. Returns true when something was actually written.
+  async function saveField(field, rawValue) {
+    const cur = resolved();
+    const norm = (v) => (v == null) ? '' : String(v);
+    let from, to, newNotes;
+    if (field === 'notes') {
+      newNotes = rawValue.split(/\n{2,}/).map(x => x.trim()).filter(Boolean);
+      from = Array.isArray(cur.notes) ? cur.notes.join(' · ') : norm(cur.notes);
+      to   = newNotes.join(' · ');
+    } else {
+      from = field === 'type' ? norm(cur.type || cur.category) : norm(cur[field]);
+      to   = rawValue.trim();
+    }
+    if (from === to) return false;   // no-op: nothing written, nothing sent
+
+    if (assetKey) {
+      const prev = AssetOverlay.get(assetKey);
+      const keep = (k) => norm(cur[k]);
+      const cat  = field === 'type' ? to : norm(cur.type || cur.category);
+      const rec = {
+        assetId : assetKey,
+        model   : field === 'model'  ? to : keep('model'),
+        category: cat,
+        type    : cat,
+        serial  : field === 'serial' ? to : keep('serial'),
+        room    : field === 'room'   ? to : keep('room'),
+        notes   : field === 'notes'  ? newNotes
+                  : (Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : [])),
+        origin  : (prev && prev.origin) || 'edit',
+        disposition: (prev && prev.disposition) || undefined,
+        syncedAt: Date.now(),
+        deviceId: DEVICE_ID,
+        sourceHash: currentSourceHash() || undefined,
+      };
+      await AssetOverlay.put(rec);
+      queueDelta('assets', assetKey, rec);   // bundled transfer (see above)
+      await emitChange(assetKey, sessionId, session.name || '', { [field]: { from, to } }, { defer: true });
+      if (!sessionSighted) { sessionSighted = true; recordSighting(assetKey, 'edit'); }
+      const tr = (v) => v.length > 40 ? v.slice(0, 37) + '…' : v;
+      log(`Edited "${rec.model || rec.category || assetKey}": ${field} ${tr(from) || '—'} → ${tr(to) || '—'}`, 'ok');
+    } else {
+      // Report-local fallback for items without a stable identity.
+      const fresh = await getSession(sessionId);
+      if (!fresh) return false;
+      const fdata = fresh.data || {};
+      const target = dataIsArray(fdata) ? fdata[Number(itemId)] : fdata[itemId];
+      if (!target) return false;
+      if (field === 'model') target.model = to;
+      else if (field === 'type') {
+        if (target.type != null) target.type = to;
+        if (target.category != null || target.type == null) target.category = to;
       }
-      refreshReportsUI();
-      renderView();
-    });
-    backdrop.querySelectorAll('.status-opt').forEach(b => b.addEventListener('click', () => applyDisposition(b.dataset.d)));
-    const clr = backdrop.querySelector('#status-clear');
-    if (clr) clr.addEventListener('click', () => applyDisposition(null));
+      else if (field === 'serial') target.serial = to;
+      else if (field === 'room')   target.room = to;
+      else if (field === 'notes')  target.notes = Array.isArray(target.notes) ? newNotes : rawValue.trim();
+      fresh.data = fdata;
+      await putSession(fresh);
+      Object.assign(baseItem, {
+        model: target.model, type: target.type, category: target.category,
+        serial: target.serial, room: target.room, notes: target.notes,
+      });
+      const tr = (v) => v.length > 40 ? v.slice(0, 37) + '…' : v;
+      log(`Edited "${to || itemId}": ${field} ${tr(from) || '—'} → ${tr(to) || '—'} (report-local).`, 'ok');
+    }
+    listsDirty = true;
+    const h3 = backdrop.querySelector('.items-modal-title h3');
+    if (h3) { const now = resolved(); h3.textContent = now.model || now.category || now.type || 'Item'; }
+    return true;
   }
 
   // Write the disposition onto the canonical overlay (current resolved
-  // values + the new status), emit a Changelog event, return to the view.
+  // values + the new status), emit a Changelog event, re-render.
   async function applyDisposition(newDisp) {
     const cur = resolved();
     const prev = AssetOverlay.get(assetKey);
@@ -8082,122 +8110,117 @@ async function openItemEditor(sessionId, itemId) {
     if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
     await emitChange(assetKey, sessionId, session.name || '', { disposition: { from: lbl(oldDisp), to: lbl(newDisp) } });
     log(newDisp ? `Status set: ${lbl(newDisp)}.` : 'Status cleared — back in the field.', 'ok');
-    refreshReportsUI();
+    listsDirty = true;   // refresh deferred to close
     renderView();
   }
 
-  function renderEdit() {
-    const cur = resolved();
-    const curNotesIsArray = Array.isArray(cur.notes);
-    const fieldRow = (label, id, value, opts = {}) => `
-          <label class="field">
-            <span>${escapeHTML(label)}</span>
-            ${opts.textarea
-              ? `<textarea id="${id}" rows="${opts.rows || 4}" style="width:100%;resize:vertical">${escapeHTML(value || '')}</textarea>`
-              : `<input type="text" id="${id}" value="${escapeHTML(value || '')}" autocomplete="off">`}
+  function renderView() {
+    const it = resolved();
+    const roomKey = it.room || '';
+    const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
+    const eyeState = assetKey ? assetEyeState(assetKey) : 'todo';
+    const disp     = assetKey ? assetDisposition(assetKey) : null;
+    const statusOpt = (key) => {
+      const def = DISPOSITIONS[key];
+      const active = disp === key;
+      return `
+              <button class="status-opt" data-d="${key}" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;margin-bottom:8px;background:${active ? 'var(--bg-subtle)' : '#fff'};border:1px solid ${active ? 'var(--dim)' : 'var(--line)'};border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink)">
+                ${dispositionIconHTML(key)}
+                <span style="flex:1;text-align:left">${escapeHTML(def.label)}</span>
+                ${active ? '<span style="color:var(--dim);font-size:12px">current</span>' : ''}
+              </button>`;
+    };
+    const fieldVal = (k) => k === 'notes' ? notesText(it.notes)
+                          : (k === 'type' ? (it.type || it.category || '') : (it[k] || ''));
+    const fieldRow = (f) => `
+          <label class="field" style="margin-bottom:12px">
+            <span>${escapeHTML(f.label)}</span>
+            ${f.textarea
+              ? `<textarea data-field="${f.key}" rows="4" style="width:100%;resize:vertical">${escapeHTML(fieldVal(f.key))}</textarea>`
+              : `<input type="text" data-field="${f.key}" value="${escapeHTML(fieldVal(f.key))}" autocomplete="off">`}
           </label>`;
     backdrop.innerHTML = `
       <div class="modal items-modal item-editor">
-        ${headHTML('Edit item')}
+        ${headHTML(it.model || it.category || it.type || 'Item')}
         <div class="modal-body" style="padding:18px">
-          ${fieldRow('Model', 'item-f-model', cur.model)}
-          ${fieldRow('Category / type', 'item-f-category', cur.type || cur.category)}
-          ${fieldRow('Serial', 'item-f-serial', cur.serial)}
-          ${fieldRow('Room', 'item-f-room', cur.room)}
-          ${fieldRow('Notes', 'item-f-notes', notesText(cur.notes), { textarea: true, rows: 5 })}
+          ${FIELDS.map(fieldRow).join('')}
+          ${assetKey ? `
+          <div style="padding:9px 0;border-bottom:0.5px solid var(--line-soft)">
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:4px">Status</div>
+            ${disp ? dispositionPillHTML(disp) : '<span style="font-size:13px;color:var(--dim)">Active — in the field</span>'}
+            <div id="status-accordion" class="hidden" style="margin-top:10px">
+              ${statusOpt('storage-av')}
+              ${statusOpt('storage-fm')}
+              ${statusOpt('recycle-av')}
+              ${statusOpt('removed')}
+              ${disp ? `
+              <button id="status-clear" type="button" style="display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;background:#fff;border:1px dashed var(--line);border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--dim)">
+                ${eyeGlyph(true, 'var(--dim)', 14)}
+                <span style="flex:1;text-align:left">Clear status — back in the field</span>
+              </button>` : ''}
+            </div>
+          </div>` : ''}
+          ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length ? `
+          <div style="padding:12px 0 4px 0">
+            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</div>
+            ${roomPhotosHTML(roomPhotos)}
+          </div>` : ''}
         </div>
         <div class="modal-footer">
-          <button id="item-edit-cancel">Cancel</button>
-          <button class="primary" id="item-edit-save" style="background:var(--accent);color:#fff;border-color:var(--accent)">Save</button>
+          ${assetKey
+            ? `<button id="item-view-status" style="display:inline-flex;align-items:center;gap:6px">Status <svg id="status-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s"><path d="M6 9l6 6l6-6"/></svg></button>
+               <button id="item-eye-toggle" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="display:inline-flex;align-items:center;gap:6px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 14)}Seen</button>`
+            : `<button id="item-view-close">Close</button>`}
         </div>
       </div>`;
     wireHead();
-    backdrop.querySelector('#item-edit-cancel').addEventListener('click', renderView);
-    backdrop.querySelector('#item-edit-save').addEventListener('click', async () => {
-      const val = (id) => backdrop.querySelector('#' + id).value.trim();
-      const newModel    = val('item-f-model');
-      const newCategory = val('item-f-category');
-      const newSerial   = val('item-f-serial');
-      const newRoom     = val('item-f-room');
-      const newNotesRaw = backdrop.querySelector('#item-f-notes').value;
-
-      if (assetKey) {
-        const newNotes = newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
-        const norm = (v) => (v == null) ? '' : String(v);
-        const prevNotes = Array.isArray(cur.notes) ? cur.notes.join(' · ') : norm(cur.notes);
-        const diffs = {};
-        if (norm(cur.model) !== newModel)    diffs.model  = { from: norm(cur.model),  to: newModel };
-        const prevCat = norm(cur.type || cur.category);
-        if (prevCat !== newCategory)         diffs.type   = { from: prevCat,          to: newCategory };
-        if (norm(cur.serial) !== newSerial)  diffs.serial = { from: norm(cur.serial), to: newSerial };
-        if (norm(cur.room) !== newRoom)      diffs.room   = { from: norm(cur.room),   to: newRoom };
-        if (prevNotes !== newNotes.join(' · ')) diffs.notes = { from: prevNotes, to: newNotes.join(' · ') };
-        if (!Object.keys(diffs).length) {
-          log('No changes — nothing saved.', 'info');
-          renderView();
-          return;
-        }
-
-        const prev = AssetOverlay.get(assetKey);
-        const rec = {
-          assetId : assetKey,
-          model   : newModel,
-          category: newCategory,
-          type    : newCategory,
-          serial  : newSerial,
-          room    : newRoom,
-          notes   : newNotes,
-          origin  : (prev && prev.origin) || 'edit',
-          disposition: (prev && prev.disposition) || undefined,
-          syncedAt: Date.now(),
-          deviceId: DEVICE_ID,
-          sourceHash: currentSourceHash() || undefined,
-        };
-        await AssetOverlay.put(rec);
-        if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
-
-        await emitChange(assetKey, sessionId, session.name || '', diffs);
-
-        // An effective edit is also an observation — you were standing in
-        // front of the device. Sight-without-edit lives in the view.
-        recordSighting(assetKey, 'edit');
-        log(`Edited item "${newModel || newCategory || assetKey}" — applies to every report containing it.`, 'ok');
-      } else {
-        // Report-local fallback for items without a stable identity.
-        const fresh = await getSession(sessionId);
-        if (!fresh) { close(); return; }
-        const fdata = fresh.data || {};
-        const target = dataIsArray(fdata) ? fdata[Number(itemId)] : fdata[itemId];
-        if (!target) { close(); return; }
-        target.model = newModel;
-        if (target.type != null) target.type = newCategory;
-        if (target.category != null || target.type == null) target.category = newCategory;
-        target.serial = newSerial;
-        target.room   = newRoom;
-        target.notes  = curNotesIsArray
-          ? newNotesRaw.split(/\n{2,}/).map(s => s.trim()).filter(Boolean)
-          : newNotesRaw.trim();
-        fresh.data = fdata;
-        await putSession(fresh);
-        // Mirror onto our local baseline so the view shows the new values.
-        Object.assign(baseItem, {
-          model: target.model, type: target.type, category: target.category,
-          serial: target.serial, room: target.room, notes: target.notes,
-        });
-        log(`Edited item "${newModel || newCategory || itemId}" (report-local: no stable asset id).`, 'ok');
-      }
-
-      refreshReportsUI();   // lists underneath update; this panel stays open
-      renderView();         // ProtonPass-style: back to the view, fresh values
+    const closeBtn = backdrop.querySelector('#item-view-close');
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    const statusBtn = backdrop.querySelector('#item-view-status');
+    if (statusBtn) statusBtn.addEventListener('click', () => {
+      const acc = backdrop.querySelector('#status-accordion');
+      if (!acc) return;
+      acc.classList.toggle('hidden');
+      const open = !acc.classList.contains('hidden');
+      const ch = backdrop.querySelector('#status-chevron');
+      if (ch) ch.style.transform = open ? 'rotate(180deg)' : '';
+      if (open) acc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
-    const first = backdrop.querySelector('#item-f-model');
-    if (first) first.focus();
+    // The Seen toggle: marking is immediate; toggling back is either a
+    // clean 10-minute undo (own fresh sighting, no trace) or a withdrawal.
+    const eyeBtn = backdrop.querySelector('#item-eye-toggle');
+    if (eyeBtn) eyeBtn.addEventListener('click', async () => {
+      if (sightedThisRound(assetKey)) {
+        const cur = Sightings.get(assetKey);
+        const u = _sightingUndo.get(assetKey);
+        if (cur && !cur.retracted && cur.seenBy !== DEVICE_ID && u && (Date.now() - u.at) < SIGHTING_UNDO_MS) {
+          const m = GroupStore.getMember(cur.seenBy);
+          const who = m ? `${m.emoji || ''} ${m.nickname || ''}`.trim() : 'a collaborator';
+          if (!confirm(`${who} also sighted this item in the meantime. Withdraw their sighting?`)) return;
+        }
+        const how = await unsightOrUndo(assetKey);
+        if (how === 'retracted') log('Sighting withdrawn.', 'info');
+      } else {
+        await recordSighting(assetKey, 'mark');
+        log('Sighting recorded.', 'ok');
+      }
+      listsDirty = true;   // refresh deferred to close — the panel stays put
+      renderView();
+    });
+    backdrop.querySelectorAll('.status-opt').forEach(b => b.addEventListener('click', () => applyDisposition(b.dataset.d)));
+    const clr = backdrop.querySelector('#status-clear');
+    if (clr) clr.addEventListener('click', () => applyDisposition(null));
+    // Direct editing: every field saves itself when its value changes and
+    // focus leaves it ('change' = blur with a different value).
+    backdrop.querySelectorAll('[data-field]').forEach(el => {
+      el.addEventListener('change', () => saveField(el.dataset.field, el.value));
+    });
   }
 
   renderView();
 }
 
-function showItemsModal(session) {
+function showItemsModal(session, restore) {
   const data = session.data || {};
   const rooms = session.rooms || {};
   // Normalize to a flat array of { id, displayNum, item } pairs. Data
@@ -8219,7 +8242,7 @@ function showItemsModal(session) {
         return { id, assetKey: id, displayNum: parseDisplayNum(id, i), item: applyAssetOverlay(id, data[id]) };
       });
 
-  let sortMode = 'room';   // 'room' | 'time' | 'object'
+  let sortMode = (restore && restore.sortMode) || 'room';   // 'room' | 'time' | 'object'
 
   // Header context: the emoji circle + creator/sender attribution
   // mirror the session-row pattern, so jumping from the report list
@@ -8273,9 +8296,18 @@ function showItemsModal(session) {
   _liveItemsModalRefresh = async () => {
     const updated = await getSession(session.id);
     if (!updated) return;
+    const body = backdrop.querySelector('#items-body');
+    // Carry the full visible state across the rebuild: reading position,
+    // search text, sort tab, and the active filter pills.
+    const carry = {
+      scrollTop   : body ? body.scrollTop : 0,
+      searchRaw   : (backdrop.querySelector('#items-search-input') || {}).value || '',
+      sortMode,
+      stateFilters: [...stateFilters],
+    };
     _liveItemsModalRefresh = null;
     backdrop.remove();
-    showItemsModal(updated);
+    showItemsModal(updated, carry);
   };
 
   const bodyEl = backdrop.querySelector('#items-body');
@@ -8303,9 +8335,18 @@ function showItemsModal(session) {
     }
   });
 
-  let searchTerm = '';   // normalized lowercase substring; '' = no filter
-  const stateFilters = new Set();   // multi-select eye-state filters (union)
+  let searchTerm = (restore && restore.searchRaw) ? restore.searchRaw.trim().toLowerCase() : '';   // normalized; '' = no filter
+  const stateFilters = new Set((restore && restore.stateFilters) || []);   // multi-select eye-state filters (union)
   wireStateChips(backdrop.querySelector('#items-chips'), stateFilters, () => rerender());
+  if (restore) {
+    // Re-apply the visible state of the previous incarnation. The sort tab
+    // and the clear button follow from rerender(); the search text and the
+    // active pills need a one-time hand.
+    if (restore.searchRaw) searchInput.value = restore.searchRaw;
+    backdrop.querySelectorAll('#items-chips .state-chip').forEach(c => {
+      if (c.dataset.f !== 'all') c.classList.toggle('active', stateFilters.has(c.dataset.f));
+    });
+  }
 
   // Universal substring match: returns true if the item has the term
   // anywhere in room, category, serial, or notes. Case-insensitive.
@@ -8408,6 +8449,7 @@ function showItemsModal(session) {
   });
 
   rerender();
+  if (restore && restore.scrollTop) bodyEl.scrollTop = restore.scrollTop;
 }
 
 // Build the grouped item list for a given sort mode. Returns an array
