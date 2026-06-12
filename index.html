@@ -531,6 +531,15 @@
     padding: 12px 14px; outline: none; transition: border-color 0.15s;
   }
   input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 166, 214, 0.15); }
+  select {
+    width: 100%; border: 1px solid var(--line); background: var(--bg);
+    color: var(--ink); font-family: var(--sans); font-size: 16px;
+    padding: 12px 38px 12px 14px; outline: none; transition: border-color 0.15s;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6l6-6'/></svg>");
+    background-repeat: no-repeat; background-position: right 12px center;
+  }
+  select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 166, 214, 0.15); }
   textarea { font-family: var(--mono); font-size: 13px; resize: vertical; min-height: 200px; }
   label.field { display: block; margin-bottom: 14px; }
   label.field > span { display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; font-weight: 700; }
@@ -995,6 +1004,8 @@
   .state-chip.active[data-f="storage-av"],
   .state-chip.active[data-f="storage-fm"] { background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.5); color: #6D28D9; }
   .state-chip.active[data-f="gone"] { background: rgba(224,60,49,0.08); border-color: rgba(224,60,49,0.5); color: var(--warn); }
+  /* Tag pills carry their nomination color via custom properties. */
+  .state-chip.active[data-c] { background: var(--chip-bg); border-color: var(--chip-bd); color: var(--chip-fg); }
   /* WhatsApp-style back arrow in modal heads (replaces the corner ×). Keeps
      the old close-button id, so all existing wiring works unchanged. */
   .modal-back {
@@ -2140,7 +2151,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '123';
+  const LOCAL_VERSION = '125';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2914,15 +2925,41 @@ function assetTitle(assetId) {
   } catch (e) { /* source not loaded yet */ }
   return String(assetId);
 }
+// Best available room for an asset (overlay first, source second).
+function assetRoom(assetId) {
+  const ov = AssetOverlay.get(assetId);
+  if (ov && ov.room) return ov.room;
+  try {
+    const d = _sourceData && _sourceData.data;
+    const row = d ? (Array.isArray(d) ? d[Number(assetId)] : d[assetId]) : null;
+    if (row) return row.roomName || row.room || '';
+  } catch (e) { /* source not loaded yet */ }
+  return '';
+}
 // Absolute short date for export-facing text ("12 Jun 2026").
 function shortDate(ts) {
   if (!ts) return '';
   return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
-// Warm-orange tag pill (a flag, not a state — no icon takeover, no tint).
+// Every nomination has its own color: pill + text + checkbox accent + the
+// pastel row background, in the panel, the center and the filter pills.
+const NOTE_TAG_COLORS = {
+  reconfigure: '#4F46E5',
+  recycle    : '#047857',
+  refurbish  : '#B45309',
+  relabel    : '#DB2777',
+  relocate   : '#0D9488',
+  remove     : '#DC2626',
+  repair     : '#EA580C',
+  replace    : '#2563EB',
+  research   : '#7C3AED',
+  retest     : '#4D7C0F',
+};
+function noteTagColor(tag) { return NOTE_TAG_COLORS[tag] || '#C2410C'; }
 function noteTagPillHTML(tag) {
   if (!tag) return '';
-  return `<span style="display:inline-flex;align-items:center;border:1px solid rgba(224,122,43,0.5);color:#C2410C;border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${escapeHTML(tag)}</span>`;
+  const c = noteTagColor(tag);
+  return `<span style="display:inline-flex;align-items:center;border:1px solid ${c}80;color:${c};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${escapeHTML(tag)}</span>`;
 }
 // Small open-notification counter for list rows.
 function noteBellHTML(assetId) {
@@ -2938,53 +2975,88 @@ function noteRowHTML(n, withAsset) {
     const m = GroupStore.getMember(deviceId);
     return m ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${m.color || 'var(--line)'};font-size:10px;flex-shrink:0" title="${escapeHTML(m.nickname || '')}">${m.emoji || ''}</span>` : '';
   };
+  const c = n.tag ? noteTagColor(n.tag) : null;
+  const room = withAsset ? assetRoom(n.assetId) : '';
   const assetLine = withAsset
-    ? `<div style="font-size:11px;color:var(--dim);margin-top:2px">on ${escapeHTML(assetTitle(n.assetId))} · #${escapeHTML(String(n.assetId))}</div>` : '';
-  const commentRows = NotesStore.commentsFor(n.noteId).map(c => `
+    ? `<div style="font-size:13.5px;font-weight:700;color:var(--ink)">${escapeHTML(assetTitle(n.assetId))}${room ? ` <span style="font-weight:600;color:var(--dim)">· Room ${escapeHTML(String(room))}</span>` : ''} <span style="font-weight:400;font-size:11px;color:var(--dim)">#${escapeHTML(String(n.assetId))}</span></div>` : '';
+  const commentRows = NotesStore.commentsFor(n.noteId).map(cm => `
           <div style="display:flex;align-items:flex-start;gap:6px;margin:6px 0 0 2px;padding-left:8px;border-left:2px solid var(--line)">
-            ${avatar(c.createdBy)}
-            <div style="flex:1;min-width:0;font-size:12.5px;color:var(--ink)">${escapeHTML(c.text)} <span style="font-size:11px;color:var(--dim)">· ${relShort(c.createdAt)}</span></div>
+            ${avatar(cm.createdBy)}
+            <div style="flex:1;min-width:0;font-size:12.5px;color:var(--ink)">${escapeHTML(cm.text)} <span style="font-size:11px;color:var(--dim)">· ${relShort(cm.createdAt)}</span></div>
           </div>`).join('');
   return `
-      <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--line-soft)">
-        <input type="checkbox" data-note="${escapeHTML(n.noteId)}" ${n.done ? 'checked' : ''} style="margin-top:2px;width:16px;height:16px;accent-color:#C2410C;flex-shrink:0">
+      <div data-note-row="${escapeHTML(n.noteId)}" data-asset="${escapeHTML(String(n.assetId))}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;border-radius:8px;border:1px solid ${c ? c + '33' : 'var(--line-soft)'};background:${c ? c + '0D' : 'var(--bg-subtle)'};touch-action:pan-y${withAsset ? ';cursor:pointer' : ''}">
         <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          ${assetLine}
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap${withAsset ? ';margin-top:3px' : ''}">
             ${noteTagPillHTML(n.tag)}
             <span style="font-size:13px;color:var(--ink);${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</span>
           </div>
-          ${assetLine}
           <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);margin-top:3px">${avatar(n.createdBy)}<span>${relShort(n.createdAt)}</span>${n.done && n.doneAt ? `<span>· done ${relShort(n.doneAt)}</span>` : ''}</div>
           ${commentRows}
           <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:5px;min-height:0;font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);cursor:pointer">Comment</button>
         </div>
+        <input type="checkbox" data-note="${escapeHTML(n.noteId)}" ${n.done ? 'checked' : ''} style="width:18px;height:18px;accent-color:${c || '#C2410C'};flex-shrink:0">
       </div>`;
 }
 
 // Shared wiring for rendered note rows (item panel + Notifications
 // center): done-checkboxes and the per-note comment affordance. The
 // Comment button swaps itself for an inline input; Enter or Send posts.
-function wireNoteRows(container, rerender) {
+function wireNoteRows(container, rerender, opts) {
   container.querySelectorAll('input[data-note]').forEach(cb => {
     cb.addEventListener('change', async () => { await toggleNoteDone(cb.dataset.note); rerender(); });
   });
+  // Swipe to check off: right = done, left (on a done note) = back to
+  // to-do. Horizontal intent only — vertical scrolling stays untouched
+  // (touch-action: pan-y on the row). A swipe suppresses the click-through.
+  container.querySelectorAll('[data-note-row]').forEach(row => {
+    let x0 = null, y0 = null, dx = 0, horiz = false, swiped = false;
+    row.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false;
+      row.style.transition = '';
+    }, { passive: true });
+    row.addEventListener('touchmove', (e) => {
+      if (x0 === null) return;
+      const t = e.touches[0];
+      dx = t.clientX - x0;
+      if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) horiz = true;
+      if (horiz) row.style.transform = `translateX(${dx}px)`;
+    }, { passive: true });
+    row.addEventListener('touchend', async () => {
+      if (x0 === null) return;
+      const n = NotesStore.get(row.dataset.noteRow);
+      const fire = !!(horiz && n && (!n.done ? dx > 70 : dx < -70));
+      if (horiz) { swiped = true; setTimeout(() => { swiped = false; }, 350); }
+      row.style.transition = 'transform .15s';
+      row.style.transform = '';
+      x0 = null;
+      if (fire) { await toggleNoteDone(n.noteId); rerender(); }
+    });
+    // Tapping the row (not a control) jumps to the item panel when the
+    // hosting surface provides an opener (the Notifications center does).
+    if (opts && opts.onOpen) {
+      row.addEventListener('click', (e) => {
+        if (swiped) return;
+        if (e.target.closest('input, button, select, a')) return;
+        opts.onOpen(row.dataset.asset);
+      });
+    }
+  });
   container.querySelectorAll('.note-comment-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.dataset.comment;
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'display:flex;gap:6px;margin-top:5px';
-      wrap.innerHTML = `<input type="text" placeholder="Add a comment…" style="flex:1;min-width:0;font-family:var(--sans);font-size:12.5px;padding:5px 8px;border:1px solid var(--line)"><button type="button" style="min-height:0;padding:5px 10px">Send</button>`;
-      btn.replaceWith(wrap);
-      const inp = wrap.querySelector('input');
-      const send = async () => {
-        const parent = NotesStore.get(id);
-        if (!parent || !inp.value.trim()) return;
-        await addNote(parent.assetId, inp.value, null, parent.noteId);
-        rerender();
-      };
-      wrap.querySelector('button').addEventListener('click', send);
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-      inp.focus();
+      const parent = NotesStore.get(btn.dataset.comment);
+      if (!parent) return;
+      showNoteSheet({
+        title: 'Comment',
+        withTag: false,
+        placeholder: 'Share what you know or did…',
+        onSubmit: async (text) => {
+          await addNote(parent.assetId, text, null, parent.noteId);
+          rerender();
+        },
+      });
     });
   });
 }
@@ -7697,7 +7769,7 @@ function showSourceModal() {
           <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
             <div style="font-size:15px;font-weight:600;color:var(--ink)${dStrike ? ';text-decoration:line-through;text-decoration-color:rgba(224,60,49,0.6);text-decoration-thickness:1.5px' : ''}">${escapeHTML(r.model || r.type || '—')}</div>
             <div style="font-size:12px;color:var(--dim);font-weight:400">#${escapeHTML(r.id)}</div>
-            ${disp ? locationPillHTML(disp) : ''}${noteBellHTML(entry.assetKey)}${noteBellHTML(aid)}
+            ${disp ? locationPillHTML(disp) : ''}${noteBellHTML(aid)}
           </div>
           <div style="font-size:12px;color:var(--dim);margin-top:3px">
             <span>${escapeHTML(r.type || '—')}</span>
@@ -8189,6 +8261,67 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // The modal handles its own dismissal; no flow-state changes, so it
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
+// Slide-up sheet for writing a note (Notify) or a comment: one text line,
+// an optional tag select, Enter or Send posts; tap the scrim to cancel.
+function showNoteSheet({ title, withTag, placeholder, onSubmit }) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,0.12)';
+  wrap.innerHTML = `
+    <div id="note-sheet" style="position:absolute;left:0;right:0;bottom:0;max-height:33vh;overflow-y:auto;background:#fff;border-top:1px solid var(--line);border-radius:12px 12px 0 0;padding:16px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.12);transform:translateY(100%);transition:transform .2s ease-out">
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:10px">${escapeHTML(title)}</div>
+      ${withTag ? `
+      <select id="sheet-tag" style="margin-bottom:8px">
+        <option value="">No tag — just an FYI</option>
+        ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
+      </select>` : ''}
+      <div style="display:flex;gap:8px">
+        <input id="sheet-text" type="text" placeholder="${escapeHTML(placeholder || '')}" autocomplete="off" style="flex:1;min-width:0">
+        <button id="sheet-send" type="button" style="flex-shrink:0">Send</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const sheet = wrap.querySelector('#note-sheet');
+  requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
+  const close = () => { sheet.style.transform = 'translateY(100%)'; setTimeout(() => wrap.remove(), 200); };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  const inp = wrap.querySelector('#sheet-text');
+  const send = async () => {
+    if (!inp.value.trim()) return;
+    const tagSel = wrap.querySelector('#sheet-tag');
+    await onSubmit(inp.value, tagSel ? tagSel.value : null);
+    close();
+  };
+  wrap.querySelector('#sheet-send').addEventListener('click', send);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+  inp.focus();
+}
+
+// Map an asset to a (sessionId, itemId) pair so the item panel can open
+// from asset-scoped surfaces like the Notifications center. Active tasks
+// win over archived ones; most recently synced first.
+async function findItemForAsset(assetId) {
+  const sessions = (await listSessionsRaw()) || [];
+  sessions.sort((a, b) =>
+    ((a.status === 'archived') - (b.status === 'archived')) ||
+    ((b.syncedAt || 0) - (a.syncedAt || 0)));
+  const want = String(assetId);
+  for (const s of sessions) {
+    const data = s.data || {};
+    const isArr = dataIsArray(data);
+    const entries = isArr ? data.map((v, i) => [String(i), v]) : Object.entries(data);
+    for (const [iid, item] of entries) {
+      if (!item) continue;
+      if (String(assetKeyOf(iid, item, isArr)) === want) return { sessionId: s.id, itemId: iid };
+    }
+  }
+  return null;
+}
+async function openItemForAsset(assetId) {
+  const hit = await findItemForAsset(assetId);
+  if (!hit) { log('No task contains this item yet — open it from a task list to edit.', 'err'); return; }
+  openItemEditor(hit.sessionId, hit.itemId);
+}
+
 // ── Notifications center ─────────────────────────────────────────────────────
 // Tagged notes (= notifications) across all assets: search bar with a tag-
 // filter funnel, To do / Done segment tabs, newest on top. Untagged FYI
@@ -8231,7 +8364,7 @@ async function showNotificationsModal() {
         </div>
         <div class="state-chip-row hidden" id="notif-tag-chips">
           <button class="state-chip" data-f="all" type="button">All</button>
-          ${NOTE_TAGS.map(t => `<button class="state-chip" data-f="${t}" type="button">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+          ${NOTE_TAGS.map(t => `<button class="state-chip" data-f="${t}" data-c type="button" style="--chip-bg:${noteTagColor(t)}14;--chip-bd:${noteTagColor(t)}80;--chip-fg:${noteTagColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
         </div>
         <div class="modal-body" id="notifs-list" style="padding:12px 18px"></div>
       </div>`;
@@ -8265,7 +8398,7 @@ async function showNotificationsModal() {
               ? `Nothing to do.<br><span style="font-size:12px;color:var(--dim)">Add a tagged note to an item and it shows up here for the whole group.</span>`
               : 'Nothing checked off yet.'}</div>` : ''}
           ${shown.map(n => noteRowHTML(n, true)).join('')}`;
-    wireNoteRows(list, renderList);
+    wireNoteRows(list, renderList, { onOpen: openItemForAsset });
   };
 
   backdrop.querySelector('#notifs-close').addEventListener('click', close);
@@ -8498,24 +8631,19 @@ async function openItemEditor(sessionId, itemId) {
             </label>
             <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
               <span>Location</span>
-              <select id="loc-select" style="width:100%;font-family:var(--sans);font-size:13px;padding:8px;border:1px solid var(--line);background:#fff">
-                <option value=""${!loc ? ' selected' : ''}>In room</option>
-                ${Object.keys(LOCATIONS).map(k => `<option value="${k}"${loc === k ? ' selected' : ''}>${LOCATIONS[k].label}</option>`).join('')}
-              </select>
+              <div style="position:relative">
+                ${loc ? `<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);display:inline-flex;pointer-events:none">${LOCATIONS[loc].family === 'storage' ? archiveGlyph('#6D28D9', 15) : mapPinOffGlyph('var(--warn)', 15)}</span>` : ''}
+                <select id="loc-select"${loc ? ' style="padding-left:38px"' : ''}>
+                  <option value=""${!loc ? ' selected' : ''}>In room</option>
+                  ${Object.keys(LOCATIONS).map(k => `<option value="${k}"${loc === k ? ' selected' : ''}>${LOCATIONS[k].label}</option>`).join('')}
+                </select>
+              </div>
             </label>
           </div>` : fieldRow(FIELDS[3])}
           ${assetKey ? `
           <div style="padding:12px 0 4px 0">
             <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Notes</div>
             <div id="note-list"></div>
-            <div style="display:flex;gap:6px;margin-top:8px">
-              <select id="note-tag" style="font-family:var(--sans);font-size:12px;padding:6px;border:1px solid var(--line);background:#fff;max-width:38%">
-                <option value="">No tag</option>
-                ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
-              </select>
-              <input type="text" id="note-text" placeholder="Add a note for the group…" style="flex:1;min-width:0;font-family:var(--sans);font-size:13px;padding:6px 8px;border:1px solid var(--line)">
-              <button id="note-add" type="button" style="min-height:0;padding:6px 12px">Add</button>
-            </div>
           </div>` : ''}
           ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length ? `
           <div style="padding:12px 0 4px 0">
@@ -8533,13 +8661,19 @@ async function openItemEditor(sessionId, itemId) {
     wireHead();
     const closeBtn = backdrop.querySelector('#item-view-close');
     if (closeBtn) closeBtn.addEventListener('click', close);
-    // Notify = add a (optionally tagged) note: jump to the note row and focus it.
+    // Notify = write a note for the group in a slide-up sheet.
     const nomBtn = backdrop.querySelector('#item-nominate');
     if (nomBtn) nomBtn.addEventListener('click', () => {
-      const inp = backdrop.querySelector('#note-text');
-      if (!inp) return;
-      inp.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      inp.focus();
+      showNoteSheet({
+        title: 'Notify the group',
+        withTag: true,
+        placeholder: 'What should the group know?',
+        onSubmit: async (text, tag) => {
+          await addNote(assetKey, text, tag);
+          listsDirty = true;   // row bell counters
+          renderNotes();
+        },
+      });
     });
     // The Seen toggle: marking is immediate; toggling back is either a
     // clean 10-minute undo (own fresh sighting, no trace) or a withdrawal.
@@ -8578,17 +8712,7 @@ async function openItemEditor(sessionId, itemId) {
     };
     renderNotes();
     _itemPanelNotesRefresh = renderNotes;
-    const addBtn = backdrop.querySelector('#note-add');
-    if (addBtn) addBtn.addEventListener('click', async () => {
-      const txt = backdrop.querySelector('#note-text');
-      const tag = backdrop.querySelector('#note-tag');
-      if (!txt || !txt.value.trim()) return;
-      await addNote(assetKey, txt.value, tag ? tag.value : null);
-      txt.value = '';
-      if (tag) tag.value = '';
-      listsDirty = true;   // row bell counters
-      renderNotes();
-    });
+
     // Direct editing: every field saves itself when its value changes and
     // focus leaves it ('change' = blur with a different value).
     backdrop.querySelectorAll('[data-field]').forEach(el => {
@@ -8980,7 +9104,7 @@ function itemRowHTML(entry, sortMode) {
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
           <div style="font-size:15px;font-weight:600;color:var(--ink)${dStrike ? ';text-decoration:line-through;text-decoration-color:rgba(224,60,49,0.6);text-decoration-thickness:1.5px' : ''}">${escapeHTML(title)}</div>
           <div style="font-size:12px;color:var(--dim);font-weight:400">#${entry.displayNum}</div>
-          ${disp ? locationPillHTML(disp) : ''}
+          ${disp ? locationPillHTML(disp) : ''}${entry.assetKey ? noteBellHTML(entry.assetKey) : ''}
           ${noteCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;margin-left:4px;color:var(--dim);font-size:12px">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 20l7-7"/><path d="M13 20v-6a1 1 0 0 1 1-1h6v-7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/></svg>
             ${noteCount}</span>` : ''}
