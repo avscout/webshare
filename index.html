@@ -863,11 +863,10 @@
   .item-feed-count { font-size: 12px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .item-feed-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .feed-room-banner {
-    position: sticky; top: 0; z-index: 6;
-    background: var(--accent); color: #fff;
-    padding: 9px 16px;
+    position: sticky; top: 0; z-index: 6; background: var(--bg);
+    border-bottom: 1px solid var(--line); padding: 8px 16px;
     font-size: 11px; font-weight: 700; letter-spacing: 0.15em;
-    text-transform: uppercase;
+    text-transform: uppercase; color: var(--dim);
   }
   .feed-card { padding: 0 0 20px; border-bottom: 8px solid var(--bg-subtle); }
   .feed-card:last-child { border-bottom: none; }
@@ -875,21 +874,30 @@
   .feed-card .feed-fields,
   .feed-card .feed-actions { margin-left: 16px; margin-right: 16px; }
   .feed-actions { display: flex; gap: 8px; margin: 4px 16px 14px; }
-  /* Cyan group banner — shared by the items list, the source list. */
-  .group-banner {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--accent); padding: 9px 16px;
-  }
+  /* Group banner — shared by the items list and the source list. */
+  .group-banner { display: flex; align-items: center; gap: 6px; padding: 14px 16px 6px; }
   .group-banner-label {
-    flex: 1; font-size: 11px; font-weight: 700; letter-spacing: 0.15em;
-    color: #fff; text-transform: uppercase;
+    flex: 1; font-size: 11px; font-weight: 600; letter-spacing: 0.15em;
+    color: var(--dim); text-transform: uppercase;
   }
   .group-banner-count {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
-    color: #fff; text-transform: uppercase;
-    background: rgba(255,255,255,0.22); padding: 3px 10px; border-radius: 999px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+    color: var(--dim); text-transform: uppercase;
+    background: var(--bg-subtle); padding: 3px 10px; border-radius: 999px;
   }
   .feed-fields { background: #F5F7F9; border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 14px 2px; margin: 0 0 14px; }
+  /* Notes composer: horizontally scrollable action chips, FYI default. */
+  .notes-tagbar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .notes-tagbar::-webkit-scrollbar { display: none; }
+  .notes-tag-chip {
+    flex-shrink: 0; min-height: 0; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fff; color: var(--dim);
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    letter-spacing: .04em; cursor: pointer; white-space: nowrap;
+    text-transform: uppercase;
+  }
+  .notes-tag-chip.active { background: var(--bg-subtle); border-color: var(--dim); color: var(--ink); }
+  .notes-tag-chip[style*="--c"].active { background: color-mix(in srgb, var(--c) 12%, #fff); border-color: var(--c); color: var(--c); }
   .items-modal .modal-body { padding: 0; }
   /* Custom header layout: pastel circle on the left, name + creator
      subtitle in the middle, × on the right. Mirrors the session-row
@@ -2188,7 +2196,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '128';
+  const LOCAL_VERSION = '129';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2884,16 +2892,16 @@ const NotesStore = {
   all() { return [...this._byId.values()]; },
   // Top-level notes for an asset (comments live under their parent).
   forAsset(assetId) {
-    return this.all().filter(n => n.assetId === assetId && !n.parentId)
+    return this.all().filter(n => n.assetId === assetId && !n.parentId && !n.deleted)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   },
   // Comments on a note, oldest first (reading order).
   commentsFor(noteId) {
-    return this.all().filter(n => n.parentId === noteId)
+    return this.all().filter(n => n.parentId === noteId && !n.deleted)
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   },
   // Open NOTIFICATIONS: tagged notes only — an untagged note is an FYI.
-  openCount() { return this.all().filter(n => n.tag && !n.done && !n.parentId).length; },
+  openCount() { return this.all().filter(n => n.tag && !n.done && !n.parentId && !n.deleted).length; },
   async put(rec) {
     await this.load();
     const old = this._byId.get(rec.noteId);
@@ -2926,6 +2934,22 @@ async function addNote(assetId, text, tag, parentId) {
   updateNotifsBadge();
   return rec;
 }
+// Delete a note and, if it's a top-level note, all of its replies. Deletion
+// is a tombstone (deleted:true) so it converges under LWW like any edit.
+// Anyone may delete anyone's note — a shared field log, not private posts.
+async function deleteNote(noteId) {
+  const target = NotesStore.get(noteId);
+  if (!target) return;
+  const victims = target.parentId
+    ? [target]
+    : [target, ...NotesStore.all().filter(n => n.parentId === noteId)];
+  for (const v of victims) {
+    const rec = { ...v, deleted: true, updatedAt: Date.now(), deviceId: DEVICE_ID };
+    await NotesStore.put(rec);
+    if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
+  }
+  updateNotifsBadge();
+}
 async function toggleNoteDone(noteId) {
   const cur = NotesStore.get(noteId);
   if (!cur) return;
@@ -2945,6 +2969,9 @@ function updateNotifsBadge() {
   const n = NotesStore.openCount();
   el.textContent = n ? String(n) : '';
   el.style.display = n ? 'inline-flex' : 'none';
+}
+function trashGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>`;
 }
 function bellGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></svg>`;
@@ -3009,32 +3036,45 @@ function noteBellHTML(assetId) {
 // One note row (checkbox + tag + text + meta); used by the item panel and
 // the Notifications center (withAsset adds the "on <asset>" line).
 function noteRowHTML(n, withAsset) {
-  const avatar = (deviceId) => {
+  const ava = (deviceId, size) => {
     const m = GroupStore.getMember(deviceId);
-    return m ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${m.color || 'var(--line)'};font-size:10px;flex-shrink:0" title="${escapeHTML(m.nickname || '')}">${m.emoji || ''}</span>` : '';
+    const col = (m && m.color) || 'var(--line)';
+    const emoji = (m && m.emoji) || '?';
+    return `<span title="${escapeHTML((m && m.nickname) || '')}" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${col};font-size:${Math.round(size * 0.5)}px;flex-shrink:0">${emoji}</span>`;
   };
+  const nameOf = (deviceId) => { const m = GroupStore.getMember(deviceId); return (m && m.nickname) || 'Someone'; };
   const c = n.tag ? noteTagColor(n.tag) : null;
   const room = withAsset ? assetRoom(n.assetId) : '';
   const assetLine = withAsset
-    ? `<div style="font-size:13.5px;font-weight:700;color:var(--ink)">${escapeHTML(assetTitle(n.assetId))}${room ? ` <span style="font-weight:600;color:var(--dim)">· Room ${escapeHTML(String(room))}</span>` : ''} <span style="font-weight:400;font-size:11px;color:var(--dim)">#${escapeHTML(String(n.assetId))}</span></div>` : '';
-  const commentRows = NotesStore.commentsFor(n.noteId).map(cm => `
-          <div style="display:flex;align-items:flex-start;gap:6px;margin:6px 0 0 2px;padding-left:8px;border-left:2px solid var(--line)">
-            ${avatar(cm.createdBy)}
-            <div style="flex:1;min-width:0;font-size:12.5px;color:var(--ink)">${escapeHTML(cm.text)} <span style="font-size:11px;color:var(--dim)">· ${relShort(cm.createdAt)}</span></div>
+    ? `<div style="font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:6px">${escapeHTML(assetTitle(n.assetId))}${room ? ` <span style="font-weight:600;color:var(--dim)">· Room ${escapeHTML(String(room))}</span>` : ''} <span style="font-weight:400;font-size:11px;color:var(--dim)">#${escapeHTML(String(n.assetId))}</span></div>` : '';
+  const delBtn = (id, z) => `<button type="button" class="note-del" data-del="${escapeHTML(id)}" title="Delete" style="background:none;border:none;padding:4px;min-height:0;color:var(--dim);cursor:pointer;flex-shrink:0">${trashGlyph('currentColor', z)}</button>`;
+  const replies = NotesStore.commentsFor(n.noteId).map(cm => `
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-top:10px">
+            ${ava(cm.createdBy, 26)}
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span></div>
+              <div style="font-size:13px;color:var(--ink);margin-top:1px">${escapeHTML(cm.text)}</div>
+            </div>
+            ${delBtn(cm.noteId, 14)}
           </div>`).join('');
   return `
-      <div data-note-row="${escapeHTML(n.noteId)}" data-asset="${escapeHTML(String(n.assetId))}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;border-radius:8px;border:1px solid ${c ? c + '33' : 'var(--line-soft)'};background:${c ? c + '0D' : 'var(--bg-subtle)'};touch-action:pan-y${withAsset ? ';cursor:pointer' : ''}">
-        <div style="flex:1;min-width:0">
-          ${assetLine}
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap${withAsset ? ';margin-top:3px' : ''}">
-            ${noteTagPillHTML(n.tag)}
-            <span style="font-size:13px;color:var(--ink);${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</span>
+      <div data-note-row="${escapeHTML(n.noteId)}" data-asset="${escapeHTML(String(n.assetId))}" style="padding:12px;margin-bottom:8px;border-radius:10px;border:1px solid ${c ? c + '33' : 'var(--line-soft)'};background:${c ? c + '0D' : 'var(--bg-subtle)'};touch-action:pan-y${withAsset ? ';cursor:pointer' : ''}">
+        ${assetLine}
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          ${ava(n.createdBy, 34)}
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
+              <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
+              ${noteTagPillHTML(n.tag)}
+              ${n.done ? '<span style="font-size:11px;color:var(--dim)">· done</span>' : ''}
+            </div>
+            <div style="font-size:14px;color:var(--ink);margin-top:2px;${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</div>
+            <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);cursor:pointer">Reply</button>
+            ${replies}
           </div>
-          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);margin-top:3px">${avatar(n.createdBy)}<span>${relShort(n.createdAt)}</span>${n.done && n.doneAt ? `<span>· done ${relShort(n.doneAt)}</span>` : ''}</div>
-          ${commentRows}
-          <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:5px;min-height:0;font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);cursor:pointer">Comment</button>
+          ${delBtn(n.noteId, 16)}
         </div>
-        <input type="checkbox" data-note="${escapeHTML(n.noteId)}" ${n.done ? 'checked' : ''} style="width:18px;height:18px;accent-color:${c || '#C2410C'};flex-shrink:0">
       </div>`;
 }
 
@@ -3042,8 +3082,15 @@ function noteRowHTML(n, withAsset) {
 // center): done-checkboxes and the per-note comment affordance. The
 // Comment button swaps itself for an inline input; Enter or Send posts.
 function wireNoteRows(container, rerender, opts) {
-  container.querySelectorAll('input[data-note]').forEach(cb => {
-    cb.addEventListener('change', async () => { await toggleNoteDone(cb.dataset.note); rerender(); });
+  container.querySelectorAll('.note-del').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const cur = NotesStore.get(btn.dataset.del);
+      const msg = (cur && !cur.parentId) ? 'Delete this note and its replies?' : 'Delete this reply?';
+      if (!confirm(msg)) return;
+      await deleteNote(btn.dataset.del);
+      rerender();
+    });
   });
   // Swipe to check off: right = done, left (on a done note) = back to
   // to-do. Horizontal intent only — vertical scrolling stays untouched
@@ -3077,7 +3124,7 @@ function wireNoteRows(container, rerender, opts) {
     if (opts && opts.onOpen) {
       row.addEventListener('click', (e) => {
         if (swiped) return;
-        if (e.target.closest('input, button, select, a')) return;
+        if (e.target.closest('input, button, select, a, [data-del]')) return;
         opts.onOpen(row.dataset.asset);
       });
     }
@@ -3087,7 +3134,7 @@ function wireNoteRows(container, rerender, opts) {
       const parent = NotesStore.get(btn.dataset.comment);
       if (!parent) return;
       showNoteSheet({
-        title: 'Comment',
+        title: 'Reply',
         withTag: false,
         placeholder: 'Share what you know or did…',
         onSubmit: async (text) => {
@@ -8305,9 +8352,12 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 function showNotesOverlay(assetKey, onChange) {
   if (!assetKey) return;
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,0.18);display:flex;flex-direction:column;justify-content:flex-end';
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,0.18);display:flex;flex-direction:column;justify-content:flex-end;align-items:center';
+  const me = GroupStore.getMember(DEVICE_ID);
+  const meAva = `<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:${(me && me.color) || 'var(--line)'};font-size:17px;flex-shrink:0">${(me && me.emoji) || '?'}</span>`;
+  const chip = (val, label, col) => `<button type="button" class="notes-tag-chip${val === '' ? ' active' : ''}" data-tag="${val}"${col ? ` style="--c:${col}"` : ''}>${label}</button>`;
   wrap.innerHTML = `
-    <div id="notes-sheet" style="background:#fff;border-radius:14px 14px 0 0;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .22s ease-out">
+    <div id="notes-sheet" style="width:100%;max-width:480px;height:75vh;background:#fff;border-radius:14px 14px 0 0;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .22s ease-out">
       <div style="flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line)">
         ${bellGlyph('currentColor', 17)}
         <div style="font-size:14px;font-weight:700;color:var(--ink);flex:1">Notes</div>
@@ -8315,11 +8365,12 @@ function showNotesOverlay(assetKey, onChange) {
       </div>
       <div id="notes-sheet-list" style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 18px"></div>
       <div style="flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#fff">
-        <select id="notes-sheet-tag" style="margin-bottom:8px">
-          <option value="">No tag — just an FYI</option>
-          ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
-        </select>
-        <div style="display:flex;gap:8px">
+        <div class="notes-tagbar" id="notes-tagbar">
+          ${chip('', 'FYI', '')}
+          ${NOTE_TAGS.map(t => chip(t, t[0].toUpperCase() + t.slice(1), noteTagColor(t))).join('')}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+          ${meAva}
           <input id="notes-sheet-text" type="text" placeholder="Add a note…" autocomplete="off" style="flex:1;min-width:0">
           <button id="notes-sheet-send" type="button" style="flex-shrink:0">Send</button>
         </div>
@@ -8348,11 +8399,18 @@ function showNotesOverlay(assetKey, onChange) {
   render();
 
   const inp = wrap.querySelector('#notes-sheet-text');
-  const tagSel = wrap.querySelector('#notes-sheet-tag');
+  let selectedTag = '';   // '' = FYI (no tag)
+  const tagbar = wrap.querySelector('#notes-tagbar');
+  tagbar.querySelectorAll('.notes-tag-chip').forEach(b => {
+    b.addEventListener('click', () => {
+      selectedTag = b.dataset.tag;
+      tagbar.querySelectorAll('.notes-tag-chip').forEach(x => x.classList.toggle('active', x === b));
+    });
+  });
   const send = async () => {
     if (!inp.value.trim()) return;
-    await addNote(assetKey, inp.value, tagSel ? tagSel.value : null);
-    inp.value = ''; if (tagSel) tagSel.value = '';
+    await addNote(assetKey, inp.value, selectedTag || null);
+    inp.value = '';
     if (onChange) onChange();
     render();
     list.scrollTop = 0;   // newest is on top
@@ -8478,7 +8536,7 @@ async function showNotificationsModal() {
                    ...NotesStore.commentsFor(n.noteId).map(c => c.text)].join(' ').toLowerCase();
       return hay.includes(needle);
     };
-    const notifs = NotesStore.all().filter(n => n.tag && !n.parentId)
+    const notifs = NotesStore.all().filter(n => n.tag && !n.parentId && !n.deleted)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const open  = notifs.filter(n => !n.done);
     const done  = notifs.filter(n => n.done);
