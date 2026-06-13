@@ -2212,7 +2212,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '138';
+  const LOCAL_VERSION = '139';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -9002,7 +9002,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
               </label>
               <label class="field" style="flex:0 0 auto;min-width:0;margin-bottom:12px">
                 <span>History</span>
-                <button class="js-history" type="button" title="View this item's full edit history" style="height:48px;display:inline-flex;align-items:center;justify-content:center;padding:0 16px;border:1px solid var(--line);border-radius:8px;background:#fff">${clockGlyph('currentColor', 18)}</button>
+                <button class="js-history" type="button" title="View this item's full edit history" style="display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:#fff">${clockGlyph('currentColor', 18)}</button>
               </label>
             </div>
             <div style="display:flex;gap:10px">
@@ -9051,8 +9051,8 @@ async function openItemEditor(sessionId, itemId, sequence) {
               const meta = counts
                 ? `<span style="margin-left:auto;display:inline-flex;align-items:center;gap:9px;color:var(--dim);font-size:12px;flex-shrink:0">${counts}${lastTs ? `<span>· ${relShort(lastTs)}</span>` : ''}</span>`
                 : '';
-              return `<div class="js-add-note" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;cursor:pointer;background:#fff;border:1px solid var(--line);padding:0 14px;min-height:46px;font-size:14px;color:var(--dim)"><span>Add a note…</span>${meta}</div>
-            <span class="js-view-notes" title="Read notes" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:44px;min-height:46px;color:var(--dim);cursor:pointer">${speechGlyph('currentColor', 22)}</span>`;
+              return `<span class="js-view-notes" title="Read notes" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:40px;min-height:46px;color:var(--dim);cursor:pointer">${speechGlyph('currentColor', 22)}</span>
+            <div class="js-add-note" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;cursor:pointer;background:${fieldsTint(assetKey)};border:1px solid var(--line-soft);border-radius:10px;padding:0 14px;min-height:46px;font-size:14px;color:var(--dim)"><span>Add a note…</span>${meta}</div>`;
             })()}
           </div>` : ''}
           ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length ? `
