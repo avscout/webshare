@@ -2219,7 +2219,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '144';
+  const LOCAL_VERSION = '146';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2880,8 +2880,9 @@ function pendingChangesFor(assetId, sourceRow) {
     const comments = NotesStore.commentsFor(n.noteId).map(c => c.text);
     const head = (n.tag ? n.tag + ': ' : '') + n.text
                + (comments.length ? ' — ' + comments.join(' / ') : '');
+    const r = noteResolution(n.noteId);
     const dates = 'noted ' + shortDate(n.createdAt)
-                + (n.done && n.doneAt ? ', done ' + shortDate(n.doneAt) : '');
+                + (r ? ', ' + r.status + ' ' + shortDate(r.at) : '');
     return head + ' (' + dates + ')';
   });
   if (noteLines.length) diffs.fieldNotes = { from: '', to: noteLines.join(' · ') };
@@ -2939,7 +2940,7 @@ const NotesStore = {
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   },
   // Open NOTIFICATIONS: tagged notes only — an untagged note is an FYI.
-  openCount() { return this.all().filter(n => n.tag && !n.done && !n.parentId && !n.deleted).length; },
+  openCount() { return this.all().filter(n => n.tag && !n.parentId && !n.deleted && !noteCompleted(n.noteId)).length; },
   async put(rec) {
     await this.load();
     const old = this._byId.get(rec.noteId);
@@ -2986,12 +2987,24 @@ async function addNote(assetId, text, tag, parentId, status) {
 // Resolve a parent action from a reply status: done & cancelled close it
 // (done=true so it leaves "to do"); postponed defers (still open); fyi is
 // a no-op.
-async function setNoteState(noteId, state) {
+// A note's completion is DERIVED from its replies: the latest reply whose
+// status resolves the action (done / postponed / cancelled). No stored
+// done flag — so deleting that reply makes the note fall back automatically.
+// (REQUEST is NOT a reply status; it lives on the parent, see below.)
+function noteResolution(noteId) {
+  const replies = NotesStore.commentsFor(noteId);
+  for (let i = replies.length - 1; i >= 0; i--) {
+    const st = replies[i].status;
+    if (st === 'done' || st === 'postponed' || st === 'cancelled') return { status: st, at: replies[i].createdAt };
+  }
+  return null;
+}
+function noteCompleted(noteId) { return noteResolution(noteId) != null; }
+// REQUEST is a parent-level flag (escalation), toggled directly on the note.
+async function toggleNoteRequest(noteId) {
   const cur = NotesStore.get(noteId);
-  if (!cur || !REPLY_STATUSES[state] || state === 'fyi') return;
-  if (cur.state) return;   // a status, once given, can't be set again
-  const done = (state === 'done' || state === 'cancelled');   // postponed/request stay open
-  const rec = { ...cur, state, done, doneAt: done ? Date.now() : null, doneBy: done ? DEVICE_ID : null, updatedAt: Date.now(), deviceId: DEVICE_ID };
+  if (!cur) return;
+  const rec = { ...cur, request: !cur.request, updatedAt: Date.now(), deviceId: DEVICE_ID };
   await NotesStore.put(rec);
   if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
   updateNotifsBadge();
@@ -3010,16 +3023,6 @@ async function deleteNote(noteId) {
     await NotesStore.put(rec);
     if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
   }
-  updateNotifsBadge();
-}
-async function toggleNoteDone(noteId) {
-  const cur = NotesStore.get(noteId);
-  if (!cur) return;
-  const done = !cur.done;
-  const rec = { ...cur, done, doneAt: done ? Date.now() : null, doneBy: done ? DEVICE_ID : null,
-                updatedAt: Date.now(), deviceId: DEVICE_ID };
-  await NotesStore.put(rec);
-  if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
   updateNotifsBadge();
 }
 let _liveNotifsRefresh = null;       // open Notifications center re-renderer
@@ -3125,7 +3128,7 @@ function noteTagPillHTML(tag) {
 // Small open-notification counter for list rows.
 function noteBellHTML(assetId) {
   if (!assetId) return '';
-  const open = NotesStore.forAsset(assetId).filter(n => n.tag && !n.done).length;
+  const open = NotesStore.forAsset(assetId).filter(n => n.tag && !noteCompleted(n.noteId)).length;
   if (!open) return '';
   return `<span title="${open} open notification${open > 1 ? 's' : ''}" style="display:inline-flex;align-items:center;gap:3px;border:1px solid rgba(224,122,43,0.5);color:#C2410C;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700">${bellGlyph('currentColor', 10)}${open}</span>`;
 }
@@ -3179,15 +3182,17 @@ function noteRowHTML(n, withAsset) {
                   <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
                   <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
                   ${noteTagPillHTML(n.tag)}
-                  ${(n.state && REPLY_STATUSES[n.state] && n.state !== 'fyi')
-                    ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[n.state].color};border:1px solid ${REPLY_STATUSES[n.state].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[n.state].label}</span>`
-                    : (n.done ? '<span style="font-size:11px;color:var(--dim)">· done</span>' : '')}
+                  ${(() => { const r = noteResolution(n.noteId); return r ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[r.status].color};border:1px solid ${REPLY_STATUSES[r.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[r.status].label}</span>` : ''; })()}
+                  ${n.request ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES.request.color};border:1px solid ${REPLY_STATUSES.request.color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES.request.label}</span>` : ''}
                 </div>
-                <div style="font-size:14px;color:var(--ink);margin-top:2px;${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</div>
+                <div style="font-size:14px;color:var(--ink);margin-top:2px;${(() => { const r = noteResolution(n.noteId); return (r && (r.status === 'done' || r.status === 'cancelled')) ? 'text-decoration:line-through;opacity:.55' : ''; })()}">${escapeHTML(n.text)}</div>
               </div>
               ${delBtn(n.noteId)}
             </div>
-            <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
+            <div style="display:flex;align-items:center;gap:14px;margin-top:6px">
+              <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
+              ${n.tag ? `<button type="button" class="note-request-btn" data-request="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:${n.request ? REPLY_STATUSES.request.color : 'var(--dim)'};cursor:pointer">Request</button>` : ''}
+            </div>
             ${repliesBlock}
           </div>
         </div>
@@ -3267,20 +3272,26 @@ function wireNoteRows(container, rerender, opts) {
       if (parent) replyTo(parent, rerender);
     });
   });
+  container.querySelectorAll('.note-request-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await toggleNoteRequest(btn.dataset.request);
+      rerender();
+    });
+  });
 }
 // Reply to a note. FYI parents (and already-resolved actions) get a plain
 // comment; an open action offers Done / Postponed / Cancelled / Request
 // (blank by default — a status is optional and, once given, locks).
 function replyTo(parent, rerender) {
-  const isOpenAction = !!parent.tag && !parent.state;
+  const isOpenAction = !!parent.tag && !noteCompleted(parent.noteId);
   showNoteSheet({
     title: 'Reply',
     withTag: false,
-    statusOptions: isOpenAction ? ['done', 'postponed', 'cancelled', 'request'] : [],
+    statusOptions: isOpenAction ? ['done', 'postponed', 'cancelled'] : [],
     placeholder: 'Share what you know or did…',
     onSubmit: async (text, status) => {
       await addNote(parent.assetId, text, null, parent.noteId, status);
-      if (status) await setNoteState(parent.noteId, status);
       rerender();
     },
   });
@@ -8628,7 +8639,9 @@ function showNoteSheet({ title, withTag, statusOptions, placeholder, onSubmit })
   };
   sendBtn.addEventListener('click', send);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-  inp.focus();
+  // No auto-keyboard when there's a status to choose first; FYI replies (no
+  // status chips) focus straight away.
+  if (!hasStatus) inp.focus();
 }
 
 // Map an asset to a (sessionId, itemId) pair so the item panel can open
@@ -8772,8 +8785,8 @@ async function showNotificationsModal() {
     };
     const notifs = NotesStore.all().filter(n => n.tag && !n.parentId && !n.deleted)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    const open  = notifs.filter(n => !n.done);
-    const done  = notifs.filter(n => n.done);
+    const open  = notifs.filter(n => !noteCompleted(n.noteId));
+    const done  = notifs.filter(n => noteCompleted(n.noteId));
     const shown = (tab === 'todo' ? open : done).filter(matches);
     backdrop.querySelector('#notifs-subtitle').textContent = `${open.length} to do · ${done.length} done`;
     backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
