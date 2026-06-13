@@ -863,16 +863,32 @@
   .item-feed-count { font-size: 12px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .item-feed-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .feed-room-banner {
-    position: sticky; top: 0; z-index: 6; background: var(--bg);
-    border-bottom: 1px solid var(--line); padding: 8px 16px;
+    position: sticky; top: 0; z-index: 6;
+    background: var(--accent); color: #fff;
+    padding: 9px 16px;
     font-size: 11px; font-weight: 700; letter-spacing: 0.15em;
-    text-transform: uppercase; color: var(--dim);
+    text-transform: uppercase;
   }
-  .feed-card { padding: 16px 16px 20px; border-bottom: 8px solid var(--bg-subtle); }
+  .feed-card { padding: 0 0 20px; border-bottom: 8px solid var(--bg-subtle); }
   .feed-card:last-child { border-bottom: none; }
-  .feed-card-title { font-size: 18px; font-weight: 700; color: var(--ink); }
-  .feed-card-sub { font-size: 12px; color: var(--dim); margin: 2px 0 14px; }
-  .feed-actions { display: flex; gap: 8px; margin: 4px 0 14px; }
+  .feed-card-head { margin-bottom: 12px; }
+  .feed-card .feed-fields,
+  .feed-card .feed-actions { margin-left: 16px; margin-right: 16px; }
+  .feed-actions { display: flex; gap: 8px; margin: 4px 16px 14px; }
+  /* Cyan group banner — shared by the items list, the source list. */
+  .group-banner {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--accent); padding: 9px 16px;
+  }
+  .group-banner-label {
+    flex: 1; font-size: 11px; font-weight: 700; letter-spacing: 0.15em;
+    color: #fff; text-transform: uppercase;
+  }
+  .group-banner-count {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    color: #fff; text-transform: uppercase;
+    background: rgba(255,255,255,0.22); padding: 3px 10px; border-radius: 999px;
+  }
   .feed-fields { background: #F5F7F9; border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 14px 2px; margin: 0 0 14px; }
   .items-modal .modal-body { padding: 0; }
   /* Custom header layout: pastel circle on the left, name + creator
@@ -2172,7 +2188,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '127';
+  const LOCAL_VERSION = '128';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -7809,12 +7825,12 @@ function showSourceModal() {
 
   function headerHtml(group, count) {
     return `
-      <div style="display:flex;align-items:center;padding:14px 16px 6px 16px;gap:6px">
-        <div style="flex:1;font-size:11px;font-weight:600;letter-spacing:0.15em;color:var(--dim);text-transform:uppercase">${escapeHTML(
+      <div class="group-banner">
+        <div class="group-banner-label">${escapeHTML(
           sortMode === 'building' ? 'Building ' + group :
           sortMode === 'type'     ? group :
           'Room ' + group)}</div>
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--dim);text-transform:uppercase;background:var(--bg-subtle);padding:3px 10px;border-radius:999px">${count} item${count === 1 ? '' : 's'}</div>
+        <div class="group-banner-count">${count} item${count === 1 ? '' : 's'}</div>
       </div>`;
   }
 
@@ -8678,8 +8694,10 @@ async function openItemEditor(sessionId, itemId, sequence) {
         log(`Edited "${to || itemId}": ${field} ${tr(from) || '—'} → ${tr(to) || '—'} (report-local).`, 'ok');
       }
       listsDirty = true;
-      const t = cardEl.querySelector('.feed-card-title');
-      if (t) { const now = resolved(); t.textContent = now.model || now.category || now.type || 'Item'; }
+      // Refresh just the header row (name, pills, edit/view meta) — leaves
+      // the field inputs untouched (blur already fired, so focus is gone).
+      const head = cardEl.querySelector('.feed-card-head');
+      if (head) { const now = resolved(); head.innerHTML = itemRowHTML({ item: now, assetKey, id: itemId, displayNum: assetKey || itemId }); }
       return true;
     }
 
@@ -8719,30 +8737,11 @@ async function openItemEditor(sessionId, itemId, sequence) {
               <span>${escapeHTML(f.label)}</span>
               <input type="text" data-field="${f.key}" value="${escapeHTML(fieldVal(f.key))}" autocomplete="off">
             </label>`;
-      // Sub-line: #id · [edit] avatar name · [view] avatar name.
-      const evs    = assetKey ? effectiveEvents(assetKey) : [];
-      const lastEv = evs.length ? evs[evs.length - 1] : null;
-      const sg0    = assetKey ? Sightings.get(assetKey) : null;
-      const sg     = (sg0 && !sg0.retracted && !sg0.none) ? sg0 : null;
-      const whoSeg = (kind, deviceId) => {
-        if (!deviceId) return '';
-        const m = GroupStore.getMember(deviceId);
-        const nm = (m && m.nickname) || 'unknown';
-        const emoji = (m && m.emoji) || '?';
-        const col = (m && m.color) || '#eee';
-        const icon = kind === 'edit'
-          ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5-10.5a2.828 2.828 0 1 0-4-4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>`
-          : eyeGlyph(true, 'currentColor', 12);
-        return `<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><span style="display:inline-flex;color:var(--dim)">${icon}</span><span style="width:15px;height:15px;border-radius:50%;background:${escapeHTML(col)};display:inline-flex;align-items:center;justify-content:center;font-size:8px;flex-shrink:0">${emoji}</span>${escapeHTML(nm)}</span>`;
-      };
-      const subParts = [];
-      if (assetKey) subParts.push(`<span style="font-family:var(--mono)">#${escapeHTML(assetKey)}</span>`);
-      if (lastEv) subParts.push(whoSeg('edit', lastEv.deviceId));
-      if (sg)     subParts.push(whoSeg('view', sg.seenBy));
-      const subLine = subParts.join('<span style="color:var(--line)">·</span>');
+      // The card header is the exact list row (status icon, tint, pills,
+      // bell, edit/view times) — one source of truth for asset presentation.
+      const entry = { item: it, assetKey, id: itemId, displayNum: assetKey || itemId };
       cardEl.innerHTML = `
-          <div class="feed-card-title">${escapeHTML(it.model || it.category || it.type || 'Item')}</div>
-          <div class="feed-card-sub" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">${subLine}</div>
+          <div class="feed-card-head">${itemRowHTML(entry)}</div>
           <div class="feed-fields">
             ${FIELDS.slice(0, 3).map(fieldRow).join('')}
             ${assetKey ? `
@@ -9040,9 +9039,9 @@ function showItemsModal(session, restore) {
         ? `${itemCount} item${itemCount === 1 ? '' : 's'} · ${noteCount} note${noteCount === 1 ? '' : 's'}`
         : `${itemCount} item${itemCount === 1 ? '' : 's'}`;
       return `
-        <div style="display:flex;align-items:center;padding:14px 16px 6px 16px;gap:6px">
-          <div style="flex:1;font-size:11px;font-weight:600;letter-spacing:0.15em;color:var(--dim);text-transform:uppercase">${escapeHTML(g.label)}</div>
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--dim);text-transform:uppercase;background:var(--bg-subtle);padding:3px 10px;border-radius:999px">${countPill}</div>
+        <div class="group-banner">
+          <div class="group-banner-label">${escapeHTML(g.label)}</div>
+          <div class="group-banner-count">${countPill}</div>
         </div>
         ${sortMode === 'room' ? roomPhotosHTML(rooms[g.roomKey]) : ''}
         ${g.items.map(e => itemRowHTML(e, sortMode)).join('')}
