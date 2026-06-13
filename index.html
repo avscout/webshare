@@ -2219,7 +2219,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '152';
+  const LOCAL_VERSION = '153';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3157,7 +3157,7 @@ function noteRowHTML(n, withAsset) {
               <span style="width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center">${replyArrowGlyph('currentColor', 16)}</span>
               <span style="width:30px;height:30px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center">${trashGlyph('#fff', 15)}</span>
             </div>
-            <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-top:1px solid var(--line-soft);background:${i % 2 ? sliceA : sliceB};touch-action:pan-y;will-change:transform">
+            <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:8px 12px 8px 44px;border-top:1px solid var(--line-soft);background:${i % 2 ? sliceA : sliceB};touch-action:pan-y;will-change:transform">
               ${ava(cm.createdBy, 26)}
               <div style="flex:1;min-width:0">
                 <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
