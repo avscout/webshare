@@ -2219,7 +2219,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '151';
+  const LOCAL_VERSION = '152';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3157,7 +3157,7 @@ function noteRowHTML(n, withAsset) {
               <span style="width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center">${replyArrowGlyph('currentColor', 16)}</span>
               <span style="width:30px;height:30px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center">${trashGlyph('#fff', 15)}</span>
             </div>
-            <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-top:1px solid var(--line-soft);background:${i % 2 ? sliceB : sliceA};touch-action:pan-y;will-change:transform">
+            <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-top:1px solid var(--line-soft);background:${i % 2 ? sliceA : sliceB};touch-action:pan-y;will-change:transform">
               ${ava(cm.createdBy, 26)}
               <div style="flex:1;min-width:0">
                 <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
@@ -3212,29 +3212,36 @@ function wireNoteRows(container, rerender, opts) {
   });
   // Replies: swipe LEFT to delete (reveals a red trash circle on the right),
   // confirmed by a prompt. No right-swipe on replies.
-  const REVEAL_R = 64;
+  // On a reply: LEFT pulls just that slice aside to delete it; RIGHT moves
+  // the WHOLE block (same as the parent's reply swipe). The reply handler
+  // owns both so it drives either the slice or the block element directly.
+  const REVEAL_R = 64, REVEAL_RIGHT = 72;
   container.querySelectorAll('[data-reply-row]').forEach(row => {
-    let x0 = null, y0 = null, dx = 0, horiz = false;
+    const block = row.closest('[data-note-row]');
+    let x0 = null, y0 = null, dx = 0, horiz = false, dir = 0;   // dir: -1 slice, +1 block
     row.addEventListener('touchstart', (e) => {
-      e.stopPropagation();   // independent from the parent-row swipe
-      const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false;
-      row.style.transition = '';
+      e.stopPropagation();   // the parent-row handler must not also fire
+      const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false; dir = 0;
+      row.style.transition = ''; if (block) block.style.transition = '';
     }, { passive: true });
     row.addEventListener('touchmove', (e) => {
       if (x0 === null) return;
       e.stopPropagation();
       const t = e.touches[0];
-      dx = t.clientX - x0;   // right = reply to parent, left = delete
-      if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) horiz = true;
-      if (horiz) row.style.transform = `translateX(${Math.max(-(REVEAL_R + 16), Math.min(dx, REVEAL_R + 16))}px)`;
+      dx = t.clientX - x0;
+      if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) { horiz = true; dir = dx < 0 ? -1 : 1; }
+      if (horiz) {
+        if (dir < 0) row.style.transform = `translateX(${Math.max(dx, -(REVEAL_R + 16))}px)`;            // slice
+        else if (block) block.style.transform = `translateX(${Math.min(dx, REVEAL_RIGHT + 16)}px)`;       // whole block
+      }
     }, { passive: true });
     row.addEventListener('touchend', (e) => {
       if (x0 === null) return;
       e.stopPropagation();
-      const replyFire = horiz && dx > REVEAL_R * 0.7;
-      const delFire   = horiz && dx < -REVEAL_R * 0.7;
-      row.style.transition = 'transform .18s';
-      row.style.transform = '';
+      const delFire   = horiz && dir < 0 && dx < -REVEAL_R * 0.7;
+      const replyFire = horiz && dir > 0 && dx >  REVEAL_RIGHT * 0.7;
+      row.style.transition = 'transform .18s'; row.style.transform = '';
+      if (block) { block.style.transition = 'transform .18s'; block.style.transform = ''; }
       x0 = null;
       const cm = NotesStore.get(row.dataset.replyRow);
       if (replyFire && cm) { const parent = NotesStore.get(cm.parentId); if (parent) replyTo(parent, rerender); }
