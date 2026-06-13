@@ -873,6 +873,7 @@
   .feed-card-title { font-size: 18px; font-weight: 700; color: var(--ink); }
   .feed-card-sub { font-size: 12px; color: var(--dim); margin: 2px 0 14px; }
   .feed-actions { display: flex; gap: 8px; margin: 4px 0 14px; }
+  .feed-fields { background: #F5F7F9; border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 14px 2px; margin: 0 0 14px; }
   .items-modal .modal-body { padding: 0; }
   /* Custom header layout: pastel circle on the left, name + creator
      subtitle in the middle, × on the right. Mirrors the session-row
@@ -2171,7 +2172,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '126';
+  const LOCAL_VERSION = '127';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2921,6 +2922,7 @@ async function toggleNoteDone(noteId) {
 }
 let _liveNotifsRefresh = null;       // open Notifications center re-renderer
 let _itemPanelNotesRefresh = null;   // open item panel notes-section re-renderer
+let _notesOverlayRefresh = null;     // open per-asset notes overlay re-renderer
 function updateNotifsBadge() {
   const el = document.getElementById('home-notifs-count');
   if (!el) return;
@@ -8281,6 +8283,68 @@ async function showSessionsModal({ hideNewReport = false } = {}) {
 // The modal handles its own dismissal; no flow-state changes, so it
 // can be opened from any context (pick screen, sessions modal) and on
 // close the user returns to whatever was open behind.
+// Instagram-style notes overlay for one asset: a tall slide-up with the
+// note thread scrolling above a pinned composer (tag + text + send). New
+// notes appear at the top; the sheet stays open so you can keep posting.
+function showNotesOverlay(assetKey, onChange) {
+  if (!assetKey) return;
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,0.18);display:flex;flex-direction:column;justify-content:flex-end';
+  wrap.innerHTML = `
+    <div id="notes-sheet" style="background:#fff;border-radius:14px 14px 0 0;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .22s ease-out">
+      <div style="flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line)">
+        ${bellGlyph('currentColor', 17)}
+        <div style="font-size:14px;font-weight:700;color:var(--ink);flex:1">Notes</div>
+        <button id="notes-sheet-close" aria-label="Close" style="background:none;border:none;font-size:22px;line-height:1;color:var(--dim);cursor:pointer;padding:0 4px">×</button>
+      </div>
+      <div id="notes-sheet-list" style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 18px"></div>
+      <div style="flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#fff">
+        <select id="notes-sheet-tag" style="margin-bottom:8px">
+          <option value="">No tag — just an FYI</option>
+          ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
+        </select>
+        <div style="display:flex;gap:8px">
+          <input id="notes-sheet-text" type="text" placeholder="Add a note…" autocomplete="off" style="flex:1;min-width:0">
+          <button id="notes-sheet-send" type="button" style="flex-shrink:0">Send</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const sheet = wrap.querySelector('#notes-sheet');
+  requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
+  const close = () => {
+    _notesOverlayRefresh = null;
+    sheet.style.transform = 'translateY(100%)';
+    setTimeout(() => wrap.remove(), 220);
+  };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector('#notes-sheet-close').addEventListener('click', close);
+
+  const list = wrap.querySelector('#notes-sheet-list');
+  const render = () => {
+    const notes = NotesStore.forAsset(assetKey);
+    list.innerHTML = notes.length
+      ? notes.map(n => noteRowHTML(n, false)).join('')
+      : `<div style="font-size:13px;color:var(--dim);text-align:center;padding:24px 0">No notes yet. Be the first to add one.</div>`;
+    wireNoteRows(list, () => { if (onChange) onChange(); render(); });
+  };
+  _notesOverlayRefresh = render;
+  render();
+
+  const inp = wrap.querySelector('#notes-sheet-text');
+  const tagSel = wrap.querySelector('#notes-sheet-tag');
+  const send = async () => {
+    if (!inp.value.trim()) return;
+    await addNote(assetKey, inp.value, tagSel ? tagSel.value : null);
+    inp.value = ''; if (tagSel) tagSel.value = '';
+    if (onChange) onChange();
+    render();
+    list.scrollTop = 0;   // newest is on top
+  };
+  wrap.querySelector('#notes-sheet-send').addEventListener('click', send);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+}
+
 // Slide-up sheet for writing a note (Notify) or a comment: one text line,
 // an optional tag select, Enter or Send posts; tap the scrim to cancel.
 function showNoteSheet({ title, withTag, placeholder, onSubmit }) {
@@ -8545,7 +8609,10 @@ async function openItemEditor(sessionId, itemId, sequence) {
     scroll.appendChild(card);
   });
 
-  _itemPanelNotesRefresh = () => cards.forEach(c => c.refreshNotes && c.refreshNotes());
+  _itemPanelNotesRefresh = () => {
+    cards.forEach(c => c.refreshNotes && c.refreshNotes());
+    if (_notesOverlayRefresh) _notesOverlayRefresh();
+  };
 
   // ── Per-card full editor, scoped to its own element ──────────────────────
   function mountCard(c) {
@@ -8640,16 +8707,6 @@ async function openItemEditor(sessionId, itemId, sequence) {
       renderCard();
     }
 
-    const renderNotes = () => {
-      const list = cardEl.querySelector('.js-note-list');
-      if (!list) return;
-      const notes = NotesStore.forAsset(assetKey);
-      list.innerHTML = notes.length
-        ? notes.map(n => noteRowHTML(n, false)).join('')
-        : `<div style="font-size:12px;color:var(--dim)">No notes yet.</div>`;
-      wireNoteRows(list, () => { listsDirty = true; renderNotes(); });
-    };
-
     function renderCard() {
       const it = resolved();
       const roomKey = it.room || '';
@@ -8662,38 +8719,57 @@ async function openItemEditor(sessionId, itemId, sequence) {
               <span>${escapeHTML(f.label)}</span>
               <input type="text" data-field="${f.key}" value="${escapeHTML(fieldVal(f.key))}" autocomplete="off">
             </label>`;
+      // Sub-line: #id · [edit] avatar name · [view] avatar name.
+      const evs    = assetKey ? effectiveEvents(assetKey) : [];
+      const lastEv = evs.length ? evs[evs.length - 1] : null;
+      const sg0    = assetKey ? Sightings.get(assetKey) : null;
+      const sg     = (sg0 && !sg0.retracted && !sg0.none) ? sg0 : null;
+      const whoSeg = (kind, deviceId) => {
+        if (!deviceId) return '';
+        const m = GroupStore.getMember(deviceId);
+        const nm = (m && m.nickname) || 'unknown';
+        const emoji = (m && m.emoji) || '?';
+        const col = (m && m.color) || '#eee';
+        const icon = kind === 'edit'
+          ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5-10.5a2.828 2.828 0 1 0-4-4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>`
+          : eyeGlyph(true, 'currentColor', 12);
+        return `<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><span style="display:inline-flex;color:var(--dim)">${icon}</span><span style="width:15px;height:15px;border-radius:50%;background:${escapeHTML(col)};display:inline-flex;align-items:center;justify-content:center;font-size:8px;flex-shrink:0">${emoji}</span>${escapeHTML(nm)}</span>`;
+      };
+      const subParts = [];
+      if (assetKey) subParts.push(`<span style="font-family:var(--mono)">#${escapeHTML(assetKey)}</span>`);
+      if (lastEv) subParts.push(whoSeg('edit', lastEv.deviceId));
+      if (sg)     subParts.push(whoSeg('view', sg.seenBy));
+      const subLine = subParts.join('<span style="color:var(--line)">·</span>');
       cardEl.innerHTML = `
           <div class="feed-card-title">${escapeHTML(it.model || it.category || it.type || 'Item')}</div>
-          <div class="feed-card-sub">in ${escapeHTML(session.name || 'report')}${assetKey ? ` · #${escapeHTML(assetKey)}` : ''}</div>
-          ${FIELDS.slice(0, 3).map(fieldRow).join('')}
-          ${assetKey ? `
-          <div style="display:flex;gap:10px">
-            <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
-              <span>Room</span>
-              <input type="text" data-field="room" value="${escapeHTML(fieldVal('room'))}" autocomplete="off"${loc ? ' disabled style="opacity:.45"' : ''}>
-            </label>
-            <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
-              <span>Location</span>
-              <div style="position:relative">
-                ${loc ? `<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);display:inline-flex;pointer-events:none">${LOCATIONS[loc].family === 'storage' ? archiveGlyph('#6D28D9', 15) : mapPinOffGlyph('var(--warn)', 15)}</span>` : ''}
-                <select class="js-loc-select"${loc ? ' style="padding-left:38px"' : ''}>
-                  <option value=""${!loc ? ' selected' : ''}>In room</option>
-                  ${Object.keys(LOCATIONS).map(k => `<option value="${k}"${loc === k ? ' selected' : ''}>${LOCATIONS[k].label}</option>`).join('')}
-                </select>
-              </div>
-            </label>
-          </div>` : fieldRow(FIELDS[3])}
+          <div class="feed-card-sub" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">${subLine}</div>
+          <div class="feed-fields">
+            ${FIELDS.slice(0, 3).map(fieldRow).join('')}
+            ${assetKey ? `
+            <div style="display:flex;gap:10px">
+              <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
+                <span>Room</span>
+                <input type="text" data-field="room" value="${escapeHTML(fieldVal('room'))}" autocomplete="off"${loc ? ' disabled style="opacity:.45"' : ''}>
+              </label>
+              <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
+                <span>Location</span>
+                <div style="position:relative">
+                  ${loc ? `<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);display:inline-flex;pointer-events:none">${LOCATIONS[loc].family === 'storage' ? archiveGlyph('#6D28D9', 15) : mapPinOffGlyph('var(--warn)', 15)}</span>` : ''}
+                  <select class="js-loc-select"${loc ? ' style="padding-left:38px"' : ''}>
+                    <option value=""${!loc ? ' selected' : ''}>In room</option>
+                    ${Object.keys(LOCATIONS).map(k => `<option value="${k}"${loc === k ? ' selected' : ''}>${LOCATIONS[k].label}</option>`).join('')}
+                  </select>
+                </div>
+              </label>
+            </div>` : fieldRow(FIELDS[3])}
+          </div>
           ${assetKey ? `
           <div class="feed-actions">
             <button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="display:inline-flex;align-items:center;gap:6px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 15)}Seen</button>
-            <button class="js-notify" style="display:inline-flex;align-items:center;gap:6px">${bellGlyph('currentColor', 14)}Notify</button>
-          </div>
-          <div style="padding:4px 0 4px 0">
-            <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Notes</div>
-            <div class="js-note-list"></div>
+            <button class="js-notify" style="display:inline-flex;align-items:center;gap:6px">${bellGlyph('currentColor', 14)}Notes${(() => { const o = NotesStore.forAsset(assetKey).length; return o ? ` · ${o}` : ''; })()}</button>
           </div>` : ''}
           ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length ? `
-          <div style="padding:12px 0 4px 0">
+          <div style="padding:4px 0 4px 0">
             <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</div>
             ${roomPhotosHTML(roomPhotos)}
           </div>` : ''}`;
@@ -8719,20 +8795,16 @@ async function openItemEditor(sessionId, itemId, sequence) {
       });
       const notifyBtn = cardEl.querySelector('.js-notify');
       if (notifyBtn) notifyBtn.addEventListener('click', () => {
-        showNoteSheet({
-          title: 'Notify the group', withTag: true, placeholder: 'What should the group know?',
-          onSubmit: async (text, tag) => { await addNote(assetKey, text, tag); listsDirty = true; renderNotes(); },
-        });
+        showNotesOverlay(assetKey, () => { listsDirty = true; renderCard(); });
       });
       const locSel = cardEl.querySelector('.js-loc-select');
       if (locSel) locSel.addEventListener('change', () => applyLocation(locSel.value || null));
       cardEl.querySelectorAll('[data-field]').forEach(el => {
         el.addEventListener('change', () => saveField(el.dataset.field, el.value));
       });
-      renderNotes();
     }
 
-    c.refreshNotes = renderNotes;
+    c.refreshNotes = () => { if (c.mounted) renderCard(); };   // refresh the notes count
     renderCard();
   }
 
