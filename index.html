@@ -885,7 +885,7 @@
     color: var(--dim); text-transform: uppercase;
     background: var(--bg-subtle); padding: 3px 10px; border-radius: 999px;
   }
-  .feed-fields { background: #F5F7F9; border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 14px 2px; margin: 0 0 14px; }
+  .feed-fields { background: #F5F7F9; border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 14px 14px; margin: 0 0 14px; }
   /* Notes composer: horizontally scrollable action chips, FYI default. */
   .notes-tagbar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
   .notes-tagbar::-webkit-scrollbar { display: none; }
@@ -2212,7 +2212,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '140';
+  const LOCAL_VERSION = '141';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
