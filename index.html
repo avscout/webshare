@@ -2219,7 +2219,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '146';
+  const LOCAL_VERSION = '148';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2907,7 +2907,7 @@ function pendingChangesFor(assetId, sourceRow) {
 // (recycle / remove), investigate (research), verify (retest), admin
 // (relabel), placement (relocate), software & settings (reconfigure).
 const NOTE_TAGS = ['reconfigure', 'recycle', 'refurbish', 'relabel', 'relocate',
-                   'remove', 'repair', 'replace', 'research', 'retest'];
+                   'remove', 'repair', 'replace', 'request', 'research', 'retest'];
 const NotesStore = {
   _byId: new Map(),
   _loaded: null,
@@ -2965,7 +2965,6 @@ const REPLY_STATUSES = {
   done:      { label: 'Done',      color: '#047857' },
   postponed: { label: 'Postponed', color: '#B45309' },
   cancelled: { label: 'Cancelled', color: '#DC2626' },
-  request:   { label: 'Request',   color: '#2563EB' },
 };
 async function addNote(assetId, text, tag, parentId, status) {
   const rec = {
@@ -3000,15 +2999,6 @@ function noteResolution(noteId) {
   return null;
 }
 function noteCompleted(noteId) { return noteResolution(noteId) != null; }
-// REQUEST is a parent-level flag (escalation), toggled directly on the note.
-async function toggleNoteRequest(noteId) {
-  const cur = NotesStore.get(noteId);
-  if (!cur) return;
-  const rec = { ...cur, request: !cur.request, updatedAt: Date.now(), deviceId: DEVICE_ID };
-  await NotesStore.put(rec);
-  if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
-  updateNotifsBadge();
-}
 // Delete a note and, if it's a top-level note, all of its replies. Deletion
 // is a tombstone (deleted:true) so it converges under LWW like any edit.
 // Anyone may delete anyone's note — a shared field log, not private posts.
@@ -3113,6 +3103,7 @@ const NOTE_TAG_COLORS = {
   remove     : '#DC2626',
   repair     : '#EA580C',
   replace    : '#2563EB',
+  request    : '#0EA5E9',
   research   : '#7C3AED',
   retest     : '#4D7C0F',
 };
@@ -3146,18 +3137,21 @@ function noteRowHTML(n, withAsset) {
   const room = withAsset ? assetRoom(n.assetId) : '';
   const assetLine = withAsset
     ? `<div style="font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:6px">${escapeHTML(assetTitle(n.assetId))}${room ? ` <span style="font-weight:600;color:var(--dim)">· Room ${escapeHTML(String(room))}</span>` : ''} <span style="font-weight:400;font-size:11px;color:var(--dim)">#${escapeHTML(String(n.assetId))}</span></div>` : '';
-  const delBtn = (id) => `<button type="button" class="note-del" data-del="${escapeHTML(id)}" title="Delete">${trashGlyph('currentColor', 15)}</button>`;
   // Replies stay collapsed behind a toggle; never deeper than one layer
   // (replies carry no Reply button of their own).
   const replyList = NotesStore.commentsFor(n.noteId);
   const replyRow = (cm) => `
-          <div style="display:flex;align-items:flex-start;gap:8px;margin-top:10px">
-            ${ava(cm.createdBy, 26)}
-            <div style="flex:1;min-width:0">
-              <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
-              <div style="font-size:13px;color:var(--ink);margin-top:1px">${escapeHTML(cm.text)}</div>
+          <div class="reply-swipe" style="position:relative;border-radius:8px;overflow:hidden;margin-top:10px">
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;padding-right:14px;background:var(--bg-subtle);pointer-events:none">
+              <span style="width:32px;height:32px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center">${trashGlyph('#fff', 16)}</span>
             </div>
-            ${delBtn(cm.noteId)}
+            <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:4px 0;background:${c ? `color-mix(in srgb, ${c} 7%, #fff)` : 'var(--bg-subtle)'};touch-action:pan-y;will-change:transform">
+              ${ava(cm.createdBy, 26)}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
+                <div style="font-size:13px;color:var(--ink);margin-top:1px">${escapeHTML(cm.text)}</div>
+              </div>
+            </div>
           </div>`;
   const replyToggle = (label) => `<button type="button" class="note-replies-toggle" data-note="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:8px;margin-left:34px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">${label}</button>`;
   let repliesBlock = '';
@@ -3168,31 +3162,23 @@ function noteRowHTML(n, withAsset) {
   }
   return `
       <div class="note-swipe" style="position:relative;border-radius:10px;margin-bottom:8px;overflow:hidden">
-        <div style="position:absolute;inset:0;display:flex;align-items:center;padding-left:18px;background:var(--bg-subtle);pointer-events:none">
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:var(--bg-subtle);pointer-events:none">
           <span style="width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center">${replyArrowGlyph('currentColor', 19)}</span>
+          <span style="width:38px;height:38px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center">${trashGlyph('#fff', 18)}</span>
         </div>
       <div data-note-row="${escapeHTML(n.noteId)}" data-asset="${escapeHTML(String(n.assetId))}" style="position:relative;padding:12px;border-radius:10px;border:1px solid ${c ? c + '33' : 'var(--line-soft)'};background:${c ? `color-mix(in srgb, ${c} 7%, #fff)` : 'var(--bg-subtle)'};touch-action:pan-y;will-change:transform${withAsset ? ';cursor:pointer' : ''}">
         ${assetLine}
         <div style="display:flex;align-items:flex-start;gap:10px">
           ${ava(n.createdBy, 34)}
           <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:flex-start;gap:8px">
-              <div style="flex:1;min-width:0">
-                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                  <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
-                  <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
-                  ${noteTagPillHTML(n.tag)}
-                  ${(() => { const r = noteResolution(n.noteId); return r ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[r.status].color};border:1px solid ${REPLY_STATUSES[r.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[r.status].label}</span>` : ''; })()}
-                  ${n.request ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES.request.color};border:1px solid ${REPLY_STATUSES.request.color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES.request.label}</span>` : ''}
-                </div>
-                <div style="font-size:14px;color:var(--ink);margin-top:2px;${(() => { const r = noteResolution(n.noteId); return (r && (r.status === 'done' || r.status === 'cancelled')) ? 'text-decoration:line-through;opacity:.55' : ''; })()}">${escapeHTML(n.text)}</div>
-              </div>
-              ${delBtn(n.noteId)}
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
+              <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
+              ${noteTagPillHTML(n.tag)}
+              ${(() => { const r = noteResolution(n.noteId); return r ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[r.status].color};border:1px solid ${REPLY_STATUSES[r.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[r.status].label}</span>` : ''; })()}
             </div>
-            <div style="display:flex;align-items:center;gap:14px;margin-top:6px">
-              <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
-              ${n.tag ? `<button type="button" class="note-request-btn" data-request="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:${n.request ? REPLY_STATUSES.request.color : 'var(--dim)'};cursor:pointer">Request</button>` : ''}
-            </div>
+            <div style="font-size:14px;color:var(--ink);margin-top:2px;${(() => { const r = noteResolution(n.noteId); return (r && (r.status === 'done' || r.status === 'cancelled')) ? 'text-decoration:line-through;opacity:.55' : ''; })()}">${escapeHTML(n.text)}</div>
+            <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
             ${repliesBlock}
           </div>
         </div>
@@ -3212,19 +3198,32 @@ function wireNoteRows(container, rerender, opts) {
       rerender();
     });
   });
-  container.querySelectorAll('.note-del').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      btn.classList.add('flash-red');
-      const cur = NotesStore.get(btn.dataset.del);
-      const msg = (cur && !cur.parentId) ? 'Delete this note and its replies?' : 'Delete this reply?';
-      setTimeout(async () => {
-        const ok = confirm(msg);
-        btn.classList.remove('flash-red');
-        if (!ok) return;
-        await deleteNote(btn.dataset.del);
-        rerender();
-      }, 160);
+  // Replies: swipe LEFT to delete (reveals a red trash circle on the right),
+  // confirmed by a prompt. No right-swipe on replies.
+  const REVEAL_R = 64;
+  container.querySelectorAll('[data-reply-row]').forEach(row => {
+    let x0 = null, y0 = null, dx = 0, horiz = false;
+    row.addEventListener('touchstart', (e) => {
+      const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false;
+      row.style.transition = '';
+    }, { passive: true });
+    row.addEventListener('touchmove', (e) => {
+      if (x0 === null) return;
+      const t = e.touches[0];
+      dx = Math.min(0, t.clientX - x0);   // left only
+      if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) horiz = true;
+      if (horiz) row.style.transform = `translateX(${Math.max(dx, -(REVEAL_R + 16))}px)`;
+    }, { passive: true });
+    row.addEventListener('touchend', () => {
+      if (x0 === null) return;
+      const fire = horiz && dx < -REVEAL_R * 0.7;
+      row.style.transition = 'transform .18s';
+      row.style.transform = '';
+      x0 = null;
+      if (fire) {
+        const id = row.dataset.replyRow;
+        setTimeout(async () => { if (confirm('Delete this reply?')) { await deleteNote(id); rerender(); } }, 60);
+      }
     });
   });
   // Swipe RIGHT to reply: dragging reveals a reply circle tucked behind the
@@ -3242,20 +3241,22 @@ function wireNoteRows(container, rerender, opts) {
     row.addEventListener('touchmove', (e) => {
       if (x0 === null) return;
       const t = e.touches[0];
-      dx = Math.max(0, t.clientX - x0);   // right only
-      if (!horiz && dx > 12 && dx > Math.abs(t.clientY - y0)) horiz = true;
-      if (horiz) row.style.transform = `translateX(${Math.min(dx, REVEAL + 16)}px)`;
+      dx = t.clientX - x0;   // right = reply, left = delete
+      if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) horiz = true;
+      if (horiz) row.style.transform = `translateX(${Math.max(-(REVEAL + 16), Math.min(dx, REVEAL + 16))}px)`;
     }, { passive: true });
     row.addEventListener('touchend', () => {
       if (x0 === null) return;
-      const fire = horiz && dx > REVEAL * 0.7;
+      const replyFire = horiz && dx > REVEAL * 0.7;
+      const delFire   = horiz && dx < -REVEAL * 0.7;
       if (horiz) { swiped = true; setTimeout(() => { swiped = false; }, 350); }
       row.style.transition = 'transform .18s';
       row.style.transform = '';
       x0 = null;
-      if (fire) {
-        const n = NotesStore.get(row.dataset.noteRow);
-        if (n) replyTo(n, rerender);
+      const n = NotesStore.get(row.dataset.noteRow);
+      if (replyFire && n) replyTo(n, rerender);
+      else if (delFire && n) {
+        setTimeout(async () => { if (confirm('Delete this note and its replies?')) { await deleteNote(n.noteId); rerender(); } }, 60);
       }
     });
     if (opts && opts.onOpen) {
@@ -3270,13 +3271,6 @@ function wireNoteRows(container, rerender, opts) {
     btn.addEventListener('click', () => {
       const parent = NotesStore.get(btn.dataset.comment);
       if (parent) replyTo(parent, rerender);
-    });
-  });
-  container.querySelectorAll('.note-request-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await toggleNoteRequest(btn.dataset.request);
-      rerender();
     });
   });
 }
