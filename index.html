@@ -2212,7 +2212,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '131';
+  const LOCAL_VERSION = '132';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3095,7 +3095,7 @@ function noteRowHTML(n, withAsset) {
             </div>
             ${delBtn(cm.noteId)}
           </div>`;
-  const replyToggle = (label) => `<button type="button" class="note-replies-toggle" data-note="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:8px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer">${label}</button>`;
+  const replyToggle = (label) => `<button type="button" class="note-replies-toggle" data-note="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:8px;margin-left:34px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer">${label}</button>`;
   let repliesBlock = '';
   if (replyList.length) {
     repliesBlock = _expandedReplies.has(n.noteId)
@@ -3108,17 +3108,21 @@ function noteRowHTML(n, withAsset) {
         <div style="display:flex;align-items:flex-start;gap:10px">
           ${ava(n.createdBy, 34)}
           <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-              <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
-              <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
-              ${noteTagPillHTML(n.tag)}
-              ${n.done ? '<span style="font-size:11px;color:var(--dim)">· done</span>' : ''}
+            <div style="display:flex;align-items:flex-start;gap:8px">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
+                  <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
+                  ${noteTagPillHTML(n.tag)}
+                  ${n.done ? '<span style="font-size:11px;color:var(--dim)">· done</span>' : ''}
+                </div>
+                <div style="font-size:14px;color:var(--ink);margin-top:2px;${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</div>
+              </div>
+              ${delBtn(n.noteId)}
             </div>
-            <div style="font-size:14px;color:var(--ink);margin-top:2px;${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</div>
-            <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
+            <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer">Reply</button>
             ${repliesBlock}
           </div>
-          ${delBtn(n.noteId)}
         </div>
       </div>`;
 }
@@ -8484,18 +8488,21 @@ function showNotesOverlay(assetKey, onChange) {
 // an optional tag select, Enter or Send posts; tap the scrim to cancel.
 function showNoteSheet({ title, withTag, placeholder, onSubmit }) {
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,0.12)';
+  const meSheet = GroupStore.getMember(DEVICE_ID);
+  const meAva = `<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:${(meSheet && meSheet.color) || 'var(--line)'};font-size:17px;flex-shrink:0">${(meSheet && meSheet.emoji) || '?'}</span>`;
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(15,23,42,0.12);display:flex;flex-direction:column;justify-content:flex-end;align-items:center';
   wrap.innerHTML = `
-    <div id="note-sheet" style="position:absolute;left:0;right:0;bottom:0;max-height:33vh;overflow-y:auto;background:#fff;border-top:1px solid var(--line);border-radius:12px 12px 0 0;padding:16px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.12);transform:translateY(100%);transition:transform .2s ease-out">
-      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:10px">${escapeHTML(title)}</div>
+    <div id="note-sheet" style="width:100%;max-width:480px;background:#fff;border-top:1px solid var(--line);border-radius:14px 14px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .2s ease-out">
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:0 4px 10px">${escapeHTML(title)}</div>
       ${withTag ? `
-      <select id="sheet-tag" style="margin-bottom:8px">
+      <select id="sheet-tag" style="margin-bottom:10px">
         <option value="">No tag — just an FYI</option>
         ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
       </select>` : ''}
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        ${meAva}
         <input id="sheet-text" type="text" placeholder="${escapeHTML(placeholder || '')}" autocomplete="off" style="flex:1;min-width:0">
-        <button id="sheet-send" type="button" style="flex-shrink:0">Send</button>
+        <button id="sheet-send" class="note-send" type="button" aria-label="Send" style="flex-shrink:0;height:44px">${planeGlyph('currentColor', 18)}</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -8504,13 +8511,16 @@ function showNoteSheet({ title, withTag, placeholder, onSubmit }) {
   const close = () => { sheet.style.transform = 'translateY(100%)'; setTimeout(() => wrap.remove(), 200); };
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   const inp = wrap.querySelector('#sheet-text');
+  const sendBtn = wrap.querySelector('#sheet-send');
   const send = async () => {
     if (!inp.value.trim()) return;
+    sendBtn.classList.add('flash-cyan');
+    setTimeout(() => sendBtn.classList.remove('flash-cyan'), 450);
     const tagSel = wrap.querySelector('#sheet-tag');
     await onSubmit(inp.value, tagSel ? tagSel.value : null);
     close();
   };
-  wrap.querySelector('#sheet-send').addEventListener('click', send);
+  sendBtn.addEventListener('click', send);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
   inp.focus();
 }
@@ -8875,11 +8885,36 @@ async function openItemEditor(sessionId, itemId, sequence) {
       // The card header is the exact list row (status icon, tint, pills,
       // bell, edit/view times) — one source of truth for asset presentation.
       const entry = { item: it, assetKey, id: itemId, displayNum: assetKey || itemId };
+      cardEl.style.background = (assetKey && rowTint(assetKey)) || '';
       cardEl.innerHTML = `
           <div class="feed-card-head">${itemRowHTML(entry)}</div>
           <div class="feed-fields">
-            ${FIELDS.slice(0, 3).map(fieldRow).join('')}
             ${assetKey ? `
+            <div style="display:flex;gap:10px">
+              <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
+                <span>Model</span>
+                <input type="text" data-field="model" value="${escapeHTML(fieldVal('model'))}" autocomplete="off">
+              </label>
+              <label class="field" style="flex:0 0 auto;min-width:0;margin-bottom:12px">
+                <span>Seen</span>
+                <button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="height:46px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 16px;border:1px solid var(--line)${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 16)}</button>
+              </label>
+            </div>
+            <div style="display:flex;gap:10px">
+              <label class="field" style="flex:1;min-width:0;margin-bottom:12px">${(() => {
+                const cur = fieldVal('type'); const cats = knownCategories(); const hasCur = cur && cats.includes(cur);
+                return `<span>Category / type</span>
+                <select data-field="type">
+                  <option value=""${!cur ? ' selected' : ''}>—</option>
+                  ${!hasCur && cur ? `<option value="${escapeHTML(cur)}" selected>${escapeHTML(cur)}</option>` : ''}
+                  ${cats.map(cc => `<option value="${escapeHTML(cc)}"${cc === cur ? ' selected' : ''}>${escapeHTML(cc)}</option>`).join('')}
+                </select>`;
+              })()}</label>
+              <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
+                <span>Serial</span>
+                <input type="text" data-field="serial" value="${escapeHTML(fieldVal('serial'))}" autocomplete="off">
+              </label>
+            </div>
             <div style="display:flex;gap:10px">
               <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
                 <span>Room</span>
@@ -8895,11 +8930,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
                   </select>
                 </div>
               </label>
-              <label class="field" style="flex:0 0 auto;margin-bottom:12px">
-                <span>Seen</span>
-                <button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="height:46px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 14px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 16)}</button>
-              </label>
-            </div>` : fieldRow(FIELDS[3])}
+            </div>` : `${FIELDS.slice(0, 3).map(fieldRow).join('')}${fieldRow(FIELDS[3])}`}
           </div>
           ${assetKey ? `
           <div class="feed-actions">
