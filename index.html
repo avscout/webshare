@@ -2219,7 +2219,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '148';
+  const LOCAL_VERSION = '149';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3140,12 +3140,16 @@ function noteRowHTML(n, withAsset) {
   // Replies stay collapsed behind a toggle; never deeper than one layer
   // (replies carry no Reply button of their own).
   const replyList = NotesStore.commentsFor(n.noteId);
+  // A reply is a divider-separated SLICE of the same block: swiping it left
+  // pulls the slice aside to reveal a red trash behind it (the rest of the
+  // block stays put). Opaque slice bg hides the reveal until swiped.
+  const sliceBg = c ? `color-mix(in srgb, ${c} 7%, #fff)` : 'var(--bg-subtle)';
   const replyRow = (cm) => `
-          <div class="reply-swipe" style="position:relative;border-radius:8px;overflow:hidden;margin-top:10px">
-            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;padding-right:14px;background:var(--bg-subtle);pointer-events:none">
-              <span style="width:32px;height:32px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center">${trashGlyph('#fff', 16)}</span>
+          <div class="reply-swipe" style="position:relative;overflow:hidden">
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;background:var(--bg-subtle);pointer-events:none">
+              <span style="width:30px;height:30px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center">${trashGlyph('#fff', 15)}</span>
             </div>
-            <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:4px 0;background:${c ? `color-mix(in srgb, ${c} 7%, #fff)` : 'var(--bg-subtle)'};touch-action:pan-y;will-change:transform">
+            <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-top:1px solid var(--line-soft);background:${sliceBg};touch-action:pan-y;will-change:transform">
               ${ava(cm.createdBy, 26)}
               <div style="flex:1;min-width:0">
                 <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
@@ -3204,18 +3208,21 @@ function wireNoteRows(container, rerender, opts) {
   container.querySelectorAll('[data-reply-row]').forEach(row => {
     let x0 = null, y0 = null, dx = 0, horiz = false;
     row.addEventListener('touchstart', (e) => {
+      e.stopPropagation();   // don't let the parent-row swipe also fire
       const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false;
       row.style.transition = '';
     }, { passive: true });
     row.addEventListener('touchmove', (e) => {
       if (x0 === null) return;
+      e.stopPropagation();
       const t = e.touches[0];
       dx = Math.min(0, t.clientX - x0);   // left only
       if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) horiz = true;
       if (horiz) row.style.transform = `translateX(${Math.max(dx, -(REVEAL_R + 16))}px)`;
     }, { passive: true });
-    row.addEventListener('touchend', () => {
+    row.addEventListener('touchend', (e) => {
       if (x0 === null) return;
+      e.stopPropagation();
       const fire = horiz && dx < -REVEAL_R * 0.7;
       row.style.transition = 'transform .18s';
       row.style.transform = '';
