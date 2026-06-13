@@ -853,6 +853,26 @@
      report, grouped by when they were created. Mirrors the My device
      modal styling (full viewport, scrollable body). */
   .items-modal { display: flex; flex-direction: column; }
+  /* Item detail FEED: full editors stacked vertically, sticky room banners. */
+  .item-feed { display: flex; flex-direction: column; height: 100%; }
+  .item-feed-topbar {
+    display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+    padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--bg);
+  }
+  .item-feed-report { font-size: 13px; font-weight: 700; color: var(--ink); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item-feed-count { font-size: 12px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .item-feed-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .feed-room-banner {
+    position: sticky; top: 0; z-index: 6; background: var(--bg);
+    border-bottom: 1px solid var(--line); padding: 8px 16px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  .feed-card { padding: 16px 16px 20px; border-bottom: 8px solid var(--bg-subtle); }
+  .feed-card:last-child { border-bottom: none; }
+  .feed-card-title { font-size: 18px; font-weight: 700; color: var(--ink); }
+  .feed-card-sub { font-size: 12px; color: var(--dim); margin: 2px 0 14px; }
+  .feed-actions { display: flex; gap: 8px; margin: 4px 0 14px; }
   .items-modal .modal-body { padding: 0; }
   /* Custom header layout: pastel circle on the left, name + creator
      subtitle in the middle, × on the right. Mirrors the session-row
@@ -2151,7 +2171,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '125';
+  const LOCAL_VERSION = '126';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -8435,193 +8455,216 @@ async function showNotificationsModal() {
 // (recorded on the first effective save). The panel is NOT re-rendered
 // after a field save — that would close the mobile keyboard and break
 // focus mid-tab — only the title updates in place.
-async function openItemEditor(sessionId, itemId) {
-  const session = await getSession(sessionId);
-  if (!session) { log('Cannot open item: report not found in local storage.', 'err'); return; }
-  const data = session.data || {};
-  const isArr = dataIsArray(data);
-  const baseItem = isArr ? data[Number(itemId)] : data[itemId];
-  if (!baseItem) return;
+async function openItemEditor(sessionId, itemId, sequence) {
+  // The detail view is a vertical FEED: the asset you tapped plus every
+  // other asset from the filtered/sorted list you came from, in that exact
+  // order. You scroll through full editors; a sticky room banner rides
+  // along and is pushed out by the next room's banner. Cards mount lazily
+  // (full editors are heavy) and stay mounted so edit state is preserved.
+  const seqIn = (Array.isArray(sequence) && sequence.length) ? sequence : [{ sessionId, itemId }];
   await AssetOverlay.load();
   await ChangeFeed.load();
   await Sightings.load();
   await NotesStore.load();
-  const assetKey = assetKeyOf(itemId, baseItem, isArr);
+
+  // Resolve every entry up front (sessions cached; overlay reads are in-
+  // memory). Entries that can't resolve are skipped.
+  const sessionCache = new Map();
+  const getSess = async (id) => {
+    if (!sessionCache.has(id)) sessionCache.set(id, await getSession(id));
+    return sessionCache.get(id);
+  };
+  const cards = [];
+  for (const entry of seqIn) {
+    const s = await getSess(entry.sessionId);
+    if (!s) continue;
+    const data = s.data || {};
+    const isArr = dataIsArray(data);
+    const baseItem = isArr ? data[Number(entry.itemId)] : data[entry.itemId];
+    if (!baseItem) continue;
+    const assetKey = assetKeyOf(entry.itemId, baseItem, isArr);
+    const resolved = applyAssetOverlay(assetKey, baseItem);
+    cards.push({
+      sessionId: entry.sessionId, itemId: entry.itemId, session: s,
+      baseItem, isArr, assetKey, room: resolved.room || '',
+      el: null, mounted: false, refreshNotes: null,
+    });
+  }
+  if (!cards.length) { log('Cannot open item: not found in local storage.', 'err'); return; }
+  let startIndex = cards.findIndex(c => String(c.sessionId) === String(sessionId) && String(c.itemId) === String(itemId));
+  if (startIndex < 0) startIndex = 0;
 
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   document.body.appendChild(backdrop);
   _itemPanelOpen = true;
-  // Deferred list refresh: refreshReportsUI() REOPENS the items modal,
-  // whose fresh backdrop would stack ON TOP of this panel — burying it
-  // mid-action. Actions only mark the lists dirty; the refresh runs once,
-  // when the panel actually closes.
   let listsDirty = false;
+  let io = null;
   const close = () => {
     document.removeEventListener('keydown', onKey);
-    flushQueuedDeltas();   // send the bundled session deltas now
+    flushQueuedDeltas();
+    if (io) io.disconnect();
     backdrop.remove();
     _itemPanelOpen = false;
     _itemPanelNotesRefresh = null;
-    if (listsDirty || _listsRefreshPending) {
-      _listsRefreshPending = false;
-      refreshReportsUI();
-    }
+    if (listsDirty || _listsRefreshPending) { _listsRefreshPending = false; refreshReportsUI(); }
   };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 
-  // Always read through the overlay so the panel shows the asset's CURRENT
-  // truth — including edits that synced in while the panel was open.
-  const resolved  = () => applyAssetOverlay(assetKey, baseItem);
-  const notesText = (n) => Array.isArray(n) ? n.join('\n\n') : (n || '');
+  const reportName = cards[startIndex].session.name || 'report';
+  backdrop.innerHTML = `
+      <div class="modal items-modal item-feed">
+        <div class="item-feed-topbar">
+          <button class="modal-back" id="item-feed-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+          <div class="item-feed-report">${escapeHTML(reportName)}</div>
+          ${cards.length > 1 ? `<div class="item-feed-count" id="item-feed-count"></div>` : ''}
+        </div>
+        <div class="item-feed-scroll" id="item-feed-scroll"></div>
+      </div>`;
+  backdrop.querySelector('#item-feed-close').addEventListener('click', close);
+  const scroll = backdrop.querySelector('#item-feed-scroll');
+  const countEl = backdrop.querySelector('#item-feed-count');
 
-  // One sighting per panel session.
-  let sessionSighted = false;
+  // Placeholders + sticky room banners (a banner whenever the room changes).
+  let prevRoom = null;
+  cards.forEach((c, i) => {
+    if (c.room !== prevRoom) {
+      const banner = document.createElement('div');
+      banner.className = 'feed-room-banner';
+      banner.textContent = c.room ? `Room ${c.room}` : 'No room';
+      scroll.appendChild(banner);
+      prevRoom = c.room;
+    }
+    const card = document.createElement('div');
+    card.className = 'feed-card';
+    card.dataset.idx = String(i);
+    card.style.minHeight = '70vh';   // keep the scrollbar honest before mount
+    c.el = card;
+    scroll.appendChild(card);
+  });
 
-  const headHTML = (title) => `
-        <div class="modal-head items-modal-head">
-          <button class="modal-back" id="item-panel-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
-          <div class="items-modal-title">
-            <h3>${escapeHTML(title)}</h3>
-            <div class="items-modal-subtitle">
-              <span class="origin-label">in</span>
-              <span class="origin-name">${escapeHTML(session.name || 'report')}</span>
-              ${assetKey ? `<span class="origin-label"> · #${escapeHTML(assetKey)}</span>` : ''}
-            </div>
-          </div>
-        </div>`;
-  const wireHead = () => backdrop.querySelector('#item-panel-close').addEventListener('click', close);
+  _itemPanelNotesRefresh = () => cards.forEach(c => c.refreshNotes && c.refreshNotes());
 
-  const FIELDS = [
-    { key: 'model',  label: 'Model' },
-    { key: 'type',   label: 'Category / type' },
-    { key: 'serial', label: 'Serial' },
-    { key: 'room',   label: 'Room' },
-  ];
+  // ── Per-card full editor, scoped to its own element ──────────────────────
+  function mountCard(c) {
+    if (c.mounted) return;
+    c.mounted = true;
+    c.el.style.minHeight = '';
+    const { session, baseItem, assetKey, sessionId, itemId } = c;
+    const cardEl = c.el;
+    let sessionSighted = false;
+    const resolved  = () => applyAssetOverlay(assetKey, baseItem);
+    const notesText = (n) => Array.isArray(n) ? n.join('\n\n') : (n || '');
+    const FIELDS = [
+      { key: 'model',  label: 'Model' },
+      { key: 'type',   label: 'Category / type' },
+      { key: 'serial', label: 'Serial' },
+      { key: 'room',   label: 'Room' },
+    ];
 
-  // Per-field blur-save. Returns true when something was actually written.
-  async function saveField(field, rawValue) {
-    const cur = resolved();
-    const norm = (v) => (v == null) ? '' : String(v);
-    let from, to, newNotes;
-    if (field === 'notes') {
-      newNotes = rawValue.split(/\n{2,}/).map(x => x.trim()).filter(Boolean);
-      from = Array.isArray(cur.notes) ? cur.notes.join(' · ') : norm(cur.notes);
-      to   = newNotes.join(' · ');
-    } else {
+    async function saveField(field, rawValue) {
+      const cur = resolved();
+      const norm = (v) => (v == null) ? '' : String(v);
+      let from, to, newNotes;
       from = field === 'type' ? norm(cur.type || cur.category) : norm(cur[field]);
       to   = rawValue.trim();
+      if (from === to) return false;
+      if (assetKey) {
+        const prev = AssetOverlay.get(assetKey);
+        const keep = (k) => norm(cur[k]);
+        const cat  = field === 'type' ? to : norm(cur.type || cur.category);
+        const rec = {
+          assetId : assetKey,
+          model   : field === 'model'  ? to : keep('model'),
+          category: cat, type: cat,
+          serial  : field === 'serial' ? to : keep('serial'),
+          room    : field === 'room'   ? to : keep('room'),
+          notes   : (Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : [])),
+          origin  : (prev && prev.origin) || 'edit',
+          location: (prev && prev.location !== undefined) ? prev.location : undefined,
+          disposition: (prev && prev.disposition) || undefined,
+          syncedAt: Date.now(), deviceId: DEVICE_ID,
+          sourceHash: currentSourceHash() || undefined,
+        };
+        await AssetOverlay.put(rec);
+        queueDelta('assets', assetKey, rec);
+        await emitChange(assetKey, sessionId, session.name || '', { [field]: { from, to } }, { defer: true });
+        if (!sessionSighted) { sessionSighted = true; recordSighting(assetKey, 'edit'); }
+        const tr = (v) => v.length > 40 ? v.slice(0, 37) + '…' : v;
+        log(`Edited "${rec.model || rec.category || assetKey}": ${field} ${tr(from) || '—'} → ${tr(to) || '—'}`, 'ok');
+      } else {
+        const fresh = await getSession(sessionId);
+        if (!fresh) return false;
+        const fdata = fresh.data || {};
+        const target = dataIsArray(fdata) ? fdata[Number(itemId)] : fdata[itemId];
+        if (!target) return false;
+        if (field === 'model') target.model = to;
+        else if (field === 'type') { if (target.type != null) target.type = to; if (target.category != null || target.type == null) target.category = to; }
+        else if (field === 'serial') target.serial = to;
+        else if (field === 'room')   target.room = to;
+        fresh.data = fdata;
+        await putSession(fresh);
+        Object.assign(baseItem, { model: target.model, type: target.type, category: target.category, serial: target.serial, room: target.room });
+        const tr = (v) => v.length > 40 ? v.slice(0, 37) + '…' : v;
+        log(`Edited "${to || itemId}": ${field} ${tr(from) || '—'} → ${tr(to) || '—'} (report-local).`, 'ok');
+      }
+      listsDirty = true;
+      const t = cardEl.querySelector('.feed-card-title');
+      if (t) { const now = resolved(); t.textContent = now.model || now.category || now.type || 'Item'; }
+      return true;
     }
-    if (from === to) return false;   // no-op: nothing written, nothing sent
 
-    if (assetKey) {
+    async function applyLocation(newLoc) {
+      const cur = resolved();
       const prev = AssetOverlay.get(assetKey);
-      const keep = (k) => norm(cur[k]);
-      const cat  = field === 'type' ? to : norm(cur.type || cur.category);
+      const oldLoc = assetLocation(assetKey);
+      if ((newLoc || null) === oldLoc) return;
+      const lbl = (k) => (k && LOCATIONS[k]) ? LOCATIONS[k].label : 'In room';
       const rec = {
         assetId : assetKey,
-        model   : field === 'model'  ? to : keep('model'),
-        category: cat,
-        type    : cat,
-        serial  : field === 'serial' ? to : keep('serial'),
-        room    : field === 'room'   ? to : keep('room'),
-        notes   : field === 'notes'  ? newNotes
-                  : (Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : [])),
+        model   : cur.model || '', category: cur.type || cur.category || '', type: cur.type || cur.category || '',
+        serial  : cur.serial || '', room: cur.room || '',
+        notes   : Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : []),
         origin  : (prev && prev.origin) || 'edit',
-        location: (prev && prev.location !== undefined) ? prev.location : undefined,
-        disposition: (prev && prev.disposition) || undefined,
-        syncedAt: Date.now(),
-        deviceId: DEVICE_ID,
+        location: newLoc || null,
+        syncedAt: Date.now(), deviceId: DEVICE_ID,
         sourceHash: currentSourceHash() || undefined,
       };
       await AssetOverlay.put(rec);
-      queueDelta('assets', assetKey, rec);   // bundled transfer (see above)
-      await emitChange(assetKey, sessionId, session.name || '', { [field]: { from, to } }, { defer: true });
-      if (!sessionSighted) { sessionSighted = true; recordSighting(assetKey, 'edit'); }
-      const tr = (v) => v.length > 40 ? v.slice(0, 37) + '…' : v;
-      log(`Edited "${rec.model || rec.category || assetKey}": ${field} ${tr(from) || '—'} → ${tr(to) || '—'}`, 'ok');
-    } else {
-      // Report-local fallback for items without a stable identity.
-      const fresh = await getSession(sessionId);
-      if (!fresh) return false;
-      const fdata = fresh.data || {};
-      const target = dataIsArray(fdata) ? fdata[Number(itemId)] : fdata[itemId];
-      if (!target) return false;
-      if (field === 'model') target.model = to;
-      else if (field === 'type') {
-        if (target.type != null) target.type = to;
-        if (target.category != null || target.type == null) target.category = to;
-      }
-      else if (field === 'serial') target.serial = to;
-      else if (field === 'room')   target.room = to;
-      else if (field === 'notes')  target.notes = Array.isArray(target.notes) ? newNotes : rawValue.trim();
-      fresh.data = fdata;
-      await putSession(fresh);
-      Object.assign(baseItem, {
-        model: target.model, type: target.type, category: target.category,
-        serial: target.serial, room: target.room, notes: target.notes,
-      });
-      const tr = (v) => v.length > 40 ? v.slice(0, 37) + '…' : v;
-      log(`Edited "${to || itemId}": ${field} ${tr(from) || '—'} → ${tr(to) || '—'} (report-local).`, 'ok');
+      if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
+      await emitChange(assetKey, sessionId, session.name || '', { location: { from: oldLoc ? lbl(oldLoc) : '', to: newLoc ? lbl(newLoc) : '' } });
+      log(newLoc ? `Location set: ${lbl(newLoc)}.` : 'Location cleared — back in its room.', 'ok');
+      listsDirty = true;
+      renderCard();
     }
-    listsDirty = true;
-    const h3 = backdrop.querySelector('.items-modal-title h3');
-    if (h3) { const now = resolved(); h3.textContent = now.model || now.category || now.type || 'Item'; }
-    return true;
-  }
 
-  // Write the location onto the canonical overlay (current resolved values
-  // + the new location), emit a Changelog event, re-render. Location is the
-  // physical counterpart of Room: export-relevant, so it enters the ledger.
-  async function applyLocation(newLoc) {
-    const cur = resolved();
-    const prev = AssetOverlay.get(assetKey);
-    const oldLoc = assetLocation(assetKey);
-    if ((newLoc || null) === oldLoc) return;
-    const lbl = (k) => (k && LOCATIONS[k]) ? LOCATIONS[k].label : 'In room';
-    const rec = {
-      assetId : assetKey,
-      model   : cur.model || '',
-      category: cur.type || cur.category || '',
-      type    : cur.type || cur.category || '',
-      serial  : cur.serial || '',
-      room    : cur.room || '',
-      notes   : Array.isArray(cur.notes) ? cur.notes : (cur.notes ? [String(cur.notes)] : []),
-      origin  : (prev && prev.origin) || 'edit',
-      location: newLoc || null,   // explicit null = back in its room (overrides any legacy disposition)
-      syncedAt: Date.now(),
-      deviceId: DEVICE_ID,
-      sourceHash: currentSourceHash() || undefined,
+    const renderNotes = () => {
+      const list = cardEl.querySelector('.js-note-list');
+      if (!list) return;
+      const notes = NotesStore.forAsset(assetKey);
+      list.innerHTML = notes.length
+        ? notes.map(n => noteRowHTML(n, false)).join('')
+        : `<div style="font-size:12px;color:var(--dim)">No notes yet.</div>`;
+      wireNoteRows(list, () => { listsDirty = true; renderNotes(); });
     };
-    await AssetOverlay.put(rec);
-    if (GroupStore.exists()) SyncEngine.broadcastDelta('assets', rec);
-    await emitChange(assetKey, sessionId, session.name || '', { location: { from: oldLoc ? lbl(oldLoc) : '', to: newLoc ? lbl(newLoc) : '' } });
-    log(newLoc ? `Location set: ${lbl(newLoc)}.` : 'Location cleared — back in its room.', 'ok');
-    listsDirty = true;   // refresh deferred to close
-    renderView();
-  }
 
-  function renderView() {
-    const it = resolved();
-    const roomKey = it.room || '';
-    const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
-    const eyeState = assetKey ? assetEyeState(assetKey) : 'todo';
-    const loc      = assetKey ? assetLocation(assetKey) : null;
-    const fieldVal = (k) => k === 'notes' ? notesText(it.notes)
-                          : (k === 'type' ? (it.type || it.category || '') : (it[k] || ''));
-    const fieldRow = (f) => `
-          <label class="field" style="margin-bottom:12px">
-            <span>${escapeHTML(f.label)}</span>
-            ${f.textarea
-              ? `<textarea data-field="${f.key}" rows="4" style="width:100%;resize:vertical">${escapeHTML(fieldVal(f.key))}</textarea>`
-              : `<input type="text" data-field="${f.key}" value="${escapeHTML(fieldVal(f.key))}" autocomplete="off">`}
-          </label>`;
-    backdrop.innerHTML = `
-      <div class="modal items-modal item-editor">
-        ${headHTML(it.model || it.category || it.type || 'Item')}
-        <div class="modal-body" style="padding:18px">
+    function renderCard() {
+      const it = resolved();
+      const roomKey = it.room || '';
+      const roomPhotos = (session.rooms && session.rooms[roomKey]) || null;
+      const eyeState = assetKey ? assetEyeState(assetKey) : 'todo';
+      const loc      = assetKey ? assetLocation(assetKey) : null;
+      const fieldVal = (k) => k === 'type' ? (it.type || it.category || '') : (it[k] || '');
+      const fieldRow = (f) => `
+            <label class="field" style="margin-bottom:12px">
+              <span>${escapeHTML(f.label)}</span>
+              <input type="text" data-field="${f.key}" value="${escapeHTML(fieldVal(f.key))}" autocomplete="off">
+            </label>`;
+      cardEl.innerHTML = `
+          <div class="feed-card-title">${escapeHTML(it.model || it.category || it.type || 'Item')}</div>
+          <div class="feed-card-sub">in ${escapeHTML(session.name || 'report')}${assetKey ? ` · #${escapeHTML(assetKey)}` : ''}</div>
           ${FIELDS.slice(0, 3).map(fieldRow).join('')}
           ${assetKey ? `
           <div style="display:flex;gap:10px">
@@ -8633,7 +8676,7 @@ async function openItemEditor(sessionId, itemId) {
               <span>Location</span>
               <div style="position:relative">
                 ${loc ? `<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);display:inline-flex;pointer-events:none">${LOCATIONS[loc].family === 'storage' ? archiveGlyph('#6D28D9', 15) : mapPinOffGlyph('var(--warn)', 15)}</span>` : ''}
-                <select id="loc-select"${loc ? ' style="padding-left:38px"' : ''}>
+                <select class="js-loc-select"${loc ? ' style="padding-left:38px"' : ''}>
                   <option value=""${!loc ? ' selected' : ''}>In room</option>
                   ${Object.keys(LOCATIONS).map(k => `<option value="${k}"${loc === k ? ' selected' : ''}>${LOCATIONS[k].label}</option>`).join('')}
                 </select>
@@ -8641,86 +8684,90 @@ async function openItemEditor(sessionId, itemId) {
             </label>
           </div>` : fieldRow(FIELDS[3])}
           ${assetKey ? `
-          <div style="padding:12px 0 4px 0">
+          <div class="feed-actions">
+            <button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="display:inline-flex;align-items:center;gap:6px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 15)}Seen</button>
+            <button class="js-notify" style="display:inline-flex;align-items:center;gap:6px">${bellGlyph('currentColor', 14)}Notify</button>
+          </div>
+          <div style="padding:4px 0 4px 0">
             <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Notes</div>
-            <div id="note-list"></div>
+            <div class="js-note-list"></div>
           </div>` : ''}
           ${roomPhotos && roomPhotos.photos && roomPhotos.photos.length ? `
           <div style="padding:12px 0 4px 0">
             <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px">Photos${roomKey ? ` · room ${escapeHTML(roomKey)}` : ''}</div>
             ${roomPhotosHTML(roomPhotos)}
-          </div>` : ''}
-        </div>
-        <div class="modal-footer">
-          ${assetKey
-            ? `<button id="item-nominate" style="display:inline-flex;align-items:center;gap:6px">${bellGlyph('currentColor', 13)}Notify</button>
-               <button id="item-eye-toggle" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="display:inline-flex;align-items:center;gap:6px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 14)}Seen</button>`
-            : `<button id="item-view-close">Close</button>`}
-        </div>
-      </div>`;
-    wireHead();
-    const closeBtn = backdrop.querySelector('#item-view-close');
-    if (closeBtn) closeBtn.addEventListener('click', close);
-    // Notify = write a note for the group in a slide-up sheet.
-    const nomBtn = backdrop.querySelector('#item-nominate');
-    if (nomBtn) nomBtn.addEventListener('click', () => {
-      showNoteSheet({
-        title: 'Notify the group',
-        withTag: true,
-        placeholder: 'What should the group know?',
-        onSubmit: async (text, tag) => {
-          await addNote(assetKey, text, tag);
-          listsDirty = true;   // row bell counters
-          renderNotes();
-        },
-      });
-    });
-    // The Seen toggle: marking is immediate; toggling back is either a
-    // clean 10-minute undo (own fresh sighting, no trace) or a withdrawal.
-    const eyeBtn = backdrop.querySelector('#item-eye-toggle');
-    if (eyeBtn) eyeBtn.addEventListener('click', async () => {
-      if (sightedThisRound(assetKey)) {
-        const cur = Sightings.get(assetKey);
-        const u = _sightingUndo.get(assetKey);
-        if (cur && !cur.retracted && cur.seenBy !== DEVICE_ID && u && (Date.now() - u.at) < SIGHTING_UNDO_MS) {
-          const m = GroupStore.getMember(cur.seenBy);
-          const who = m ? `${m.emoji || ''} ${m.nickname || ''}`.trim() : 'a collaborator';
-          if (!confirm(`${who} also sighted this item in the meantime. Withdraw their sighting?`)) return;
-        }
-        const how = await unsightOrUndo(assetKey);
-        if (how === 'retracted') log('Sighting withdrawn.', 'info');
-      } else {
-        await recordSighting(assetKey, 'mark');
-        log('Sighting recorded.', 'ok');
-      }
-      listsDirty = true;   // refresh deferred to close — the panel stays put
-      renderView();
-    });
-    // Location dropdown: picking anything but "In room" disables the Room
-    // field (the device is, by definition, not in a room right now).
-    const locSel = backdrop.querySelector('#loc-select');
-    if (locSel) locSel.addEventListener('change', () => applyLocation(locSel.value || null));
-    // Field notes: render + wire; re-rendered live when notes sync in.
-    const renderNotes = () => {
-      const list = backdrop.querySelector('#note-list');
-      if (!list) return;
-      const notes = NotesStore.forAsset(assetKey);
-      list.innerHTML = notes.length
-        ? notes.map(n => noteRowHTML(n, false)).join('')
-        : `<div style="font-size:12px;color:var(--dim)">No notes yet.</div>`;
-      wireNoteRows(list, () => { listsDirty = true; renderNotes(); });
-    };
-    renderNotes();
-    _itemPanelNotesRefresh = renderNotes;
+          </div>` : ''}`;
 
-    // Direct editing: every field saves itself when its value changes and
-    // focus leaves it ('change' = blur with a different value).
-    backdrop.querySelectorAll('[data-field]').forEach(el => {
-      el.addEventListener('change', () => saveField(el.dataset.field, el.value));
-    });
+      const eyeBtn = cardEl.querySelector('.js-eye');
+      if (eyeBtn) eyeBtn.addEventListener('click', async () => {
+        if (sightedThisRound(assetKey)) {
+          const cur = Sightings.get(assetKey);
+          const u = _sightingUndo.get(assetKey);
+          if (cur && !cur.retracted && cur.seenBy !== DEVICE_ID && u && (Date.now() - u.at) < SIGHTING_UNDO_MS) {
+            const m = GroupStore.getMember(cur.seenBy);
+            const who = m ? `${m.emoji || ''} ${m.nickname || ''}`.trim() : 'a collaborator';
+            if (!confirm(`${who} also sighted this item in the meantime. Withdraw their sighting?`)) return;
+          }
+          const how = await unsightOrUndo(assetKey);
+          if (how === 'retracted') log('Sighting withdrawn.', 'info');
+        } else {
+          await recordSighting(assetKey, 'mark');
+          log('Sighting recorded.', 'ok');
+        }
+        listsDirty = true;
+        renderCard();
+      });
+      const notifyBtn = cardEl.querySelector('.js-notify');
+      if (notifyBtn) notifyBtn.addEventListener('click', () => {
+        showNoteSheet({
+          title: 'Notify the group', withTag: true, placeholder: 'What should the group know?',
+          onSubmit: async (text, tag) => { await addNote(assetKey, text, tag); listsDirty = true; renderNotes(); },
+        });
+      });
+      const locSel = cardEl.querySelector('.js-loc-select');
+      if (locSel) locSel.addEventListener('change', () => applyLocation(locSel.value || null));
+      cardEl.querySelectorAll('[data-field]').forEach(el => {
+        el.addEventListener('change', () => saveField(el.dataset.field, el.value));
+      });
+      renderNotes();
+    }
+
+    c.refreshNotes = renderNotes;
+    renderCard();
   }
 
-  renderView();
+  const updateCount = () => {
+    if (!countEl) return;
+    // Index of the topmost card whose top is at/under the sticky banner line.
+    let idx = 0;
+    for (let i = 0; i < cards.length; i++) {
+      const r = cards[i].el.getBoundingClientRect();
+      const sr = scroll.getBoundingClientRect();
+      if (r.top - sr.top <= 80) idx = i; else break;
+    }
+    countEl.textContent = `${idx + 1} / ${cards.length}`;
+  };
+
+  // Small sets mount eagerly (perfectly smooth, no scroll jump); large sets
+  // mount lazily near the viewport and stay mounted.
+  if (cards.length <= 25) {
+    cards.forEach(mountCard);
+  } else {
+    io = new IntersectionObserver((ents) => {
+      ents.forEach(en => { if (en.isIntersecting) mountCard(cards[+en.target.dataset.idx]); });
+    }, { root: scroll, rootMargin: '800px 0px' });
+    cards.forEach(c => io.observe(c.el));
+    mountCard(cards[startIndex]);
+  }
+
+  scroll.addEventListener('scroll', () => { window.requestAnimationFrame(updateCount); }, { passive: true });
+  updateCount();
+
+  // Land on the tapped asset.
+  requestAnimationFrame(() => {
+    cards[startIndex].el.scrollIntoView({ block: 'start' });
+    updateCount();
+  });
 }
 
 function showItemsModal(session, restore) {
@@ -8832,7 +8879,9 @@ function showItemsModal(session, restore) {
     if (!row) return;
     const itemId = row.getAttribute('data-item-id');
     if (itemId == null) return;
-    openItemEditor(session.id, itemId);
+    const order = feedOrder.length ? feedOrder : [itemId];
+    const sequence = order.map(id => ({ sessionId: session.id, itemId: id }));
+    openItemEditor(session.id, itemId, sequence);
   }
   bodyEl.addEventListener('click', onItemRowActivate);
   bodyEl.addEventListener('keydown', (e) => {
@@ -8841,6 +8890,7 @@ function showItemsModal(session, restore) {
     }
   });
 
+  let feedOrder = [];   // flat itemId order of the current filtered+sorted view
   let searchTerm = (restore && restore.searchRaw) ? restore.searchRaw.trim().toLowerCase() : '';   // normalized; '' = no filter
   const stateFilters = new Set((restore && restore.stateFilters) || []);   // multi-select eye-state filters (union)
   wireStateChips(backdrop.querySelector('#items-chips'), stateFilters, () => rerender());
@@ -8905,6 +8955,9 @@ function showItemsModal(session, restore) {
         : 'No items match the active filters.'}</div>`;
       return;
     }
+    // Capture the flat, filtered+sorted order so the detail feed can scroll
+    // through exactly what's on screen, in this order.
+    feedOrder = filtered.flatMap(g => g.items.map(e => e.id));
     bodyEl.innerHTML = filtered.map(g => {
       const itemCount  = g.items.length;
       const noteCount  = g.items.reduce((n, e) => {
