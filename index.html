@@ -2212,7 +2212,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '134';
+  const LOCAL_VERSION = '135';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3001,6 +3001,9 @@ function updateNotifsBadge() {
   const n = NotesStore.openCount();
   el.textContent = n ? String(n) : '';
   el.style.display = n ? 'inline-flex' : 'none';
+}
+function clockGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
 }
 function planeGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20l-4-9l-9-4z"/></svg>`;
@@ -8566,6 +8569,63 @@ async function openItemForAsset(assetId) {
   openItemEditor(hit.sessionId, hit.itemId);
 }
 
+// ── Item history ─────────────────────────────────────────────────────────────
+// Every edit made to one asset, newest first — reports-spanning (the change
+// feed is keyed by asset, not report) and scoped to the current source
+// generation (from this source import up to the next one). Older events
+// survive in storage but leave the window once a new source arrives.
+function showItemHistory(assetKey, titleText) {
+  if (!assetKey) return;
+  const LBL = { model: 'Model', type: 'Category / type', serial: 'Serial', room: 'Room', notes: 'Notes', location: 'Location', disposition: 'Status' };
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  document.body.appendChild(backdrop);
+  const close = () => { document.removeEventListener('keydown', onKey); backdrop.remove(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+
+  const gen = currentSourceHash();
+  const events = effectiveEvents(assetKey)
+    .filter(ev => !ev.sourceHash || !gen || ev.sourceHash === gen)
+    .slice().reverse();
+
+  const eventHTML = (ev) => {
+    const m = GroupStore.getMember(ev.deviceId);
+    const ava = `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:${(m && m.color) || 'var(--line)'};font-size:14px;flex-shrink:0">${(m && m.emoji) || '?'}</span>`;
+    const diffs = Object.entries(ev.fields || {}).map(([f, v]) => {
+      const from = (v && v.from) ? escapeHTML(String(v.from)) : '—';
+      const to   = (v && v.to)   ? escapeHTML(String(v.to))   : '—';
+      return `<div style="font-size:13px;color:var(--ink);margin-top:2px"><span style="color:var(--dim)">${escapeHTML(LBL[f] || f)}:</span> ${from} <span style="color:var(--dim)">→</span> ${to}</div>`;
+    }).join('');
+    return `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:0.5px solid var(--line-soft)">
+        ${ava}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px"><span style="font-weight:700;color:var(--ink)">${escapeHTML((m && m.nickname) || 'Someone')}</span> <span style="color:var(--dim)">${relShort(ev.at)}</span>${ev.reportName ? ` <span style="color:var(--dim)">· in ${escapeHTML(ev.reportName)}</span>` : ''}</div>
+          ${diffs}
+        </div>
+      </div>`;
+  };
+
+  backdrop.innerHTML = `
+      <div class="modal items-modal">
+        <div class="modal-head items-modal-head">
+          <button class="modal-back" id="hist-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
+          <div class="items-modal-title">
+            <h3 style="display:flex;align-items:center;gap:8px">${clockGlyph('currentColor', 18)}History</h3>
+            <div class="items-modal-subtitle"><span class="origin-label">${escapeHTML(titleText || 'Item')} · #${escapeHTML(String(assetKey))}</span></div>
+          </div>
+        </div>
+        <div class="modal-body" style="padding:12px 18px">
+          ${events.length === 0
+            ? `<div class="items-empty">No edits yet.<br><span style="font-size:12px;color:var(--dim)">Changes to this item since the current source import will appear here.</span></div>`
+            : events.map(eventHTML).join('')}
+        </div>
+      </div>`;
+  backdrop.querySelector('#hist-close').addEventListener('click', close);
+}
+
 // ── Notifications center ─────────────────────────────────────────────────────
 // Tagged notes (= notifications) across all assets: search bar with a tag-
 // filter funnel, To do / Done segment tabs, newest on top. Untagged FYI
@@ -8841,10 +8901,32 @@ async function openItemEditor(sessionId, itemId, sequence) {
       // Refresh just the header row (name, pills, edit/view meta) — leaves
       // the field inputs untouched (blur already fired, so focus is gone).
       const head = cardEl.querySelector('.feed-card-head');
-      if (head) { const now = resolved(); head.innerHTML = itemRowHTML({ item: now, assetKey, id: itemId, displayNum: assetKey || itemId }); }
+      if (head) { const now = resolved(); head.innerHTML = itemRowHTML({ item: now, assetKey, id: itemId, displayNum: assetKey || itemId }, null, { feed: true }); wireEye(); }
       return true;
     }
 
+    function wireEye() {
+      const eyeBtn = cardEl.querySelector('.js-eye');
+      if (!eyeBtn) return;
+      eyeBtn.addEventListener('click', async () => {
+        if (sightedThisRound(assetKey)) {
+          const cur = Sightings.get(assetKey);
+          const u = _sightingUndo.get(assetKey);
+          if (cur && !cur.retracted && cur.seenBy !== DEVICE_ID && u && (Date.now() - u.at) < SIGHTING_UNDO_MS) {
+            const m = GroupStore.getMember(cur.seenBy);
+            const who = m ? `${m.emoji || ''} ${m.nickname || ''}`.trim() : 'a collaborator';
+            if (!confirm(`${who} also sighted this item in the meantime. Withdraw their sighting?`)) return;
+          }
+          const how = await unsightOrUndo(assetKey);
+          if (how === 'retracted') log('Sighting withdrawn.', 'info');
+        } else {
+          await recordSighting(assetKey, 'mark');
+          log('Sighting recorded.', 'ok');
+        }
+        listsDirty = true;
+        renderCard();
+      });
+    }
     async function applyLocation(newLoc) {
       const cur = resolved();
       const prev = AssetOverlay.get(assetKey);
@@ -8902,7 +8984,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
       const entry = { item: it, assetKey, id: itemId, displayNum: assetKey || itemId };
       cardEl.style.background = (assetKey && rowTint(assetKey)) || '';
       cardEl.innerHTML = `
-          <div class="feed-card-head">${itemRowHTML(entry)}</div>
+          <div class="feed-card-head">${itemRowHTML(entry, null, { feed: true })}</div>
           <div class="feed-fields" style="background:${assetKey ? fieldsTint(assetKey) : '#F5F7F9'}">
             ${assetKey ? `
             <div style="display:flex;gap:10px">
@@ -8911,8 +8993,8 @@ async function openItemEditor(sessionId, itemId, sequence) {
                 <input type="text" data-field="model" value="${escapeHTML(fieldVal('model'))}" autocomplete="off">
               </label>
               <label class="field" style="flex:0 0 auto;min-width:0;margin-bottom:12px">
-                <span>Seen</span>
-                <button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : (eyeState === 'never' ? 'Never seen or edited — tap to mark as seen' : 'Not seen this round — tap to mark as seen')}" style="height:46px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:0 14px;border:1px solid var(--line)${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 15)}<span style="font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;line-height:1">${eyeState === 'sighted' ? 'seen' : eyeState}</span></button>
+                <span>History</span>
+                <button class="js-history" type="button" title="View this item's full edit history" style="height:46px;display:inline-flex;align-items:center;justify-content:center;padding:0 16px;border:1px solid var(--line)">${clockGlyph('currentColor', 18)}</button>
               </label>
             </div>
             <div style="display:flex;gap:10px">
@@ -8957,28 +9039,15 @@ async function openItemEditor(sessionId, itemId, sequence) {
             ${roomPhotosHTML(roomPhotos)}
           </div>` : ''}`;
 
-      const eyeBtn = cardEl.querySelector('.js-eye');
-      if (eyeBtn) eyeBtn.addEventListener('click', async () => {
-        if (sightedThisRound(assetKey)) {
-          const cur = Sightings.get(assetKey);
-          const u = _sightingUndo.get(assetKey);
-          if (cur && !cur.retracted && cur.seenBy !== DEVICE_ID && u && (Date.now() - u.at) < SIGHTING_UNDO_MS) {
-            const m = GroupStore.getMember(cur.seenBy);
-            const who = m ? `${m.emoji || ''} ${m.nickname || ''}`.trim() : 'a collaborator';
-            if (!confirm(`${who} also sighted this item in the meantime. Withdraw their sighting?`)) return;
-          }
-          const how = await unsightOrUndo(assetKey);
-          if (how === 'retracted') log('Sighting withdrawn.', 'info');
-        } else {
-          await recordSighting(assetKey, 'mark');
-          log('Sighting recorded.', 'ok');
-        }
-        listsDirty = true;
-        renderCard();
-      });
+      wireEye();
       const addNote = cardEl.querySelector('.js-add-note');
       if (addNote) addNote.addEventListener('click', () => {
         showNotesOverlay(assetKey, () => { listsDirty = true; renderCard(); });
+      });
+      const histBtn = cardEl.querySelector('.js-history');
+      if (histBtn) histBtn.addEventListener('click', () => {
+        const now = resolved();
+        showItemHistory(assetKey, now.model || now.category || now.type || 'Item');
       });
       const locSel = cardEl.querySelector('.js-loc-select');
       if (locSel) locSel.addEventListener('change', () => applyLocation(locSel.value || null));
@@ -9387,7 +9456,8 @@ document.addEventListener('click', (e) => {
 // red = missing), then title + meta, with the display number tucked
 // in as a faint suffix to the title ("Monitor #1") so it's findable
 // without taking visual weight.
-function itemRowHTML(entry, sortMode) {
+function itemRowHTML(entry, sortMode, opts) {
+  opts = opts || {};
   const item  = entry.item;
   const title = item.model || item.category || item.type || 'Item';
   const noteCount = item.notes ? (Array.isArray(item.notes) ? item.notes.length : 1) : 0;
@@ -9404,10 +9474,16 @@ function itemRowHTML(entry, sortMode) {
   const disp    = assetLocation(entry.assetKey);
   const dStrike = !!(disp && LOCATIONS[disp].strike);
   const tint    = rowTint(entry.assetKey);
+  const eyeState = assetEyeState(entry.assetKey);
+  // In the detail feed the leading status circle is dropped (text shifts
+  // left) and an interactive eye toggle is placed at the far right instead.
+  const eyeBtn = (opts.feed && entry.assetKey)
+    ? `<button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : (eyeState === 'never' ? 'Never seen or edited — tap to mark as seen' : 'Not seen this round — tap to mark as seen')}" style="flex-shrink:0;height:44px;width:44px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:8px${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 18)}</button>`
+    : '';
 
   return `
-    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:center;cursor:pointer${tint ? ';background:' + tint : ''}">
-      ${disp ? locationIconHTML(disp) : eyeIconHTML(assetEyeState(entry.assetKey))}
+    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:center${opts.feed ? '' : ';cursor:pointer'}${tint ? ';background:' + tint : ''}">
+      ${opts.feed ? '' : (disp ? locationIconHTML(disp) : eyeIconHTML(eyeState))}
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
           <div style="font-size:15px;font-weight:600;color:var(--ink)${dStrike ? ';text-decoration:line-through;text-decoration-color:rgba(224,60,49,0.6);text-decoration-thickness:1.5px' : ''}">${escapeHTML(title)}</div>
@@ -9426,6 +9502,7 @@ function itemRowHTML(entry, sortMode) {
         ${lastEv ? metaLineHTML('edit', lastEv.deviceId, lastEv.at) : ''}
         ${sg ? metaLineHTML('sight', sg.seenBy, sg.seenAt) : ''}
       </div>` : ''}
+      ${eyeBtn}
     </div>`;
 }
 
