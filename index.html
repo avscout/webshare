@@ -2212,7 +2212,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '141';
+  const LOCAL_VERSION = '142';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -8466,11 +8466,19 @@ function showNotesOverlay(assetKey, onChange, opts) {
   document.body.appendChild(wrap);
   const sheet = wrap.querySelector('#notes-sheet');
   requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
+  // Push a history entry so the device/browser Back button closes the
+  // overlay and returns to the item-edit feed instead of leaving the page.
+  let _closedByPop = false;
   const close = () => {
+    window.removeEventListener('popstate', onPop);
     _notesOverlayRefresh = null;
     sheet.style.transform = 'translateY(100%)';
     setTimeout(() => wrap.remove(), 220);
+    if (!_closedByPop) { try { history.back(); } catch (e) {} }   // pop our pushed state
   };
+  const onPop = () => { _closedByPop = true; close(); };
+  try { history.pushState({ notesOverlay: true }, ''); } catch (e) {}
+  window.addEventListener('popstate', onPop);
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   wrap.querySelector('#notes-sheet-close').addEventListener('click', close);
 
@@ -9037,7 +9045,8 @@ async function openItemEditor(sessionId, itemId, sequence) {
               </label>
             </div>` : `${FIELDS.slice(0, 3).map(fieldRow).join('')}${fieldRow(FIELDS[3])}`}
           ${assetKey ? `
-          <div class="feed-actions" style="margin:2px 0 0">
+          <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:6px 0 6px">Notes</div>
+          <div class="feed-actions" style="margin:0">
             ${(() => {
               const all = NotesStore.all().filter(n => n.assetId === assetKey && !n.deleted);
               const tops = all.filter(n => !n.parentId);
