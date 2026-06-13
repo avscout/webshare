@@ -2212,7 +2212,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '132';
+  const LOCAL_VERSION = '134';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2714,17 +2714,32 @@ function rowFilterState(assetId) {
 }
 // Pastel row background per state — the list itself becomes the legend.
 // 'todo' (the neutral majority) deliberately stays white so color = signal.
-function rowTint(assetId) {
+// Base RGB of an asset's status pastel, or null when it's neutral.
+function statusRGB(assetId) {
   const d = assetLocation(assetId);
-  if (d) {
-    const fam = LOCATIONS[d].family;
-    return fam === 'storage' ? 'rgba(124,58,237,0.05)'
-         : 'rgba(224,60,49,0.05)';
-  }
+  if (d) return LOCATIONS[d].family === 'storage' ? [124, 58, 237] : [224, 60, 49];
   const st = assetEyeState(assetId);
-  if (st === 'sighted') return 'rgba(0,166,214,0.05)';
-  if (st === 'never')   return 'rgba(245,158,11,0.07)';
-  return '';
+  if (st === 'sighted') return [0, 166, 214];
+  if (st === 'never')   return [245, 158, 11];
+  return null;
+}
+// Row / banner / card tint: the SAME pale pastel as the overview, but
+// flattened over white into a SOLID color (no alpha). Solid means stacked
+// layers — card under banner under the add-note strip — never compound
+// into a darker band. Opacity is reserved for the .feed-fields panel.
+function rowTint(assetId) {
+  const rgb = statusRGB(assetId);
+  if (!rgb) return '';
+  const a = (assetEyeState(assetId) === 'never' && !assetLocation(assetId)) ? 0.07 : 0.05;
+  const f = (c) => Math.round(255 + (c - 255) * a);
+  return `rgb(${f(rgb[0])}, ${f(rgb[1])}, ${f(rgb[2])})`;
+}
+// The .feed-fields panel DOES use opacity: a stronger translucent pastel of
+// the status, sitting on the solid card so it reads as a distinct surface.
+// Neutral items keep the original light-gray panel.
+function fieldsTint(assetId) {
+  const rgb = statusRGB(assetId);
+  return rgb ? `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.13)` : '#F5F7F9';
 }
 
 // The state-filter pill row. Multi-select union; "All" resets. The pills
@@ -3120,7 +3135,7 @@ function noteRowHTML(n, withAsset) {
               </div>
               ${delBtn(n.noteId)}
             </div>
-            <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer">Reply</button>
+            <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
             ${repliesBlock}
           </div>
         </div>
@@ -8888,7 +8903,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
       cardEl.style.background = (assetKey && rowTint(assetKey)) || '';
       cardEl.innerHTML = `
           <div class="feed-card-head">${itemRowHTML(entry)}</div>
-          <div class="feed-fields">
+          <div class="feed-fields" style="background:${assetKey ? fieldsTint(assetKey) : '#F5F7F9'}">
             ${assetKey ? `
             <div style="display:flex;gap:10px">
               <label class="field" style="flex:1;min-width:0;margin-bottom:12px">
@@ -8897,7 +8912,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
               </label>
               <label class="field" style="flex:0 0 auto;min-width:0;margin-bottom:12px">
                 <span>Seen</span>
-                <button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : 'Tap to mark as seen'}" style="height:46px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 16px;border:1px solid var(--line)${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 16)}</button>
+                <button class="js-eye" title="${eyeState === 'sighted' ? 'Seen this round — tap to undo or withdraw' : (eyeState === 'never' ? 'Never seen or edited — tap to mark as seen' : 'Not seen this round — tap to mark as seen')}" style="height:46px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:0 14px;border:1px solid var(--line)${eyeState === 'sighted' ? ';background:rgba(0,166,214,0.10);border-color:rgba(0,107,145,0.5);color:#006B91' : ''}">${eyeGlyph(eyeState === 'sighted', 'currentColor', 15)}<span style="font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;line-height:1">${eyeState === 'sighted' ? 'seen' : eyeState}</span></button>
               </label>
             </div>
             <div style="display:flex;gap:10px">
