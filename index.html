@@ -899,6 +899,13 @@
   .notes-tag-chip[style*="--c"] { color: var(--c); border-color: color-mix(in srgb, var(--c) 40%, var(--line)); }
   .notes-tag-chip.active { background: var(--bg-subtle); border-color: var(--dim); color: var(--ink); }
   .notes-tag-chip[style*="--c"].active { background: color-mix(in srgb, var(--c) 12%, #fff); border-color: var(--c); color: var(--c); }
+  .status-chip {
+    flex-shrink: 0; min-height: 0; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fff; color: var(--c, var(--dim));
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    letter-spacing: .04em; cursor: pointer; white-space: nowrap; text-transform: uppercase;
+  }
+  .status-chip.active { background: color-mix(in srgb, var(--c) 12%, #fff); border-color: var(--c); color: var(--c); }
   /* Note delete + send: outlined buttons with a tap-flash. */
   .note-del {
     flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
@@ -2212,7 +2219,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '142';
+  const LOCAL_VERSION = '144';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2949,13 +2956,24 @@ const NotesStore = {
     return rec;
   },
 };
-async function addNote(assetId, text, tag, parentId) {
+// A reply can resolve the action it answers. Its status drives the parent
+// note's state: done/cancelled close it, postponed defers it, fyi is a
+// plain comment.
+const REPLY_STATUSES = {
+  fyi:       { label: 'FYI',       color: '#6b7280' },
+  done:      { label: 'Done',      color: '#047857' },
+  postponed: { label: 'Postponed', color: '#B45309' },
+  cancelled: { label: 'Cancelled', color: '#DC2626' },
+  request:   { label: 'Request',   color: '#2563EB' },
+};
+async function addNote(assetId, text, tag, parentId, status) {
   const rec = {
     noteId   : 'note-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     assetId,
     parentId : parentId || null,   // set = this record is a COMMENT on that note
     text     : (text || '').trim(),
     tag      : (tag && NOTE_TAGS.includes(tag)) ? tag : null,
+    status   : (status && REPLY_STATUSES[status]) ? status : null,   // only meaningful on replies
     createdAt: Date.now(), createdBy: DEVICE_ID,
     done: false, doneAt: null, doneBy: null,
     updatedAt: Date.now(), deviceId: DEVICE_ID,
@@ -2964,6 +2982,19 @@ async function addNote(assetId, text, tag, parentId) {
   if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
   updateNotifsBadge();
   return rec;
+}
+// Resolve a parent action from a reply status: done & cancelled close it
+// (done=true so it leaves "to do"); postponed defers (still open); fyi is
+// a no-op.
+async function setNoteState(noteId, state) {
+  const cur = NotesStore.get(noteId);
+  if (!cur || !REPLY_STATUSES[state] || state === 'fyi') return;
+  if (cur.state) return;   // a status, once given, can't be set again
+  const done = (state === 'done' || state === 'cancelled');   // postponed/request stay open
+  const rec = { ...cur, state, done, doneAt: done ? Date.now() : null, doneBy: done ? DEVICE_ID : null, updatedAt: Date.now(), deviceId: DEVICE_ID };
+  await NotesStore.put(rec);
+  if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
+  updateNotifsBadge();
 }
 // Delete a note and, if it's a top-level note, all of its replies. Deletion
 // is a tombstone (deleted:true) so it converges under LWW like any edit.
@@ -3004,6 +3035,9 @@ function updateNotifsBadge() {
 }
 function noteGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>`;
+}
+function replyArrowGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a4 4 0 0 1 4 4v3"/></svg>`;
 }
 function speechGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
@@ -3081,9 +3115,12 @@ const NOTE_TAG_COLORS = {
 };
 function noteTagColor(tag) { return NOTE_TAG_COLORS[tag] || '#C2410C'; }
 function noteTagPillHTML(tag) {
-  if (!tag) return '';
+  if (!tag) {
+    // FYI (no action): a neutral balloon pill.
+    return `<span style="display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${speechGlyph('currentColor', 10)}FYI</span>`;
+  }
   const c = noteTagColor(tag);
-  return `<span style="display:inline-flex;align-items:center;border:1px solid ${c}80;color:${c};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${escapeHTML(tag)}</span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;border:1px solid ${c}80;color:${c};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${bellGlyph('currentColor', 10)}${escapeHTML(tag)}</span>`;
 }
 // Small open-notification counter for list rows.
 function noteBellHTML(assetId) {
@@ -3114,12 +3151,12 @@ function noteRowHTML(n, withAsset) {
           <div style="display:flex;align-items:flex-start;gap:8px;margin-top:10px">
             ${ava(cm.createdBy, 26)}
             <div style="flex:1;min-width:0">
-              <div style="font-size:12px"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span></div>
+              <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
               <div style="font-size:13px;color:var(--ink);margin-top:1px">${escapeHTML(cm.text)}</div>
             </div>
             ${delBtn(cm.noteId)}
           </div>`;
-  const replyToggle = (label) => `<button type="button" class="note-replies-toggle" data-note="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:8px;margin-left:34px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer">${label}</button>`;
+  const replyToggle = (label) => `<button type="button" class="note-replies-toggle" data-note="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:8px;margin-left:34px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">${label}</button>`;
   let repliesBlock = '';
   if (replyList.length) {
     repliesBlock = _expandedReplies.has(n.noteId)
@@ -3127,7 +3164,11 @@ function noteRowHTML(n, withAsset) {
       : replyToggle(`View ${replyList.length} more ${replyList.length === 1 ? 'reply' : 'replies'}`);
   }
   return `
-      <div data-note-row="${escapeHTML(n.noteId)}" data-asset="${escapeHTML(String(n.assetId))}" style="padding:12px;margin-bottom:8px;border-radius:10px;border:1px solid ${c ? c + '33' : 'var(--line-soft)'};background:${c ? c + '0D' : 'var(--bg-subtle)'};touch-action:pan-y${withAsset ? ';cursor:pointer' : ''}">
+      <div class="note-swipe" style="position:relative;border-radius:10px;margin-bottom:8px;overflow:hidden">
+        <div style="position:absolute;inset:0;display:flex;align-items:center;padding-left:18px;background:var(--bg-subtle);pointer-events:none">
+          <span style="width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center">${replyArrowGlyph('currentColor', 19)}</span>
+        </div>
+      <div data-note-row="${escapeHTML(n.noteId)}" data-asset="${escapeHTML(String(n.assetId))}" style="position:relative;padding:12px;border-radius:10px;border:1px solid ${c ? c + '33' : 'var(--line-soft)'};background:${c ? `color-mix(in srgb, ${c} 7%, #fff)` : 'var(--bg-subtle)'};touch-action:pan-y;will-change:transform${withAsset ? ';cursor:pointer' : ''}">
         ${assetLine}
         <div style="display:flex;align-items:flex-start;gap:10px">
           ${ava(n.createdBy, 34)}
@@ -3138,7 +3179,9 @@ function noteRowHTML(n, withAsset) {
                   <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
                   <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
                   ${noteTagPillHTML(n.tag)}
-                  ${n.done ? '<span style="font-size:11px;color:var(--dim)">· done</span>' : ''}
+                  ${(n.state && REPLY_STATUSES[n.state] && n.state !== 'fyi')
+                    ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[n.state].color};border:1px solid ${REPLY_STATUSES[n.state].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[n.state].label}</span>`
+                    : (n.done ? '<span style="font-size:11px;color:var(--dim)">· done</span>' : '')}
                 </div>
                 <div style="font-size:14px;color:var(--ink);margin-top:2px;${n.done ? 'text-decoration:line-through;opacity:.55' : ''}">${escapeHTML(n.text)}</div>
               </div>
@@ -3148,6 +3191,7 @@ function noteRowHTML(n, withAsset) {
             ${repliesBlock}
           </div>
         </div>
+      </div>
       </div>`;
 }
 
@@ -3178,9 +3222,11 @@ function wireNoteRows(container, rerender, opts) {
       }, 160);
     });
   });
-  // Swipe to check off: right = done, left (on a done note) = back to
-  // to-do. Horizontal intent only — vertical scrolling stays untouched
-  // (touch-action: pan-y on the row). A swipe suppresses the click-through.
+  // Swipe RIGHT to reply: dragging reveals a reply circle tucked behind the
+  // row on the left; releasing past the threshold opens the reply composer.
+  // Left swipes are ignored. Horizontal intent only — vertical scroll is
+  // untouched (touch-action: pan-y). A swipe suppresses the click-through.
+  const REVEAL = 72;
   container.querySelectorAll('[data-note-row]').forEach(row => {
     let x0 = null, y0 = null, dx = 0, horiz = false, swiped = false;
     row.addEventListener('touchstart', (e) => {
@@ -3191,22 +3237,22 @@ function wireNoteRows(container, rerender, opts) {
     row.addEventListener('touchmove', (e) => {
       if (x0 === null) return;
       const t = e.touches[0];
-      dx = t.clientX - x0;
-      if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) horiz = true;
-      if (horiz) row.style.transform = `translateX(${dx}px)`;
+      dx = Math.max(0, t.clientX - x0);   // right only
+      if (!horiz && dx > 12 && dx > Math.abs(t.clientY - y0)) horiz = true;
+      if (horiz) row.style.transform = `translateX(${Math.min(dx, REVEAL + 16)}px)`;
     }, { passive: true });
-    row.addEventListener('touchend', async () => {
+    row.addEventListener('touchend', () => {
       if (x0 === null) return;
-      const n = NotesStore.get(row.dataset.noteRow);
-      const fire = !!(horiz && n && (!n.done ? dx > 70 : dx < -70));
+      const fire = horiz && dx > REVEAL * 0.7;
       if (horiz) { swiped = true; setTimeout(() => { swiped = false; }, 350); }
-      row.style.transition = 'transform .15s';
+      row.style.transition = 'transform .18s';
       row.style.transform = '';
       x0 = null;
-      if (fire) { await toggleNoteDone(n.noteId); rerender(); }
+      if (fire) {
+        const n = NotesStore.get(row.dataset.noteRow);
+        if (n) replyTo(n, rerender);
+      }
     });
-    // Tapping the row (not a control) jumps to the item panel when the
-    // hosting surface provides an opener (the Notifications center does).
     if (opts && opts.onOpen) {
       row.addEventListener('click', (e) => {
         if (swiped) return;
@@ -3218,17 +3264,25 @@ function wireNoteRows(container, rerender, opts) {
   container.querySelectorAll('.note-comment-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const parent = NotesStore.get(btn.dataset.comment);
-      if (!parent) return;
-      showNoteSheet({
-        title: 'Reply',
-        withTag: false,
-        placeholder: 'Share what you know or did…',
-        onSubmit: async (text) => {
-          await addNote(parent.assetId, text, null, parent.noteId);
-          rerender();
-        },
-      });
+      if (parent) replyTo(parent, rerender);
     });
+  });
+}
+// Reply to a note. FYI parents (and already-resolved actions) get a plain
+// comment; an open action offers Done / Postponed / Cancelled / Request
+// (blank by default — a status is optional and, once given, locks).
+function replyTo(parent, rerender) {
+  const isOpenAction = !!parent.tag && !parent.state;
+  showNoteSheet({
+    title: 'Reply',
+    withTag: false,
+    statusOptions: isOpenAction ? ['done', 'postponed', 'cancelled', 'request'] : [],
+    placeholder: 'Share what you know or did…',
+    onSubmit: async (text, status) => {
+      await addNote(parent.assetId, text, null, parent.noteId, status);
+      if (status) await setNoteState(parent.noteId, status);
+      rerender();
+    },
   });
 }
 
@@ -8453,7 +8507,9 @@ function showNotesOverlay(assetKey, onChange, opts) {
       <div id="notes-sheet-list" style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 18px"></div>
       <div style="flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#fff">
         <div class="notes-tagbar" id="notes-tagbar">
+          <span style="flex-shrink:0;display:inline-flex;align-items:center;gap:3px;color:var(--dim);font-size:11px;font-weight:700">${noteGlyph('currentColor', 13)}:</span>
           ${chip('', 'FYI', '')}
+          <span style="flex-shrink:0;display:inline-flex;align-items:center;gap:3px;color:var(--dim);font-size:11px;font-weight:700;margin-left:4px">${bellGlyph('currentColor', 13)}:</span>
           ${NOTE_TAGS.map(t => chip(t, t[0].toUpperCase() + t.slice(1), noteTagColor(t))).join('')}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
@@ -8520,7 +8576,7 @@ function showNotesOverlay(assetKey, onChange, opts) {
 
 // Slide-up sheet for writing a note (Notify) or a comment: one text line,
 // an optional tag select, Enter or Send posts; tap the scrim to cancel.
-function showNoteSheet({ title, withTag, placeholder, onSubmit }) {
+function showNoteSheet({ title, withTag, statusOptions, placeholder, onSubmit }) {
   const wrap = document.createElement('div');
   const meSheet = GroupStore.getMember(DEVICE_ID);
   const meAva = `<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:${(meSheet && meSheet.color) || 'var(--line)'};font-size:17px;flex-shrink:0">${(meSheet && meSheet.emoji) || '?'}</span>`;
@@ -8533,6 +8589,10 @@ function showNoteSheet({ title, withTag, placeholder, onSubmit }) {
         <option value="">No tag — just an FYI</option>
         ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
       </select>` : ''}
+      ${(statusOptions && statusOptions.length) ? `
+      <div class="notes-tagbar" id="sheet-status" style="margin-bottom:10px">
+        ${statusOptions.map(k => `<button type="button" class="status-chip" data-status="${k}" style="--c:${REPLY_STATUSES[k].color}">${REPLY_STATUSES[k].label}</button>`).join('')}
+      </div>` : ''}
       <div style="display:flex;align-items:center;gap:8px">
         ${meAva}
         <input id="sheet-text" type="text" placeholder="${escapeHTML(placeholder || '')}" autocomplete="off" style="flex:1;min-width:0">
@@ -8546,12 +8606,24 @@ function showNoteSheet({ title, withTag, placeholder, onSubmit }) {
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   const inp = wrap.querySelector('#sheet-text');
   const sendBtn = wrap.querySelector('#sheet-send');
+  let selectedStatus = '';   // blank by default — a reply needs no status
+  const statusBar = wrap.querySelector('#sheet-status');
+  if (statusBar) statusBar.querySelectorAll('.status-chip').forEach(b => {
+    b.addEventListener('click', () => {
+      // Toggle: tapping the active chip clears it back to blank.
+      const wasActive = b.classList.contains('active');
+      statusBar.querySelectorAll('.status-chip').forEach(x => x.classList.remove('active'));
+      if (wasActive) { selectedStatus = ''; }
+      else { selectedStatus = b.dataset.status; b.classList.add('active'); }
+    });
+  });
+  const hasStatus = !!(statusOptions && statusOptions.length);
   const send = async () => {
     if (!inp.value.trim()) return;
     sendBtn.classList.add('flash-cyan');
     setTimeout(() => sendBtn.classList.remove('flash-cyan'), 450);
     const tagSel = wrap.querySelector('#sheet-tag');
-    await onSubmit(inp.value, tagSel ? tagSel.value : null);
+    await onSubmit(inp.value, hasStatus ? (selectedStatus || null) : (tagSel ? tagSel.value : null));
     close();
   };
   sendBtn.addEventListener('click', send);
@@ -9059,8 +9131,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
               const meta = counts
                 ? `<span style="margin-left:auto;display:inline-flex;align-items:center;gap:9px;color:var(--dim);font-size:12px;flex-shrink:0">${counts}${lastTs ? `<span>· ${relShort(lastTs)}</span>` : ''}</span>`
                 : '';
-              return `<span class="js-view-notes" title="Read notes" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:40px;min-height:46px;color:var(--dim);cursor:pointer">${speechGlyph('currentColor', 22)}</span>
-            <div class="js-add-note" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 14px;min-height:46px;font-size:14px;color:var(--dim)"><span>Add a note…</span>${meta}</div>`;
+              return `<div class="js-add-note" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 14px;min-height:46px;font-size:14px;color:var(--dim)"><span>Add and view notes…</span>${meta}</div>`;
             })()}
           </div>` : ''}
           </div>
@@ -9073,9 +9144,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
       wireEye();
       const onNotesChange = () => { listsDirty = true; renderCard(); };
       const addNote = cardEl.querySelector('.js-add-note');
-      if (addNote) addNote.addEventListener('click', () => showNotesOverlay(assetKey, onNotesChange, { focus: true }));
-      const viewNotes = cardEl.querySelector('.js-view-notes');
-      if (viewNotes) viewNotes.addEventListener('click', () => showNotesOverlay(assetKey, onNotesChange, { focus: false }));
+      if (addNote) addNote.addEventListener('click', () => showNotesOverlay(assetKey, onNotesChange, { focus: false }));
       const histBtn = cardEl.querySelector('.js-history');
       if (histBtn) histBtn.addEventListener('click', () => {
         const now = resolved();
