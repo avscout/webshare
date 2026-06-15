@@ -870,9 +870,8 @@
   }
   .feed-card { padding: 0 0 20px; border-bottom: 8px solid var(--bg-subtle); }
   .feed-card:last-child { border-bottom: none; }
-  .feed-card-head { margin-bottom: 12px; }
-  .feed-card .feed-fields,
-  .feed-card .feed-actions { margin-left: 16px; margin-right: 16px; }
+  .feed-card-head { margin-bottom: 10px; }
+  .feed-card .feed-actions { margin-left: 0; margin-right: 0; }
   .feed-actions { display: flex; gap: 8px; margin: 4px 16px 14px; }
   /* Group banner — shared by the items list and the source list. */
   .group-banner { display: flex; align-items: center; gap: 6px; padding: 14px 16px 6px; }
@@ -885,7 +884,7 @@
     color: var(--dim); text-transform: uppercase;
     background: var(--bg-subtle); padding: 3px 10px; border-radius: 999px;
   }
-  .feed-fields { background: #F5F7F9; border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 14px 14px; margin: 0 0 14px; }
+  .feed-fields { background: #F5F7F9; padding: 14px 16px; }
   /* Notes composer: horizontally scrollable action chips, FYI default. */
   .notes-tagbar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
   .notes-tagbar::-webkit-scrollbar { display: none; }
@@ -2219,7 +2218,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '153';
+  const LOCAL_VERSION = '156';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2999,6 +2998,67 @@ function noteResolution(noteId) {
   return null;
 }
 function noteCompleted(noteId) { return noteResolution(noteId) != null; }
+// Set/clear a note's notification tag (one per note; null = FYI default).
+async function setNoteTag(noteId, tag) {
+  const cur = NotesStore.get(noteId);
+  if (!cur) return;
+  const rec = { ...cur, tag: (tag && NOTE_TAGS.includes(tag)) ? tag : null, updatedAt: Date.now(), deviceId: DEVICE_ID };
+  await NotesStore.put(rec);
+  if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
+  updateNotifsBadge();
+}
+// Kebab menu for a note: Notify (set/change the tag) or Delete.
+function showNoteMenu(note, rerender) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(15,23,42,0.18);display:flex;flex-direction:column;justify-content:flex-end;align-items:center';
+  wrap.innerHTML = `
+    <div id="nm-sheet" style="width:100%;max-width:480px;background:#fff;border-radius:14px 14px 0 0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .2s ease-out">
+      <button id="nm-notify" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:none;padding:14px 16px;font-family:var(--sans);font-size:15px;font-weight:600;color:var(--ink);cursor:pointer;text-align:left">${bellGlyph('currentColor', 18)}Notify</button>
+      <button id="nm-delete" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:none;padding:14px 16px;font-family:var(--sans);font-size:15px;font-weight:600;color:var(--warn);cursor:pointer;text-align:left">${trashGlyph('currentColor', 18)}Delete</button>
+    </div>`;
+  document.body.appendChild(wrap);
+  const sheet = wrap.querySelector('#nm-sheet');
+  requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
+  const close = () => { sheet.style.transform = 'translateY(100%)'; setTimeout(() => wrap.remove(), 200); };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector('#nm-notify').addEventListener('click', () => { close(); showNotifySheet(note, rerender); });
+  wrap.querySelector('#nm-delete').addEventListener('click', () => {
+    close();
+    setTimeout(async () => { if (confirm('Delete this note and its replies?')) { await deleteNote(note.noteId); rerender(); } }, 140);
+  });
+}
+// Notify sheet: pick one RE-tag (toggle to clear back to FYI default).
+function showNotifySheet(note, rerender) {
+  let selected = note.tag || '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(15,23,42,0.18);display:flex;flex-direction:column;justify-content:flex-end;align-items:center';
+  wrap.innerHTML = `
+    <div id="nt-sheet" style="width:100%;max-width:480px;background:#fff;border-radius:14px 14px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .2s ease-out">
+      <div style="display:flex;align-items:center;gap:8px;margin:0 4px 4px">
+        ${bellGlyph('currentColor', 17)}<div style="font-size:14px;font-weight:700;color:var(--ink);flex:1">Notify</div>
+        <button id="nt-close" aria-label="Close" style="background:none;border:none;font-size:22px;line-height:1;color:var(--dim);cursor:pointer;padding:0 4px">×</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin:0 4px 10px">Pick a notification — tap it again to clear (default is FYI).</div>
+      <div class="notes-tagbar" id="nt-bar">
+        ${NOTE_TAGS.map(t => `<button type="button" class="notes-tag-chip${t === selected ? ' active' : ''}" data-tag="${t}" style="--c:${noteTagColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const sheet = wrap.querySelector('#nt-sheet');
+  requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
+  const close = () => { sheet.style.transform = 'translateY(100%)'; setTimeout(() => wrap.remove(), 200); };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector('#nt-close').addEventListener('click', close);
+  wrap.querySelector('#nt-bar').querySelectorAll('.notes-tag-chip').forEach(b => {
+    b.addEventListener('click', async () => {
+      const tag = b.dataset.tag;
+      selected = (selected === tag) ? '' : tag;   // toggle off → FYI
+      await setNoteTag(note.noteId, selected || null);
+      rerender();
+      close();
+    });
+  });
+}
 // Delete a note and, if it's a top-level note, all of its replies. Deletion
 // is a tombstone (deleted:true) so it converges under LWW like any edit.
 // Anyone may delete anyone's note — a shared field log, not private posts.
@@ -3034,6 +3094,9 @@ function replyArrowGlyph(c, z) {
 }
 function speechGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+}
+function kebabGlyph(c, z) {
+  return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="${c}"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>`;
 }
 function clockGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
@@ -3163,9 +3226,10 @@ function noteRowHTML(n, withAsset) {
                 <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
                 <div style="font-size:13px;color:var(--ink);margin-top:1px">${escapeHTML(cm.text)}</div>
               </div>
+              <button type="button" class="reply-del" data-del="${escapeHTML(cm.noteId)}" aria-label="Delete reply" style="flex-shrink:0;background:none;border:none;padding:4px 2px;min-height:0;color:var(--dim);cursor:pointer">${trashGlyph('currentColor', 15)}</button>
             </div>
           </div>`;
-  const replyToggle = (label) => `<button type="button" class="note-replies-toggle" data-note="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:8px;margin-left:34px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">${label}</button>`;
+  const replyToggle = (label) => `<button type="button" class="note-replies-toggle" data-note="${escapeHTML(n.noteId)}" style="display:block;width:100%;text-align:left;background:none;border:none;margin-top:8px;padding:4px 0 4px 44px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">${label}</button>`;
   let repliesBlock = '';
   if (replyList.length) {
     repliesBlock = _expandedReplies.has(n.noteId)
@@ -3192,6 +3256,7 @@ function noteRowHTML(n, withAsset) {
             <div style="font-size:14px;color:var(--ink);margin-top:2px;${(() => { const r = noteResolution(n.noteId); return (r && (r.status === 'done' || r.status === 'cancelled')) ? 'text-decoration:line-through;opacity:.55' : ''; })()}">${escapeHTML(n.text)}</div>
             <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
           </div>
+          <button type="button" class="note-kebab" data-kebab="${escapeHTML(n.noteId)}" aria-label="Note options" style="flex-shrink:0;background:none;border:none;padding:4px 2px;min-height:0;color:var(--dim);cursor:pointer">${kebabGlyph('currentColor', 18)}</button>
         </div>
         ${repliesBlock ? `<div style="margin-top:8px">${repliesBlock}</div>` : ''}
       </div>
@@ -3215,22 +3280,36 @@ function wireNoteRows(container, rerender, opts) {
   // On a reply: LEFT pulls just that slice aside to delete it; RIGHT moves
   // the WHOLE block (same as the parent's reply swipe). The reply handler
   // owns both so it drives either the slice or the block element directly.
+  // Shared across handlers: suppress the click-through after a swipe or a
+  // long-press so those gestures don't also fire the tap-to-reply.
+  let suppressClick = false;
+  const LONG_PRESS_MS = 1000;
   const REVEAL_R = 64, REVEAL_RIGHT = 72;
   container.querySelectorAll('[data-reply-row]').forEach(row => {
     const block = row.closest('[data-note-row]');
-    let x0 = null, y0 = null, dx = 0, horiz = false, dir = 0;   // dir: -1 slice, +1 block
+    let x0 = null, y0 = null, dx = 0, horiz = false, dir = 0, lp = null, longPressed = false;
+    const clearLP = () => { if (lp) { clearTimeout(lp); lp = null; } };
     row.addEventListener('touchstart', (e) => {
       e.stopPropagation();   // the parent-row handler must not also fire
-      const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false; dir = 0;
+      if (e.target.closest('button, a, input, select')) { x0 = null; return; }   // let the trash button work
+      const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false; dir = 0; longPressed = false;
       row.style.transition = ''; if (block) block.style.transition = '';
+      clearLP();
+      lp = setTimeout(() => {
+        longPressed = true; suppressClick = true; setTimeout(() => { suppressClick = false; }, 600);
+        const cm = NotesStore.get(row.dataset.replyRow);
+        if (cm) setTimeout(async () => { if (confirm('Delete this reply?')) { await deleteNote(cm.noteId); rerender(); } }, 10);
+      }, LONG_PRESS_MS);
     }, { passive: true });
     row.addEventListener('touchmove', (e) => {
       if (x0 === null) return;
       e.stopPropagation();
       const t = e.touches[0];
       dx = t.clientX - x0;
+      if (Math.abs(dx) > 10 || Math.abs(t.clientY - y0) > 10) clearLP();   // movement cancels long-press
       if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) { horiz = true; dir = dx < 0 ? -1 : 1; }
       if (horiz) {
+        suppressClick = true;
         if (dir < 0) row.style.transform = `translateX(${Math.max(dx, -(REVEAL_R + 16))}px)`;            // slice
         else if (block) block.style.transform = `translateX(${Math.min(dx, REVEAL_RIGHT + 16)}px)`;       // whole block
       }
@@ -3238,11 +3317,14 @@ function wireNoteRows(container, rerender, opts) {
     row.addEventListener('touchend', (e) => {
       if (x0 === null) return;
       e.stopPropagation();
+      clearLP();
       const delFire   = horiz && dir < 0 && dx < -REVEAL_R * 0.7;
       const replyFire = horiz && dir > 0 && dx >  REVEAL_RIGHT * 0.7;
       row.style.transition = 'transform .18s'; row.style.transform = '';
       if (block) { block.style.transition = 'transform .18s'; block.style.transform = ''; }
+      if (horiz) setTimeout(() => { suppressClick = false; }, 350);
       x0 = null;
+      if (longPressed) { longPressed = false; return; }
       const cm = NotesStore.get(row.dataset.replyRow);
       if (replyFire && cm) { const parent = NotesStore.get(cm.parentId); if (parent) replyTo(parent, rerender); }
       else if (delFire && cm) {
@@ -3256,45 +3338,72 @@ function wireNoteRows(container, rerender, opts) {
   // untouched (touch-action: pan-y). A swipe suppresses the click-through.
   const REVEAL = 72;
   container.querySelectorAll('[data-note-row]').forEach(row => {
-    let x0 = null, y0 = null, dx = 0, horiz = false, swiped = false;
+    let x0 = null, y0 = null, dx = 0, horiz = false, lp = null, longPressed = false;
+    const clearLP = () => { if (lp) { clearTimeout(lp); lp = null; } };
     row.addEventListener('touchstart', (e) => {
+      if (e.target.closest('button, a, input, select')) { x0 = null; return; }   // let the kebab/buttons work
       const t = e.touches[0];
-      x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false;
+      x0 = t.clientX; y0 = t.clientY; dx = 0; horiz = false; longPressed = false;
       row.style.transition = '';
+      clearLP();
+      lp = setTimeout(() => {
+        longPressed = true; suppressClick = true; setTimeout(() => { suppressClick = false; }, 600);
+        const n = NotesStore.get(row.dataset.noteRow);
+        if (n) setTimeout(async () => { if (confirm('Delete this note and its replies?')) { await deleteNote(n.noteId); rerender(); } }, 10);
+      }, LONG_PRESS_MS);
     }, { passive: true });
     row.addEventListener('touchmove', (e) => {
       if (x0 === null) return;
       const t = e.touches[0];
       dx = t.clientX - x0;   // right = reply, left = delete
+      if (Math.abs(dx) > 10 || Math.abs(t.clientY - y0) > 10) clearLP();
       if (!horiz && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(t.clientY - y0)) horiz = true;
-      if (horiz) row.style.transform = `translateX(${Math.max(-(REVEAL + 16), Math.min(dx, REVEAL + 16))}px)`;
+      if (horiz) { suppressClick = true; row.style.transform = `translateX(${Math.max(-(REVEAL + 16), Math.min(dx, REVEAL + 16))}px)`; }
     }, { passive: true });
     row.addEventListener('touchend', () => {
       if (x0 === null) return;
+      clearLP();
       const replyFire = horiz && dx > REVEAL * 0.7;
       const delFire   = horiz && dx < -REVEAL * 0.7;
-      if (horiz) { swiped = true; setTimeout(() => { swiped = false; }, 350); }
+      if (horiz) setTimeout(() => { suppressClick = false; }, 350);
       row.style.transition = 'transform .18s';
       row.style.transform = '';
       x0 = null;
+      if (longPressed) { longPressed = false; return; }
       const n = NotesStore.get(row.dataset.noteRow);
       if (replyFire && n) replyTo(n, rerender);
       else if (delFire && n) {
         setTimeout(async () => { if (confirm('Delete this note and its replies?')) { await deleteNote(n.noteId); rerender(); } }, 60);
       }
     });
-    if (opts && opts.onOpen) {
-      row.addEventListener('click', (e) => {
-        if (swiped) return;
-        if (e.target.closest('input, button, select, a, [data-del]')) return;
-        opts.onOpen(row.dataset.asset);
-      });
-    }
+    // Tap to reply (notes overlay) or to open the item (Notifications center).
+    // Buttons and the replies toggle keep their own behavior.
+    row.addEventListener('click', (e) => {
+      if (suppressClick) return;
+      if (e.target.closest('button, .note-replies-toggle, input, select, a')) return;
+      if (opts && opts.onOpen) { opts.onOpen(row.dataset.asset); return; }
+      const n = NotesStore.get(row.dataset.noteRow);
+      if (n) replyTo(n, rerender);
+    });
   });
   container.querySelectorAll('.note-comment-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const parent = NotesStore.get(btn.dataset.comment);
       if (parent) replyTo(parent, rerender);
+    });
+  });
+  container.querySelectorAll('.note-kebab').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const note = NotesStore.get(btn.dataset.kebab);
+      if (note) showNoteMenu(note, rerender);
+    });
+  });
+  container.querySelectorAll('.reply-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.del;
+      setTimeout(async () => { if (confirm('Delete this reply?')) { await deleteNote(id); rerender(); } }, 10);
     });
   });
 }
@@ -8536,9 +8645,7 @@ function showNotesOverlay(assetKey, onChange, opts) {
       <div id="notes-sheet-list" style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 18px"></div>
       <div style="flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#fff">
         <div class="notes-tagbar" id="notes-tagbar">
-          <span style="flex-shrink:0;display:inline-flex;align-items:center;gap:3px;color:var(--dim);font-size:11px;font-weight:700">${noteGlyph('currentColor', 13)}:</span>
-          ${chip('', 'FYI', '')}
-          <span style="flex-shrink:0;display:inline-flex;align-items:center;gap:3px;color:var(--dim);font-size:11px;font-weight:700;margin-left:4px">${bellGlyph('currentColor', 13)}:</span>
+          <span style="flex-shrink:0;display:inline-flex;align-items:center;gap:3px;color:var(--dim);font-size:11px;font-weight:700">${bellGlyph('currentColor', 13)}:</span>
           ${NOTE_TAGS.map(t => chip(t, t[0].toUpperCase() + t.slice(1), noteTagColor(t))).join('')}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
@@ -8579,12 +8686,12 @@ function showNotesOverlay(assetKey, onChange, opts) {
   render();
 
   const inp = wrap.querySelector('#notes-sheet-text');
-  let selectedTag = '';   // '' = FYI (no tag)
+  let selectedTag = '';   // '' = FYI (no tag) — the default when nothing is picked
   const tagbar = wrap.querySelector('#notes-tagbar');
   tagbar.querySelectorAll('.notes-tag-chip').forEach(b => {
     b.addEventListener('click', () => {
-      selectedTag = b.dataset.tag;
-      tagbar.querySelectorAll('.notes-tag-chip').forEach(x => x.classList.toggle('active', x === b));
+      selectedTag = (selectedTag === b.dataset.tag) ? '' : b.dataset.tag;   // toggle, single-select
+      tagbar.querySelectorAll('.notes-tag-chip').forEach(x => x.classList.toggle('active', selectedTag !== '' && x.dataset.tag === selectedTag));
     });
   });
   const sendBtn = wrap.querySelector('#notes-sheet-send');
@@ -9162,7 +9269,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
               const meta = counts
                 ? `<span style="margin-left:auto;display:inline-flex;align-items:center;gap:9px;color:var(--dim);font-size:12px;flex-shrink:0">${counts}${lastTs ? `<span>· ${relShort(lastTs)}</span>` : ''}</span>`
                 : '';
-              return `<div class="js-add-note" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 14px;min-height:46px;font-size:14px;color:var(--dim)"><span>Add and view notes…</span>${meta}</div>`;
+              return `<div class="js-add-note" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:0;padding:0 14px;min-height:46px;font-size:16px;color:var(--dim)"><span>Add and view notes…</span>${meta}</div>`;
             })()}
           </div>` : ''}
           </div>
@@ -9619,7 +9726,7 @@ function itemRowHTML(entry, sortMode, opts) {
     : '';
 
   return `
-    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid var(--line-soft);align-items:center${opts.feed ? '' : ';cursor:pointer'}${tint ? ';background:' + tint : ''}">
+    <div class="item-row-clickable" data-item-id="${escapeHTML(entry.id)}" role="button" tabindex="0" style="display:flex;gap:12px;padding:14px 16px;${opts.feed ? 'border-bottom:0' : 'border-bottom:0.5px solid var(--line-soft)'};align-items:center${opts.feed ? '' : ';cursor:pointer'}${tint ? ';background:' + tint : ''}">
       ${opts.feed ? '' : (disp ? locationIconHTML(disp) : eyeIconHTML(eyeState))}
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center">
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
