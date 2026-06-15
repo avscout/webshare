@@ -865,9 +865,9 @@
   .feed-room-banner {
     position: sticky; top: 0; z-index: 6; background: var(--bg);
     border-bottom: 1px solid var(--line); padding: 8px 16px;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.15em;
-    text-transform: uppercase; color: var(--dim);
   }
+  .feed-room-banner .frb-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+  .feed-room-banner .frb-sub { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--dim); margin-top: 1px; }
   .feed-card { }
   .feed-card:last-child { border-bottom: none; }
   .feed-card-head { }
@@ -898,6 +898,13 @@
   .notes-tag-chip[style*="--c"] { color: var(--c); border-color: color-mix(in srgb, var(--c) 40%, var(--line)); }
   .notes-tag-chip.active { background: var(--bg-subtle); border-color: var(--dim); color: var(--ink); }
   .notes-tag-chip[style*="--c"].active { background: color-mix(in srgb, var(--c) 12%, #fff); border-color: var(--c); color: var(--c); }
+  .status-chip {
+    flex-shrink: 0; min-height: 0; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fff; color: var(--c, var(--dim));
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    letter-spacing: .04em; cursor: pointer; white-space: nowrap; text-transform: uppercase;
+  }
+  .status-chip.active { background: color-mix(in srgb, var(--c) 12%, #fff); border-color: var(--c); color: var(--c); }
   /* Note delete + send: outlined buttons with a tap-flash. */
   .note-del {
     flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
@@ -2211,7 +2218,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '160';
+  const LOCAL_VERSION = '162';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2872,7 +2879,8 @@ function pendingChangesFor(assetId, sourceRow) {
     const comments = NotesStore.commentsFor(n.noteId).map(c => c.text);
     const head = (n.tag ? n.tag + ': ' : '') + n.text
                + (comments.length ? ' — ' + comments.join(' / ') : '');
-    const dates = 'noted ' + shortDate(n.createdAt);
+    const r = noteResolution(n.noteId);
+    const dates = 'noted ' + shortDate(n.createdAt) + (r ? ', ' + r.status + ' ' + shortDate(r.at) : '');
     return head + ' (' + dates + ')';
   });
   if (noteLines.length) diffs.fieldNotes = { from: '', to: noteLines.join(' · ') };
@@ -2927,7 +2935,7 @@ const NotesStore = {
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   },
   // Open NOTIFICATIONS: tagged notes only — an untagged note is an FYI.
-  openCount() { return this.all().filter(n => n.tag && !n.parentId && !n.deleted).length; },
+  openCount() { return this.all().filter(n => n.tag && !n.parentId && !n.deleted && !noteCompleted(n.noteId)).length; },
   async put(rec) {
     await this.load();
     const old = this._byId.get(rec.noteId);
@@ -2947,13 +2955,22 @@ const NotesStore = {
 // A reply can resolve the action it answers. Its status drives the parent
 // note's state: done/cancelled close it, postponed defers it, fyi is a
 // plain comment.
-async function addNote(assetId, text, tag, parentId) {
+// A reply can carry a resolution status that closes a prioritized
+// notification: Done / Outsourced / Cancelled / Postponed.
+const REPLY_STATUSES = {
+  done:       { label: 'Done',       color: '#047857' },
+  outsourced: { label: 'Outsourced', color: '#2563EB' },
+  cancelled:  { label: 'Cancelled',  color: '#DC2626' },
+  postponed:  { label: 'Postponed',  color: '#B45309' },
+};
+async function addNote(assetId, text, tag, parentId, status) {
   const rec = {
     noteId   : 'note-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     assetId,
     parentId : parentId || null,   // set = this record is a COMMENT on that note
     text     : (text || '').trim(),
     tag      : (tag && PRIORITIES.includes(tag)) ? tag : null,   // priority (null = FYI)
+    status   : (status && REPLY_STATUSES[status]) ? status : null,   // reply resolution
     createdAt: Date.now(), createdBy: DEVICE_ID,
     updatedAt: Date.now(), deviceId: DEVICE_ID,
   };
@@ -2962,6 +2979,17 @@ async function addNote(assetId, text, tag, parentId) {
   updateNotifsBadge();
   return rec;
 }
+// A notification's resolution is DERIVED from its replies: the latest reply
+// carrying a status. None = OPEN; any = CLOSED. Deleting that reply reopens
+// it automatically (nothing stored on the parent).
+function noteResolution(noteId) {
+  const replies = NotesStore.commentsFor(noteId);
+  for (let i = replies.length - 1; i >= 0; i--) {
+    if (REPLY_STATUSES[replies[i].status]) return { status: replies[i].status, at: replies[i].createdAt };
+  }
+  return null;
+}
+function noteCompleted(noteId) { return noteResolution(noteId) != null; }
 // Set/clear a note's notification tag (one per note; null = FYI default).
 async function setNotePriority(noteId, tag) {
   const cur = NotesStore.get(noteId);
@@ -3110,9 +3138,32 @@ function assetRoom(assetId) {
   try {
     const d = _sourceData && _sourceData.data;
     const row = d ? (Array.isArray(d) ? d[Number(assetId)] : d[assetId]) : null;
-    if (row) return row.roomName || row.room || '';
+    if (row) return row.room || '';
   } catch (e) { /* source not loaded yet */ }
   return '';
+}
+// roomName is inseparably tied to the room code. Look it up from source so a
+// room's name follows its code everywhere (title = roomName, room = subtitle).
+let _roomNameMap = null, _roomNameSrc = null;
+function roomNameOf(roomCode) {
+  if (!roomCode) return '';
+  const d = _sourceData && _sourceData.data;
+  if (_roomNameSrc !== d) {
+    _roomNameSrc = d; _roomNameMap = new Map();
+    if (d) (Array.isArray(d) ? d : Object.values(d)).forEach(r => {
+      if (r && r.room && r.roomName && !_roomNameMap.has(r.room)) _roomNameMap.set(r.room, r.roomName);
+    });
+  }
+  return (_roomNameMap && _roomNameMap.get(roomCode)) || '';
+}
+function assetRoomName(assetId) { return roomNameOf(assetRoom(assetId)); }
+// Title/subtitle for a room code: roomName on top, code beneath; if there is
+// no roomName the code is the title with a dash as subtitle.
+function roomBannerHTML(roomCode, extraStyle) {
+  const rn = roomNameOf(roomCode);
+  const title = rn || (roomCode || 'No room');
+  const sub   = rn ? roomCode : (roomCode ? '–' : '');
+  return `<div class="feed-room-banner"${extraStyle ? ` style="${extraStyle}"` : ''}><div class="frb-title">${escapeHTML(title)}</div>${sub ? `<div class="frb-sub">${escapeHTML(sub)}</div>` : ''}</div>`;
 }
 // Absolute short date for export-facing text ("12 Jun 2026").
 function shortDate(ts) {
@@ -3135,7 +3186,7 @@ function noteTagPillHTML(tag, noteId) {
 // Small open-notification counter for list rows.
 function noteBellHTML(assetId) {
   if (!assetId) return '';
-  const open = NotesStore.forAsset(assetId).filter(n => n.tag).length;
+  const open = NotesStore.forAsset(assetId).filter(n => n.tag && !noteCompleted(n.noteId)).length;
   if (!open) return '';
   return `<span title="${open} open notification${open > 1 ? 's' : ''}" style="display:inline-flex;align-items:center;gap:3px;border:1px solid rgba(224,122,43,0.5);color:#C2410C;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700">${bellGlyph('currentColor', 10)}${open}</span>`;
 }
@@ -3153,7 +3204,7 @@ function noteRowHTML(n, withAsset) {
   const room = withAsset ? assetRoom(n.assetId) : '';
   const lineBg = n.tag ? priorityColor(n.tag) : 'var(--dim)';
   const assetLine = withAsset
-    ? `<div class="note-asset-line" data-asset="${escapeHTML(String(n.assetId))}" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;font-weight:700;color:#fff;background:${lineBg};margin:-12px -12px 10px;padding:8px 12px;cursor:pointer"><span>${escapeHTML(assetTitle(n.assetId))}</span>${room ? `<span style="font-weight:600;opacity:.85">· Room ${escapeHTML(String(room))}</span>` : ''}<span style="font-weight:500;font-size:11px;opacity:.8">#${escapeHTML(String(n.assetId))}</span></div>` : '';
+    ? `<div class="note-asset-line" data-asset="${escapeHTML(String(n.assetId))}" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;font-weight:700;color:#fff;background:${lineBg};margin:-12px -12px 10px;padding:8px 12px;cursor:pointer"><span>${escapeHTML(assetTitle(n.assetId))}</span><span style="font-weight:500;font-size:11px;opacity:.8">#${escapeHTML(String(n.assetId))}</span></div>` : '';
   // Replies stay collapsed behind a toggle; never deeper than one layer
   // (replies carry no Reply button of their own).
   const replyList = NotesStore.commentsFor(n.noteId).slice().reverse();   // newest reply on top
@@ -3177,7 +3228,7 @@ function noteRowHTML(n, withAsset) {
             <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:8px 12px 8px 44px;border-top:1px solid var(--line-soft);background:${i % 2 ? sliceA : sliceB};touch-action:pan-y;will-change:transform">
               ${ava(cm.createdBy, 26)}
               <div style="flex:1;min-width:0">
-                <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span></div>
+                <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status]) ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
                 <div style="font-size:13px;color:var(--ink);margin-top:1px">${escapeHTML(cm.text)}</div>
               </div>
               <button type="button" class="reply-del" data-del="${escapeHTML(cm.noteId)}" aria-label="Delete reply" style="flex-shrink:0;background:none;border:none;padding:4px 2px;min-height:0;color:var(--dim);cursor:pointer">${trashGlyph('currentColor', 15)}</button>
@@ -3205,8 +3256,9 @@ function noteRowHTML(n, withAsset) {
               <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
               <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
               ${noteTagPillHTML(n.tag, n.noteId)}
+              ${(() => { const r = noteResolution(n.noteId); return r ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[r.status].color};border:1px solid ${REPLY_STATUSES[r.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[r.status].label}</span>` : ''; })()}
             </div>
-            <div style="font-size:14px;color:var(--ink);margin-top:2px">${escapeHTML(n.text)}</div>
+            <div style="font-size:14px;color:var(--ink);margin-top:2px;${(() => { const r = noteResolution(n.noteId); return (r && (r.status === 'done' || r.status === 'cancelled')) ? 'text-decoration:line-through;opacity:.55' : ''; })()}">${escapeHTML(n.text)}</div>
             <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
           </div>
           <button type="button" class="note-kebab" data-kebab="${escapeHTML(n.noteId)}" aria-label="Note options" style="flex-shrink:0;background:none;border:none;padding:4px 2px;min-height:0;color:var(--dim);cursor:pointer">${kebabGlyph('currentColor', 18)}</button>
@@ -3372,13 +3424,17 @@ function wireNoteRows(container, rerender, opts) {
     });
   });
 }
-// Reply to a note — a plain comment (newest shown on top).
+// Reply to a note. A prioritized, still-open notification offers a
+// resolution status (Done / Outsourced / Cancelled / Postponed, blank by
+// default); FYI notes and already-closed ones get a plain comment.
 function replyTo(parent, rerender) {
+  const isOpen = !!parent.tag && !noteCompleted(parent.noteId);
   showNoteSheet({
     title: 'Reply',
+    statusOptions: isOpen ? ['done', 'outsourced', 'cancelled', 'postponed'] : [],
     placeholder: 'Share what you know or did…',
-    onSubmit: async (text) => {
-      await addNote(parent.assetId, text, null, parent.noteId);
+    onSubmit: async (text, status) => {
+      await addNote(parent.assetId, text, null, parent.noteId, status);
       rerender();
     },
   });
@@ -8672,7 +8728,7 @@ function showNotesOverlay(assetKey, onChange, opts) {
 
 // Slide-up sheet for writing a note (Notify) or a comment: one text line,
 // an optional tag select, Enter or Send posts; tap the scrim to cancel.
-function showNoteSheet({ title, placeholder, onSubmit }) {
+function showNoteSheet({ title, statusOptions, placeholder, onSubmit }) {
   const wrap = document.createElement('div');
   const meSheet = GroupStore.getMember(DEVICE_ID);
   const meAva = `<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:${(meSheet && meSheet.color) || 'var(--line)'};font-size:17px;flex-shrink:0">${(meSheet && meSheet.emoji) || '?'}</span>`;
@@ -8680,6 +8736,10 @@ function showNoteSheet({ title, placeholder, onSubmit }) {
   wrap.innerHTML = `
     <div id="note-sheet" style="width:100%;max-width:480px;background:#fff;border-top:1px solid var(--line);border-radius:14px 14px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .2s ease-out">
       <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:0 4px 10px">${escapeHTML(title)}</div>
+      ${(statusOptions && statusOptions.length) ? `
+      <div class="notes-tagbar" id="sheet-status" style="margin-bottom:10px">
+        ${statusOptions.map(k => `<button type="button" class="status-chip" data-status="${k}" style="--c:${REPLY_STATUSES[k].color}">${REPLY_STATUSES[k].label}</button>`).join('')}
+      </div>` : ''}
       <div style="display:flex;align-items:center;gap:8px">
         ${meAva}
         <input id="sheet-text" type="text" placeholder="${escapeHTML(placeholder || '')}" autocomplete="off" style="flex:1;min-width:0">
@@ -8693,16 +8753,26 @@ function showNoteSheet({ title, placeholder, onSubmit }) {
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   const inp = wrap.querySelector('#sheet-text');
   const sendBtn = wrap.querySelector('#sheet-send');
+  let selectedStatus = '';   // blank by default — a status is optional
+  const statusBar = wrap.querySelector('#sheet-status');
+  if (statusBar) statusBar.querySelectorAll('.status-chip').forEach(b => {
+    b.addEventListener('click', () => {
+      const wasActive = b.classList.contains('active');
+      statusBar.querySelectorAll('.status-chip').forEach(x => x.classList.remove('active'));
+      if (wasActive) { selectedStatus = ''; } else { selectedStatus = b.dataset.status; b.classList.add('active'); }
+    });
+  });
+  const hasStatus = !!(statusOptions && statusOptions.length);
   const send = async () => {
     if (!inp.value.trim()) return;
     sendBtn.classList.add('flash-cyan');
     setTimeout(() => sendBtn.classList.remove('flash-cyan'), 450);
-    await onSubmit(inp.value);
+    await onSubmit(inp.value, hasStatus ? (selectedStatus || null) : null);
     close();
   };
   sendBtn.addEventListener('click', send);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-  inp.focus();
+  if (!hasStatus) inp.focus();   // status replies: pick first, no auto-keyboard
 }
 
 // Map an asset to a (sessionId, itemId) pair so the item panel can open
@@ -8796,6 +8866,7 @@ function showItemHistory(assetKey, titleText) {
 // and the list re-render, so typing in the search never loses focus.
 async function showNotificationsModal() {
   await NotesStore.load();
+  let tab = 'open';
   let q = '';
   const tagFilters = new Set();
   const backdrop = document.createElement('div');
@@ -8823,6 +8894,10 @@ async function showNotificationsModal() {
           </div>
           <button class="items-filter-toggle" id="notifs-filter-toggle" type="button" aria-label="Show filters" title="Filter by priority">${filterGlyph('currentColor', 16)}</button>
         </div>
+        <div class="items-sort-toolbar">
+          <button class="items-sort-btn active" data-tab="open" type="button">Open</button>
+          <button class="items-sort-btn" data-tab="closed" type="button">Closed</button>
+        </div>
         <div class="state-chip-row hidden" id="notif-tag-chips">
           <button class="state-chip" data-f="all" type="button">All</button>
           ${PRIORITIES.map(t => `<button class="state-chip" data-f="${t}" data-c type="button" style="--chip-bg:${priorityColor(t)}14;--chip-bd:${priorityColor(t)}80;--chip-fg:${priorityColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
@@ -8841,18 +8916,43 @@ async function showNotificationsModal() {
     };
     const notifs = NotesStore.all().filter(n => n.tag && !n.parentId && !n.deleted)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    const shown = notifs.filter(matches);
-    backdrop.querySelector('#notifs-subtitle').textContent = `${notifs.length} ${notifs.length === 1 ? 'notification' : 'notifications'}`;
+    const open   = notifs.filter(n => !noteCompleted(n.noteId));
+    const closed = notifs.filter(n => noteCompleted(n.noteId));
+    const shown  = (tab === 'open' ? open : closed).filter(matches).sort((a, b) => {
+      const ra = assetRoom(a.assetId), rb = assetRoom(b.assetId);
+      if (ra !== rb) return String(ra).localeCompare(String(rb), undefined, { numeric: true });
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+    backdrop.querySelector('#notifs-subtitle').textContent = `${open.length} open · ${closed.length} closed`;
+    backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
+      b.textContent = b.dataset.tab === 'open'
+        ? `Open${open.length ? ' ' + open.length : ''}`
+        : `Closed${closed.length ? ' ' + closed.length : ''}`;
+    });
     const list = backdrop.querySelector('#notifs-list');
     list.innerHTML = `
           ${shown.length === 0 ? `<div class="items-empty">${(needle || tagFilters.size)
             ? 'No matches.'
-            : `No notifications.<br><span style="font-size:12px;color:var(--dim)">Give a note a priority and it shows up here for the whole group.</span>`}</div>` : ''}
-          ${shown.map(n => noteRowHTML(n, true)).join('')}`;
+            : tab === 'open'
+              ? `Nothing open.<br><span style="font-size:12px;color:var(--dim)">Give a note a priority and it shows up here for the whole group.</span>`
+              : 'Nothing closed yet.'}</div>` : ''}
+          ${(() => {
+            let html = '', prev = null;
+            shown.forEach(n => {
+              const room = assetRoom(n.assetId);
+              if (room !== prev) { html += roomBannerHTML(room, 'margin:0 -18px'); prev = room; }
+              html += noteRowHTML(n, true);
+            });
+            return html;
+          })()}`;
     wireNoteRows(list, renderList, { onOpen: openItemForAsset });
   };
 
   backdrop.querySelector('#notifs-close').addEventListener('click', close);
+  backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
+    b.addEventListener('click', () => { tab = b.dataset.tab; renderList(); });
+  });
   const searchInp = backdrop.querySelector('#notifs-search');
   const clearBtn  = backdrop.querySelector('#notifs-search-clear');
   searchInp.addEventListener('input', () => {
@@ -8959,10 +9059,7 @@ async function openItemEditor(sessionId, itemId, sequence) {
   let prevRoom = null;
   cards.forEach((c, i) => {
     if (c.room !== prevRoom) {
-      const banner = document.createElement('div');
-      banner.className = 'feed-room-banner';
-      banner.textContent = c.room ? `Room ${c.room}` : 'No room';
-      scroll.appendChild(banner);
+      scroll.insertAdjacentHTML('beforeend', roomBannerHTML(c.room));
       prevRoom = c.room;
     }
     const card = document.createElement('div');
