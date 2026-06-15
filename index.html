@@ -898,13 +898,6 @@
   .notes-tag-chip[style*="--c"] { color: var(--c); border-color: color-mix(in srgb, var(--c) 40%, var(--line)); }
   .notes-tag-chip.active { background: var(--bg-subtle); border-color: var(--dim); color: var(--ink); }
   .notes-tag-chip[style*="--c"].active { background: color-mix(in srgb, var(--c) 12%, #fff); border-color: var(--c); color: var(--c); }
-  .status-chip {
-    flex-shrink: 0; min-height: 0; padding: 5px 12px; border-radius: 999px;
-    border: 1px solid var(--line); background: #fff; color: var(--c, var(--dim));
-    font-family: var(--sans); font-size: 12px; font-weight: 700;
-    letter-spacing: .04em; cursor: pointer; white-space: nowrap; text-transform: uppercase;
-  }
-  .status-chip.active { background: color-mix(in srgb, var(--c) 12%, #fff); border-color: var(--c); color: var(--c); }
   /* Note delete + send: outlined buttons with a tap-flash. */
   .note-del {
     flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
@@ -2218,7 +2211,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '159';
+  const LOCAL_VERSION = '160';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2879,9 +2872,7 @@ function pendingChangesFor(assetId, sourceRow) {
     const comments = NotesStore.commentsFor(n.noteId).map(c => c.text);
     const head = (n.tag ? n.tag + ': ' : '') + n.text
                + (comments.length ? ' — ' + comments.join(' / ') : '');
-    const r = noteResolution(n.noteId);
-    const dates = 'noted ' + shortDate(n.createdAt)
-                + (r ? ', ' + r.status + ' ' + shortDate(r.at) : '');
+    const dates = 'noted ' + shortDate(n.createdAt);
     return head + ' (' + dates + ')';
   });
   if (noteLines.length) diffs.fieldNotes = { from: '', to: noteLines.join(' · ') };
@@ -2936,7 +2927,7 @@ const NotesStore = {
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   },
   // Open NOTIFICATIONS: tagged notes only — an untagged note is an FYI.
-  openCount() { return this.all().filter(n => n.tag && !n.parentId && !n.deleted && !noteCompleted(n.noteId)).length; },
+  openCount() { return this.all().filter(n => n.tag && !n.parentId && !n.deleted).length; },
   async put(rec) {
     await this.load();
     const old = this._byId.get(rec.noteId);
@@ -2956,22 +2947,14 @@ const NotesStore = {
 // A reply can resolve the action it answers. Its status drives the parent
 // note's state: done/cancelled close it, postponed defers it, fyi is a
 // plain comment.
-const REPLY_STATUSES = {
-  fyi:       { label: 'FYI',       color: '#6b7280' },
-  done:      { label: 'Done',      color: '#047857' },
-  postponed: { label: 'Postponed', color: '#B45309' },
-  cancelled: { label: 'Cancelled', color: '#DC2626' },
-};
-async function addNote(assetId, text, tag, parentId, status) {
+async function addNote(assetId, text, tag, parentId) {
   const rec = {
     noteId   : 'note-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     assetId,
     parentId : parentId || null,   // set = this record is a COMMENT on that note
     text     : (text || '').trim(),
-    tag      : (tag && PRIORITIES.includes(tag)) ? tag : null,
-    status   : (status && REPLY_STATUSES[status]) ? status : null,   // only meaningful on replies
+    tag      : (tag && PRIORITIES.includes(tag)) ? tag : null,   // priority (null = FYI)
     createdAt: Date.now(), createdBy: DEVICE_ID,
-    done: false, doneAt: null, doneBy: null,
     updatedAt: Date.now(), deviceId: DEVICE_ID,
   };
   await NotesStore.put(rec);
@@ -2979,22 +2962,6 @@ async function addNote(assetId, text, tag, parentId, status) {
   updateNotifsBadge();
   return rec;
 }
-// Resolve a parent action from a reply status: done & cancelled close it
-// (done=true so it leaves "to do"); postponed defers (still open); fyi is
-// a no-op.
-// A note's completion is DERIVED from its replies: the latest reply whose
-// status resolves the action (done / postponed / cancelled). No stored
-// done flag — so deleting that reply makes the note fall back automatically.
-// (REQUEST is NOT a reply status; it lives on the parent, see below.)
-function noteResolution(noteId) {
-  const replies = NotesStore.commentsFor(noteId);
-  for (let i = replies.length - 1; i >= 0; i--) {
-    const st = replies[i].status;
-    if (st === 'done' || st === 'postponed' || st === 'cancelled') return { status: st, at: replies[i].createdAt };
-  }
-  return null;
-}
-function noteCompleted(noteId) { return noteResolution(noteId) != null; }
 // Set/clear a note's notification tag (one per note; null = FYI default).
 async function setNotePriority(noteId, tag) {
   const cur = NotesStore.get(noteId);
@@ -3168,7 +3135,7 @@ function noteTagPillHTML(tag, noteId) {
 // Small open-notification counter for list rows.
 function noteBellHTML(assetId) {
   if (!assetId) return '';
-  const open = NotesStore.forAsset(assetId).filter(n => n.tag && !noteCompleted(n.noteId)).length;
+  const open = NotesStore.forAsset(assetId).filter(n => n.tag).length;
   if (!open) return '';
   return `<span title="${open} open notification${open > 1 ? 's' : ''}" style="display:inline-flex;align-items:center;gap:3px;border:1px solid rgba(224,122,43,0.5);color:#C2410C;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700">${bellGlyph('currentColor', 10)}${open}</span>`;
 }
@@ -3189,7 +3156,7 @@ function noteRowHTML(n, withAsset) {
     ? `<div class="note-asset-line" data-asset="${escapeHTML(String(n.assetId))}" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;font-weight:700;color:#fff;background:${lineBg};margin:-12px -12px 10px;padding:8px 12px;cursor:pointer"><span>${escapeHTML(assetTitle(n.assetId))}</span>${room ? `<span style="font-weight:600;opacity:.85">· Room ${escapeHTML(String(room))}</span>` : ''}<span style="font-weight:500;font-size:11px;opacity:.8">#${escapeHTML(String(n.assetId))}</span></div>` : '';
   // Replies stay collapsed behind a toggle; never deeper than one layer
   // (replies carry no Reply button of their own).
-  const replyList = NotesStore.commentsFor(n.noteId);
+  const replyList = NotesStore.commentsFor(n.noteId).slice().reverse();   // newest reply on top
   // A reply is a divider-separated SLICE of the same block: swiping it left
   // pulls the slice aside to reveal a red trash behind it (the rest stays).
   // The slice runs to the block's right edge (negative margin cancels the
@@ -3210,7 +3177,7 @@ function noteRowHTML(n, withAsset) {
             <div data-reply-row="${escapeHTML(cm.noteId)}" style="position:relative;display:flex;align-items:flex-start;gap:8px;padding:8px 12px 8px 44px;border-top:1px solid var(--line-soft);background:${i % 2 ? sliceA : sliceB};touch-action:pan-y;will-change:transform">
               ${ava(cm.createdBy, 26)}
               <div style="flex:1;min-width:0">
-                <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span>${(cm.status && REPLY_STATUSES[cm.status] && cm.status !== 'fyi') ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[cm.status].color};border:1px solid ${REPLY_STATUSES[cm.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[cm.status].label}</span>` : ''}</div>
+                <div style="font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:700;color:var(--ink)">${escapeHTML(nameOf(cm.createdBy))}</span> <span style="color:var(--dim)">${relShort(cm.createdAt)}</span></div>
                 <div style="font-size:13px;color:var(--ink);margin-top:1px">${escapeHTML(cm.text)}</div>
               </div>
               <button type="button" class="reply-del" data-del="${escapeHTML(cm.noteId)}" aria-label="Delete reply" style="flex-shrink:0;background:none;border:none;padding:4px 2px;min-height:0;color:var(--dim);cursor:pointer">${trashGlyph('currentColor', 15)}</button>
@@ -3238,9 +3205,8 @@ function noteRowHTML(n, withAsset) {
               <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
               <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
               ${noteTagPillHTML(n.tag, n.noteId)}
-              ${(() => { const r = noteResolution(n.noteId); return r ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[r.status].color};border:1px solid ${REPLY_STATUSES[r.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[r.status].label}</span>` : ''; })()}
             </div>
-            <div style="font-size:14px;color:var(--ink);margin-top:2px;${(() => { const r = noteResolution(n.noteId); return (r && (r.status === 'done' || r.status === 'cancelled')) ? 'text-decoration:line-through;opacity:.55' : ''; })()}">${escapeHTML(n.text)}</div>
+            <div style="font-size:14px;color:var(--ink);margin-top:2px">${escapeHTML(n.text)}</div>
             <button type="button" class="note-comment-btn" data-comment="${escapeHTML(n.noteId)}" style="background:none;border:none;padding:0;margin-top:6px;min-height:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--dim);cursor:pointer">Reply</button>
           </div>
           <button type="button" class="note-kebab" data-kebab="${escapeHTML(n.noteId)}" aria-label="Note options" style="flex-shrink:0;background:none;border:none;padding:4px 2px;min-height:0;color:var(--dim);cursor:pointer">${kebabGlyph('currentColor', 18)}</button>
@@ -3406,18 +3372,13 @@ function wireNoteRows(container, rerender, opts) {
     });
   });
 }
-// Reply to a note. FYI parents (and already-resolved actions) get a plain
-// comment; an open action offers Done / Postponed / Cancelled / Request
-// (blank by default — a status is optional and, once given, locks).
+// Reply to a note — a plain comment (newest shown on top).
 function replyTo(parent, rerender) {
-  const isOpenAction = !!parent.tag && !noteCompleted(parent.noteId);
   showNoteSheet({
     title: 'Reply',
-    withTag: false,
-    statusOptions: isOpenAction ? ['done', 'postponed', 'cancelled'] : [],
     placeholder: 'Share what you know or did…',
-    onSubmit: async (text, status) => {
-      await addNote(parent.assetId, text, null, parent.noteId, status);
+    onSubmit: async (text) => {
+      await addNote(parent.assetId, text, null, parent.noteId);
       rerender();
     },
   });
@@ -8711,7 +8672,7 @@ function showNotesOverlay(assetKey, onChange, opts) {
 
 // Slide-up sheet for writing a note (Notify) or a comment: one text line,
 // an optional tag select, Enter or Send posts; tap the scrim to cancel.
-function showNoteSheet({ title, withTag, statusOptions, placeholder, onSubmit }) {
+function showNoteSheet({ title, placeholder, onSubmit }) {
   const wrap = document.createElement('div');
   const meSheet = GroupStore.getMember(DEVICE_ID);
   const meAva = `<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:${(meSheet && meSheet.color) || 'var(--line)'};font-size:17px;flex-shrink:0">${(meSheet && meSheet.emoji) || '?'}</span>`;
@@ -8719,15 +8680,6 @@ function showNoteSheet({ title, withTag, statusOptions, placeholder, onSubmit })
   wrap.innerHTML = `
     <div id="note-sheet" style="width:100%;max-width:480px;background:#fff;border-top:1px solid var(--line);border-radius:14px 14px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .2s ease-out">
       <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:0 4px 10px">${escapeHTML(title)}</div>
-      ${withTag ? `
-      <select id="sheet-tag" style="margin-bottom:10px">
-        <option value="">No tag — just an FYI</option>
-        ${PRIORITIES.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
-      </select>` : ''}
-      ${(statusOptions && statusOptions.length) ? `
-      <div class="notes-tagbar" id="sheet-status" style="margin-bottom:10px">
-        ${statusOptions.map(k => `<button type="button" class="status-chip" data-status="${k}" style="--c:${REPLY_STATUSES[k].color}">${REPLY_STATUSES[k].label}</button>`).join('')}
-      </div>` : ''}
       <div style="display:flex;align-items:center;gap:8px">
         ${meAva}
         <input id="sheet-text" type="text" placeholder="${escapeHTML(placeholder || '')}" autocomplete="off" style="flex:1;min-width:0">
@@ -8741,31 +8693,16 @@ function showNoteSheet({ title, withTag, statusOptions, placeholder, onSubmit })
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   const inp = wrap.querySelector('#sheet-text');
   const sendBtn = wrap.querySelector('#sheet-send');
-  let selectedStatus = '';   // blank by default — a reply needs no status
-  const statusBar = wrap.querySelector('#sheet-status');
-  if (statusBar) statusBar.querySelectorAll('.status-chip').forEach(b => {
-    b.addEventListener('click', () => {
-      // Toggle: tapping the active chip clears it back to blank.
-      const wasActive = b.classList.contains('active');
-      statusBar.querySelectorAll('.status-chip').forEach(x => x.classList.remove('active'));
-      if (wasActive) { selectedStatus = ''; }
-      else { selectedStatus = b.dataset.status; b.classList.add('active'); }
-    });
-  });
-  const hasStatus = !!(statusOptions && statusOptions.length);
   const send = async () => {
     if (!inp.value.trim()) return;
     sendBtn.classList.add('flash-cyan');
     setTimeout(() => sendBtn.classList.remove('flash-cyan'), 450);
-    const tagSel = wrap.querySelector('#sheet-tag');
-    await onSubmit(inp.value, hasStatus ? (selectedStatus || null) : (tagSel ? tagSel.value : null));
+    await onSubmit(inp.value);
     close();
   };
   sendBtn.addEventListener('click', send);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
-  // No auto-keyboard when there's a status to choose first; FYI replies (no
-  // status chips) focus straight away.
-  if (!hasStatus) inp.focus();
+  inp.focus();
 }
 
 // Map an asset to a (sessionId, itemId) pair so the item panel can open
@@ -8852,14 +8789,13 @@ function showItemHistory(assetKey, titleText) {
 }
 
 // ── Notifications center ─────────────────────────────────────────────────────
-// Tagged notes (= notifications) across all assets: search bar with a tag-
-// filter funnel, To do / Done segment tabs, newest on top. Untagged FYI
-// notes stay on their item. Anyone can check a notification off; the done-
-// state syncs like any record. The shell renders once — only the tab
-// counts and the list re-render, so typing in the search never loses focus.
+// Prioritized notes (= notifications) across all assets: search bar with a
+// priority-filter funnel, newest on top. Untagged FYI notes stay on their
+// item. Behaves like the notes section (tap to reply, swipe, kebab, etc.);
+// the title bar opens the item. The shell renders once — only the subtitle
+// and the list re-render, so typing in the search never loses focus.
 async function showNotificationsModal() {
   await NotesStore.load();
-  let tab = 'todo';
   let q = '';
   const tagFilters = new Set();
   const backdrop = document.createElement('div');
@@ -8887,10 +8823,6 @@ async function showNotificationsModal() {
           </div>
           <button class="items-filter-toggle" id="notifs-filter-toggle" type="button" aria-label="Show filters" title="Filter by priority">${filterGlyph('currentColor', 16)}</button>
         </div>
-        <div class="items-sort-toolbar">
-          <button class="items-sort-btn active" data-tab="todo" type="button">To do</button>
-          <button class="items-sort-btn" data-tab="done" type="button">Done</button>
-        </div>
         <div class="state-chip-row hidden" id="notif-tag-chips">
           <button class="state-chip" data-f="all" type="button">All</button>
           ${PRIORITIES.map(t => `<button class="state-chip" data-f="${t}" data-c type="button" style="--chip-bg:${priorityColor(t)}14;--chip-bd:${priorityColor(t)}80;--chip-fg:${priorityColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
@@ -8909,31 +8841,18 @@ async function showNotificationsModal() {
     };
     const notifs = NotesStore.all().filter(n => n.tag && !n.parentId && !n.deleted)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    const open  = notifs.filter(n => !noteCompleted(n.noteId));
-    const done  = notifs.filter(n => noteCompleted(n.noteId));
-    const shown = (tab === 'todo' ? open : done).filter(matches);
-    backdrop.querySelector('#notifs-subtitle').textContent = `${open.length} to do · ${done.length} done`;
-    backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
-      b.classList.toggle('active', b.dataset.tab === tab);
-      b.textContent = b.dataset.tab === 'todo'
-        ? `To do${open.length ? ' ' + open.length : ''}`
-        : `Done${done.length ? ' ' + done.length : ''}`;
-    });
+    const shown = notifs.filter(matches);
+    backdrop.querySelector('#notifs-subtitle').textContent = `${notifs.length} ${notifs.length === 1 ? 'notification' : 'notifications'}`;
     const list = backdrop.querySelector('#notifs-list');
     list.innerHTML = `
           ${shown.length === 0 ? `<div class="items-empty">${(needle || tagFilters.size)
             ? 'No matches.'
-            : tab === 'todo'
-              ? `Nothing to do.<br><span style="font-size:12px;color:var(--dim)">Add a tagged note to an item and it shows up here for the whole group.</span>`
-              : 'Nothing checked off yet.'}</div>` : ''}
+            : `No notifications.<br><span style="font-size:12px;color:var(--dim)">Give a note a priority and it shows up here for the whole group.</span>`}</div>` : ''}
           ${shown.map(n => noteRowHTML(n, true)).join('')}`;
     wireNoteRows(list, renderList, { onOpen: openItemForAsset });
   };
 
   backdrop.querySelector('#notifs-close').addEventListener('click', close);
-  backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
-    b.addEventListener('click', () => { tab = b.dataset.tab; renderList(); });
-  });
   const searchInp = backdrop.querySelector('#notifs-search');
   const clearBtn  = backdrop.querySelector('#notifs-search-clear');
   searchInp.addEventListener('input', () => {
