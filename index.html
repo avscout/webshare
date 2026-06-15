@@ -2218,7 +2218,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '162';
+  const LOCAL_VERSION = '163';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -3096,13 +3096,25 @@ function clockGlyph(c, z) {
 function planeGlyph(c, z) {
   return `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20l-4-9l-9-4z"/></svg>`;
 }
+// Source rows live on _sourceData.rows (an array) and are keyed by r.id —
+// NOT _sourceData.data (which does not exist). Cache an id->row map and
+// rebuild it whenever the rows array reference changes.
+let _srcRowMap = null, _srcRowSrc = null;
+function sourceRows() { return (_sourceData && _sourceData.rows) || null; }
+function sourceRowById(assetId) {
+  const rows = sourceRows();
+  if (_srcRowSrc !== rows) {
+    _srcRowSrc = rows; _srcRowMap = new Map();
+    if (Array.isArray(rows)) rows.forEach(r => { if (r && r.id != null) _srcRowMap.set(String(r.id), r); });
+  }
+  return (_srcRowMap && _srcRowMap.get(String(assetId))) || null;
+}
 // All distinct category/type values seen across the imported source and the
 // overlay — the option set for the Category / type picker.
 function knownCategories() {
   const set = new Set();
   try {
-    const d = _sourceData && _sourceData.data;
-    if (d) (Array.isArray(d) ? d : Object.values(d)).forEach(r => {
+    (sourceRows() || []).forEach(r => {
       if (r) { const v = r.type || r.category; if (v) set.add(String(v).trim()); }
     });
   } catch (e) { /* source not loaded */ }
@@ -3124,33 +3136,26 @@ function filterGlyph(c, z) {
 function assetTitle(assetId) {
   const ov = AssetOverlay.get(assetId);
   if (ov && (ov.model || ov.category || ov.type)) return ov.model || ov.category || ov.type;
-  try {
-    const d = _sourceData && _sourceData.data;
-    const row = d ? (Array.isArray(d) ? d[Number(assetId)] : d[assetId]) : null;
-    if (row) return row.model || row.category || row.type || String(assetId);
-  } catch (e) { /* source not loaded yet */ }
+  const row = sourceRowById(assetId);
+  if (row) return row.model || row.category || row.type || String(assetId);
   return String(assetId);
 }
 // Best available room for an asset (overlay first, source second).
 function assetRoom(assetId) {
   const ov = AssetOverlay.get(assetId);
   if (ov && ov.room) return ov.room;
-  try {
-    const d = _sourceData && _sourceData.data;
-    const row = d ? (Array.isArray(d) ? d[Number(assetId)] : d[assetId]) : null;
-    if (row) return row.room || '';
-  } catch (e) { /* source not loaded yet */ }
-  return '';
+  const row = sourceRowById(assetId);
+  return (row && row.room) || '';
 }
 // roomName is inseparably tied to the room code. Look it up from source so a
 // room's name follows its code everywhere (title = roomName, room = subtitle).
 let _roomNameMap = null, _roomNameSrc = null;
 function roomNameOf(roomCode) {
   if (!roomCode) return '';
-  const d = _sourceData && _sourceData.data;
-  if (_roomNameSrc !== d) {
-    _roomNameSrc = d; _roomNameMap = new Map();
-    if (d) (Array.isArray(d) ? d : Object.values(d)).forEach(r => {
+  const rows = sourceRows();
+  if (_roomNameSrc !== rows) {
+    _roomNameSrc = rows; _roomNameMap = new Map();
+    if (Array.isArray(rows)) rows.forEach(r => {
       if (r && r.room && r.roomName && !_roomNameMap.has(r.room)) _roomNameMap.set(r.room, r.roomName);
     });
   }
@@ -8165,12 +8170,17 @@ function showSourceModal() {
   }
 
   function headerHtml(group, count) {
+    let label = group, sub = '';
+    if (sortMode === 'building') label = 'Building ' + group;
+    else if (sortMode === 'type') label = group;
+    else if (!group || group === '—') { label = 'No room'; sub = ''; }
+    else { const rn = roomNameOf(group); label = rn || group; sub = rn ? group : '–'; }   // roomName = title, code = subtitle
     return `
       <div class="group-banner">
-        <div class="group-banner-label">${escapeHTML(
-          sortMode === 'building' ? 'Building ' + group :
-          sortMode === 'type'     ? group :
-          'Room ' + group)}</div>
+        <div>
+          <div class="group-banner-label">${escapeHTML(label)}</div>
+          ${sub ? `<div style="font-size:11px;font-weight:600;color:var(--dim);letter-spacing:.04em;margin-top:1px">${escapeHTML(sub)}</div>` : ''}
+        </div>
         <div class="group-banner-count">${count} item${count === 1 ? '' : 's'}</div>
       </div>`;
   }
