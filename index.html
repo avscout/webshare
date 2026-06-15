@@ -866,7 +866,7 @@
     position: sticky; top: 0; z-index: 6; background: var(--bg);
     border-bottom: 1px solid var(--line); padding: 8px 16px;
   }
-  .feed-room-banner .frb-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+  .feed-room-banner .frb-title { font-size: 12px; font-weight: 700; letter-spacing: 0.01em; color: var(--ink-soft); }
   .feed-room-banner .frb-sub { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--dim); margin-top: 1px; }
   .feed-card { }
   .feed-card:last-child { border-bottom: none; }
@@ -2218,7 +2218,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '163';
+  const LOCAL_VERSION = '165';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -8170,6 +8170,7 @@ function showSourceModal() {
   }
 
   function headerHtml(group, count) {
+    const roomMode = !(sortMode === 'building' || sortMode === 'type');
     let label = group, sub = '';
     if (sortMode === 'building') label = 'Building ' + group;
     else if (sortMode === 'type') label = group;
@@ -8177,8 +8178,8 @@ function showSourceModal() {
     else { const rn = roomNameOf(group); label = rn || group; sub = rn ? group : '–'; }   // roomName = title, code = subtitle
     return `
       <div class="group-banner">
-        <div>
-          <div class="group-banner-label">${escapeHTML(label)}</div>
+        <div style="flex:1;min-width:0">
+          <div class="group-banner-label"${roomMode ? ' style="text-transform:none;letter-spacing:.02em"' : ''}>${escapeHTML(label)}</div>
           ${sub ? `<div style="font-size:11px;font-weight:600;color:var(--dim);letter-spacing:.04em;margin-top:1px">${escapeHTML(sub)}</div>` : ''}
         </div>
         <div class="group-banner-count">${count} item${count === 1 ? '' : 's'}</div>
@@ -8893,7 +8894,6 @@ async function showNotificationsModal() {
           <button class="modal-back" id="notifs-close" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M5 12l6 6"/><path d="M5 12l6-6"/></svg></button>
           <div class="items-modal-title">
             <h3 style="display:flex;align-items:center;gap:8px">${bellGlyph('currentColor', 18)}Notifications</h3>
-            <div class="items-modal-subtitle"><span class="origin-label" id="notifs-subtitle"></span></div>
           </div>
         </div>
         <div style="display:flex;align-items:center;margin:8px 18px 4px">
@@ -8909,10 +8909,9 @@ async function showNotificationsModal() {
           <button class="items-sort-btn" data-tab="closed" type="button">Closed</button>
         </div>
         <div class="state-chip-row hidden" id="notif-tag-chips">
-          <button class="state-chip" data-f="all" type="button">All</button>
           ${PRIORITIES.map(t => `<button class="state-chip" data-f="${t}" data-c type="button" style="--chip-bg:${priorityColor(t)}14;--chip-bd:${priorityColor(t)}80;--chip-fg:${priorityColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
         </div>
-        <div class="modal-body" id="notifs-list" style="padding:12px 18px"></div>
+        <div class="modal-body" id="notifs-list" style="padding:0 18px 12px"></div>
       </div>`;
 
   const renderList = () => {
@@ -8933,7 +8932,6 @@ async function showNotificationsModal() {
       if (ra !== rb) return String(ra).localeCompare(String(rb), undefined, { numeric: true });
       return (b.createdAt || 0) - (a.createdAt || 0);
     });
-    backdrop.querySelector('#notifs-subtitle').textContent = `${open.length} open · ${closed.length} closed`;
     backdrop.querySelectorAll('.items-sort-btn[data-tab]').forEach(b => {
       b.classList.toggle('active', b.dataset.tab === tab);
       b.textContent = b.dataset.tab === 'open'
