@@ -868,9 +868,9 @@
     font-size: 11px; font-weight: 700; letter-spacing: 0.15em;
     text-transform: uppercase; color: var(--dim);
   }
-  .feed-card { padding: 0 0 20px; border-bottom: 8px solid var(--bg-subtle); }
+  .feed-card { }
   .feed-card:last-child { border-bottom: none; }
-  .feed-card-head { margin-bottom: 10px; }
+  .feed-card-head { }
   .feed-card .feed-actions { margin-left: 0; margin-right: 0; }
   .feed-actions { display: flex; gap: 8px; margin: 4px 16px 14px; }
   /* Group banner — shared by the items list and the source list. */
@@ -2218,7 +2218,7 @@
   // change and you need to defeat browser caching.
   // Appended as ?v=… to the local URL only — CDN versions already carry
   // their own version in the path.
-  const LOCAL_VERSION = '156';
+  const LOCAL_VERSION = '159';
   // Expose for the dev-mode version badge in the topbar.
   window.APP_VERSION = LOCAL_VERSION;
   // Third-party libraries — no ordering constraint between them.
@@ -2900,13 +2900,10 @@ function pendingChangesFor(assetId, sourceRow) {
 // stay out of the Changelog — the item panel and the center are their home.
 // Per-note LWW on updatedAt: concurrent adds never collide (unique ids)
 // and a done-toggle converges like any other record.
-// Nine umbrella nominations — deliberately broad. Specific actions live in
-// the note text ("repair — rewire HDMI patch"); the tag names the category:
-// physical fix (repair), overhaul (refurbish), swap (replace), end-of-life
-// (recycle / remove), investigate (research), verify (retest), admin
-// (relabel), placement (relocate), software & settings (reconfigure).
-const NOTE_TAGS = ['reconfigure', 'recycle', 'refurbish', 'relabel', 'relocate',
-                   'remove', 'repair', 'replace', 'request', 'research', 'retest'];
+// Note priority tiers (replaces the old action tags). The bell icon still
+// represents this on a note. No priority = FYI (the default). Stored in the
+// note's `tag` field as one of these values, or null for FYI.
+const PRIORITIES = ['low', 'medium', 'high'];
 const NotesStore = {
   _byId: new Map(),
   _loaded: null,
@@ -2971,7 +2968,7 @@ async function addNote(assetId, text, tag, parentId, status) {
     assetId,
     parentId : parentId || null,   // set = this record is a COMMENT on that note
     text     : (text || '').trim(),
-    tag      : (tag && NOTE_TAGS.includes(tag)) ? tag : null,
+    tag      : (tag && PRIORITIES.includes(tag)) ? tag : null,
     status   : (status && REPLY_STATUSES[status]) ? status : null,   // only meaningful on replies
     createdAt: Date.now(), createdBy: DEVICE_ID,
     done: false, doneAt: null, doneBy: null,
@@ -2999,10 +2996,10 @@ function noteResolution(noteId) {
 }
 function noteCompleted(noteId) { return noteResolution(noteId) != null; }
 // Set/clear a note's notification tag (one per note; null = FYI default).
-async function setNoteTag(noteId, tag) {
+async function setNotePriority(noteId, tag) {
   const cur = NotesStore.get(noteId);
   if (!cur) return;
-  const rec = { ...cur, tag: (tag && NOTE_TAGS.includes(tag)) ? tag : null, updatedAt: Date.now(), deviceId: DEVICE_ID };
+  const rec = { ...cur, tag: (tag && PRIORITIES.includes(tag)) ? tag : null, updatedAt: Date.now(), deviceId: DEVICE_ID };
   await NotesStore.put(rec);
   if (GroupStore.exists()) SyncEngine.broadcastDelta('notes', rec);
   updateNotifsBadge();
@@ -3013,7 +3010,7 @@ function showNoteMenu(note, rerender) {
   wrap.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(15,23,42,0.18);display:flex;flex-direction:column;justify-content:flex-end;align-items:center';
   wrap.innerHTML = `
     <div id="nm-sheet" style="width:100%;max-width:480px;background:#fff;border-radius:14px 14px 0 0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .2s ease-out">
-      <button id="nm-notify" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:none;padding:14px 16px;font-family:var(--sans);font-size:15px;font-weight:600;color:var(--ink);cursor:pointer;text-align:left">${bellGlyph('currentColor', 18)}Notify</button>
+      <button id="nm-notify" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:none;padding:14px 16px;font-family:var(--sans);font-size:15px;font-weight:600;color:var(--ink);cursor:pointer;text-align:left">${bellGlyph('currentColor', 18)}Priority</button>
       <button id="nm-delete" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:none;padding:14px 16px;font-family:var(--sans);font-size:15px;font-weight:600;color:var(--warn);cursor:pointer;text-align:left">${trashGlyph('currentColor', 18)}Delete</button>
     </div>`;
   document.body.appendChild(wrap);
@@ -3021,26 +3018,26 @@ function showNoteMenu(note, rerender) {
   requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
   const close = () => { sheet.style.transform = 'translateY(100%)'; setTimeout(() => wrap.remove(), 200); };
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
-  wrap.querySelector('#nm-notify').addEventListener('click', () => { close(); showNotifySheet(note, rerender); });
+  wrap.querySelector('#nm-notify').addEventListener('click', () => { close(); showPrioritySheet(note, rerender); });
   wrap.querySelector('#nm-delete').addEventListener('click', () => {
     close();
     setTimeout(async () => { if (confirm('Delete this note and its replies?')) { await deleteNote(note.noteId); rerender(); } }, 140);
   });
 }
 // Notify sheet: pick one RE-tag (toggle to clear back to FYI default).
-function showNotifySheet(note, rerender) {
+function showPrioritySheet(note, rerender) {
   let selected = note.tag || '';
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(15,23,42,0.18);display:flex;flex-direction:column;justify-content:flex-end;align-items:center';
   wrap.innerHTML = `
     <div id="nt-sheet" style="width:100%;max-width:480px;background:#fff;border-radius:14px 14px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,0.14);transform:translateY(100%);transition:transform .2s ease-out">
       <div style="display:flex;align-items:center;gap:8px;margin:0 4px 4px">
-        ${bellGlyph('currentColor', 17)}<div style="font-size:14px;font-weight:700;color:var(--ink);flex:1">Notify</div>
+        ${bellGlyph('currentColor', 17)}<div style="font-size:14px;font-weight:700;color:var(--ink);flex:1">Priority</div>
         <button id="nt-close" aria-label="Close" style="background:none;border:none;font-size:22px;line-height:1;color:var(--dim);cursor:pointer;padding:0 4px">×</button>
       </div>
-      <div style="font-size:12px;color:var(--dim);margin:0 4px 10px">Pick a notification — tap it again to clear (default is FYI).</div>
+      <div style="font-size:12px;color:var(--dim);margin:0 4px 10px">Pick a priority — tap it again to clear (default is FYI).</div>
       <div class="notes-tagbar" id="nt-bar">
-        ${NOTE_TAGS.map(t => `<button type="button" class="notes-tag-chip${t === selected ? ' active' : ''}" data-tag="${t}" style="--c:${noteTagColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+        ${PRIORITIES.map(t => `<button type="button" class="notes-tag-chip${t === selected ? ' active' : ''}" data-tag="${t}" style="--c:${priorityColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -3053,7 +3050,7 @@ function showNotifySheet(note, rerender) {
     b.addEventListener('click', async () => {
       const tag = b.dataset.tag;
       selected = (selected === tag) ? '' : tag;   // toggle off → FYI
-      await setNoteTag(note.noteId, selected || null);
+      await setNotePriority(note.noteId, selected || null);
       rerender();
       close();
     });
@@ -3157,27 +3154,16 @@ function shortDate(ts) {
 }
 // Every nomination has its own color: pill + text + checkbox accent + the
 // pastel row background, in the panel, the center and the filter pills.
-const NOTE_TAG_COLORS = {
-  reconfigure: '#4F46E5',
-  recycle    : '#047857',
-  refurbish  : '#B45309',
-  relabel    : '#DB2777',
-  relocate   : '#0D9488',
-  remove     : '#DC2626',
-  repair     : '#EA580C',
-  replace    : '#2563EB',
-  request    : '#0EA5E9',
-  research   : '#7C3AED',
-  retest     : '#4D7C0F',
-};
-function noteTagColor(tag) { return NOTE_TAG_COLORS[tag] || '#C2410C'; }
-function noteTagPillHTML(tag) {
+const PRIORITY_COLORS = { low: '#6B7280', medium: '#EA580C', high: '#DC2626' };
+function priorityColor(tag) { return PRIORITY_COLORS[tag] || 'var(--dim)'; }
+function noteTagPillHTML(tag, noteId) {
+  // Tapping the pill opens the priority sheet (set/change/clear).
+  const base = 'display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;min-height:0;font-family:var(--sans);background:none';
   if (!tag) {
-    // FYI (no action): a neutral balloon pill.
-    return `<span style="display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${speechGlyph('currentColor', 10)}FYI</span>`;
+    return `<button type="button" class="note-prio-pill" data-prio-note="${escapeHTML(noteId)}" style="${base};border:1px solid var(--line);color:var(--dim)">${speechGlyph('currentColor', 10)}FYI</button>`;
   }
-  const c = noteTagColor(tag);
-  return `<span style="display:inline-flex;align-items:center;gap:4px;border:1px solid ${c}80;color:${c};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase">${bellGlyph('currentColor', 10)}${escapeHTML(tag)}</span>`;
+  const c = priorityColor(tag);
+  return `<button type="button" class="note-prio-pill" data-prio-note="${escapeHTML(noteId)}" style="${base};border:1px solid ${c}80;color:${c}">${bellGlyph('currentColor', 10)}${escapeHTML(tag)}</button>`;
 }
 // Small open-notification counter for list rows.
 function noteBellHTML(assetId) {
@@ -3196,10 +3182,11 @@ function noteRowHTML(n, withAsset) {
     return `<span title="${escapeHTML((m && m.nickname) || '')}" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${col};font-size:${Math.round(size * 0.5)}px;flex-shrink:0">${emoji}</span>`;
   };
   const nameOf = (deviceId) => { const m = GroupStore.getMember(deviceId); return (m && m.nickname) || 'Someone'; };
-  const c = n.tag ? noteTagColor(n.tag) : null;
+  const c = n.tag ? priorityColor(n.tag) : null;
   const room = withAsset ? assetRoom(n.assetId) : '';
+  const lineBg = n.tag ? priorityColor(n.tag) : 'var(--dim)';
   const assetLine = withAsset
-    ? `<div style="font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:6px">${escapeHTML(assetTitle(n.assetId))}${room ? ` <span style="font-weight:600;color:var(--dim)">· Room ${escapeHTML(String(room))}</span>` : ''} <span style="font-weight:400;font-size:11px;color:var(--dim)">#${escapeHTML(String(n.assetId))}</span></div>` : '';
+    ? `<div class="note-asset-line" data-asset="${escapeHTML(String(n.assetId))}" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;font-weight:700;color:#fff;background:${lineBg};margin:-12px -12px 10px;padding:8px 12px;cursor:pointer"><span>${escapeHTML(assetTitle(n.assetId))}</span>${room ? `<span style="font-weight:600;opacity:.85">· Room ${escapeHTML(String(room))}</span>` : ''}<span style="font-weight:500;font-size:11px;opacity:.8">#${escapeHTML(String(n.assetId))}</span></div>` : '';
   // Replies stay collapsed behind a toggle; never deeper than one layer
   // (replies carry no Reply button of their own).
   const replyList = NotesStore.commentsFor(n.noteId);
@@ -3250,7 +3237,7 @@ function noteRowHTML(n, withAsset) {
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
               <span style="font-size:13px;font-weight:700;color:var(--ink)">${escapeHTML(nameOf(n.createdBy))}</span>
               <span style="font-size:11px;color:var(--dim)">${relShort(n.createdAt)}</span>
-              ${noteTagPillHTML(n.tag)}
+              ${noteTagPillHTML(n.tag, n.noteId)}
               ${(() => { const r = noteResolution(n.noteId); return r ? `<span style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${REPLY_STATUSES[r.status].color};border:1px solid ${REPLY_STATUSES[r.status].color}80;border-radius:999px;padding:1px 7px">${REPLY_STATUSES[r.status].label}</span>` : ''; })()}
             </div>
             <div style="font-size:14px;color:var(--ink);margin-top:2px;${(() => { const r = noteResolution(n.noteId); return (r && (r.status === 'done' || r.status === 'cancelled')) ? 'text-decoration:line-through;opacity:.55' : ''; })()}">${escapeHTML(n.text)}</div>
@@ -3380,8 +3367,7 @@ function wireNoteRows(container, rerender, opts) {
     // Buttons and the replies toggle keep their own behavior.
     row.addEventListener('click', (e) => {
       if (suppressClick) return;
-      if (e.target.closest('button, .note-replies-toggle, input, select, a')) return;
-      if (opts && opts.onOpen) { opts.onOpen(row.dataset.asset); return; }
+      if (e.target.closest('button, .note-replies-toggle, .note-asset-line, input, select, a')) return;
       const n = NotesStore.get(row.dataset.noteRow);
       if (n) replyTo(n, rerender);
     });
@@ -3404,6 +3390,19 @@ function wireNoteRows(container, rerender, opts) {
       e.stopPropagation();
       const id = btn.dataset.del;
       setTimeout(async () => { if (confirm('Delete this reply?')) { await deleteNote(id); rerender(); } }, 10);
+    });
+  });
+  container.querySelectorAll('.note-prio-pill').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const note = NotesStore.get(btn.dataset.prioNote);
+      if (note) showPrioritySheet(note, rerender);
+    });
+  });
+  container.querySelectorAll('.note-asset-line').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (opts && opts.onOpen) opts.onOpen(el.dataset.asset);
     });
   });
 }
@@ -8646,7 +8645,7 @@ function showNotesOverlay(assetKey, onChange, opts) {
       <div style="flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#fff">
         <div class="notes-tagbar" id="notes-tagbar">
           <span style="flex-shrink:0;display:inline-flex;align-items:center;gap:3px;color:var(--dim);font-size:11px;font-weight:700">${bellGlyph('currentColor', 13)}:</span>
-          ${NOTE_TAGS.map(t => chip(t, t[0].toUpperCase() + t.slice(1), noteTagColor(t))).join('')}
+          ${PRIORITIES.map(t => chip(t, t[0].toUpperCase() + t.slice(1), priorityColor(t))).join('')}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
           ${meAva}
@@ -8723,7 +8722,7 @@ function showNoteSheet({ title, withTag, statusOptions, placeholder, onSubmit })
       ${withTag ? `
       <select id="sheet-tag" style="margin-bottom:10px">
         <option value="">No tag — just an FYI</option>
-        ${NOTE_TAGS.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
+        ${PRIORITIES.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
       </select>` : ''}
       ${(statusOptions && statusOptions.length) ? `
       <div class="notes-tagbar" id="sheet-status" style="margin-bottom:10px">
@@ -8886,7 +8885,7 @@ async function showNotificationsModal() {
             <input type="text" id="notifs-search" placeholder="Search notifications…" autocomplete="off">
             <button class="items-search-clear hidden" id="notifs-search-clear" type="button" aria-label="Clear">×</button>
           </div>
-          <button class="items-filter-toggle" id="notifs-filter-toggle" type="button" aria-label="Show filters" title="Filter by tag">${filterGlyph('currentColor', 16)}</button>
+          <button class="items-filter-toggle" id="notifs-filter-toggle" type="button" aria-label="Show filters" title="Filter by priority">${filterGlyph('currentColor', 16)}</button>
         </div>
         <div class="items-sort-toolbar">
           <button class="items-sort-btn active" data-tab="todo" type="button">To do</button>
@@ -8894,7 +8893,7 @@ async function showNotificationsModal() {
         </div>
         <div class="state-chip-row hidden" id="notif-tag-chips">
           <button class="state-chip" data-f="all" type="button">All</button>
-          ${NOTE_TAGS.map(t => `<button class="state-chip" data-f="${t}" data-c type="button" style="--chip-bg:${noteTagColor(t)}14;--chip-bd:${noteTagColor(t)}80;--chip-fg:${noteTagColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+          ${PRIORITIES.map(t => `<button class="state-chip" data-f="${t}" data-c type="button" style="--chip-bg:${priorityColor(t)}14;--chip-bd:${priorityColor(t)}80;--chip-fg:${priorityColor(t)}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
         </div>
         <div class="modal-body" id="notifs-list" style="padding:12px 18px"></div>
       </div>`;
@@ -9208,7 +9207,6 @@ async function openItemEditor(sessionId, itemId, sequence) {
       // The card header is the exact list row (status icon, tint, pills,
       // bell, edit/view times) — one source of truth for asset presentation.
       const entry = { item: it, assetKey, id: itemId, displayNum: assetKey || itemId };
-      cardEl.style.background = (assetKey && rowTint(assetKey)) || '';
       cardEl.innerHTML = `
           <div class="feed-card-head">${itemRowHTML(entry, null, { feed: true })}</div>
           <div class="feed-fields" style="background:${assetKey ? fieldsTint(assetKey) : '#F5F7F9'}">
